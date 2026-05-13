@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens — Stripe/Linear-inspired neutral palette + single blue accent.
+ * Light mode only for v0; dark mode planned post-Phase 0.
+ */
+@theme {
+  --color-background: #ffffff;
+  --color-surface: #fafafa;
+  --color-surface-2: #f4f4f5;
+  --color-foreground: #18181b;
+  --color-muted: #71717a;
+  --color-subtle: #a1a1aa;
+  --color-border: #e4e4e7;
+  --color-border-strong: #d4d4d8;
+
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-foreground: #ffffff;
+  --color-accent-subtle: #eff6ff;
+
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+
+  --font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}

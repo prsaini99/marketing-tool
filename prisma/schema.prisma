@@ -1,0 +1,250 @@
+// Prisma schema — Phase 0.5 (Discovery only).
+//
+// Data flow:
+//   Connection (pasted token, encrypted) →
+//     MetaBusiness (discovered) →
+//       MetaAdAccount (discovered, opt-in selectedForSync)
+//
+// Phase 1 adds Campaign / AdSet / Ad / InsightsSnapshot mirrored locally,
+// driven by selectedForSync + a daily cron + 7-day re-pull.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // App runtime uses the pooled connection (Supabase Transaction pooler / PgBouncer).
+  url       = env("DATABASE_URL")
+  // Migrations need a direct (non-pooled) connection because PgBouncer
+  // doesn't support some operations Prisma uses for DDL.
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Connections ─────────────────────────────────────────────────────────
+
+enum ConnectionStatus {
+  ACTIVE
+  TOKEN_EXPIRING
+  REVOKED
+  ERROR
+}
+
+// One row per pasted Meta access token. A single connection can grant access
+// to many businesses, so the relationship inverts vs. the old plan:
+// MetaBusiness FKs to Connection here.
+//
+// Decrypt the token ONLY inside src/lib/meta/credentials.ts (PROJECT.md rule #5).
+model Connection {
+  id               String           @id @default(cuid())
+  label            String?
+  // Identity of the token's owner from Meta's /me endpoint. Unique across
+  // connections — re-pasting any token for the same owner refreshes the
+  // existing row instead of creating a duplicate.
+  tokenOwnerFbId   String           @unique
+  tokenOwnerName   String?
+  encryptedToken   String
+  iv               String
+  authTag          String
+  scopes           String[]
+  expiresAt        DateTime?
+  status           ConnectionStatus @default(ACTIVE)
+  lastDiscoveredAt DateTime?
+
+  businesses       MetaBusiness[]
+
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+}
+
+// ─── Discovered entities ─────────────────────────────────────────────────
+
+// One row per Meta Business Manager discovered via a Connection.
+// The same BM discovered by two different connections lives as two rows
+// (one per connection) — uniqueness is per-connection.
+model MetaBusiness {
+  id              String   @id @default(cuid())
+  metaBusinessId  String
+  name            String
+  connectionId    String
+  connection      Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  selectedForSync Boolean  @default(false)
+
+  adAccounts      MetaAdAccount[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([connectionId, metaBusinessId])
+}
+
+// Ad accounts under a MetaBusiness. selectedForSync gates whether Phase 1
+// sync jobs will mirror campaigns/ad sets/ads/insights for this account.
+model MetaAdAccount {
+  id              String   @id @default(cuid())
+  metaAdAccountId String   // e.g. "act_1234567890"
+  name            String
+  currency        String
+  timezone        String
+  status          String   // Meta's account status string
+  selectedForSync Boolean  @default(false)
+  businessId      String
+  business        MetaBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  campaigns       Campaign[]
+  adSets          AdSet[]
+  ads             Ad[]
+  insights        InsightsSnapshot[]
+  syncLogs        SyncLog[]
+  schedules       SyncSchedule[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([businessId, metaAdAccountId])
+}
+
+// Per-account, per-kind sync schedules configured from the UI.
+// Tick endpoint scans this table for `enabled = true AND nextRunAt <= now`,
+// runs the corresponding sync service, then computes the next run time.
+//
+// Granularity is intentional: senior wants explicit control over what runs
+// and how often, to keep Meta API usage predictable.
+model SyncSchedule {
+  id          String   @id @default(cuid())
+  adAccountId String
+  adAccount   MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  kind        String   // "campaigns" | "adsets" | "ads" | "insights"
+  frequency   String   // preset key — UI never deals with raw cron expressions
+  enabled     Boolean  @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([adAccountId, kind])
+  @@index([enabled, nextRunAt])
+}
+
+// Mirrored campaigns. Pulled by Phase 1 sync jobs from Meta's
+// /act_{id}/campaigns endpoint. One row per (adAccount, campaign) — re-syncs
+// upsert by metaCampaignId so historical Campaign rows are stable across syncs.
+model Campaign {
+  id                  String   @id @default(cuid())
+  metaCampaignId      String   // Meta's id
+  adAccountId         String
+  adAccount           MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  name                String
+  status              String   // "ACTIVE" | "PAUSED" | "DELETED" | "ARCHIVED"
+  objective           String?  // Meta's objective string; null if absent
+  dailyBudgetCents    Int?
+  lifetimeBudgetCents Int?
+  metaUpdatedTime     DateTime? // Meta's last-edited timestamp for this campaign
+  syncedAt            DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  adSets              AdSet[]
+
+  @@unique([adAccountId, metaCampaignId])
+}
+
+// Ad sets under a Campaign. Pulled by Phase 1.1 sync from /act_{id}/adsets.
+// Each ad set knows its parent campaign via campaign_id in the API response.
+model AdSet {
+  id                  String   @id @default(cuid())
+  metaAdSetId         String
+  adAccountId         String
+  adAccount           MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  campaignId          String
+  campaign            Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name                String
+  status              String
+  optimizationGoal    String?
+  dailyBudgetCents    Int?
+  lifetimeBudgetCents Int?
+  metaUpdatedTime     DateTime?
+  syncedAt            DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  ads                 Ad[]
+
+  @@unique([adAccountId, metaAdSetId])
+}
+
+// Ads under an AdSet. Phase 1.1 syncs basic metadata (creative `format` is
+// extracted via a separate /{creative_id} call — deferred for now, left null).
+model Ad {
+  id              String   @id @default(cuid())
+  metaAdId        String
+  adAccountId     String
+  adAccount       MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  adSetId         String
+  adSet           AdSet @relation(fields: [adSetId], references: [id], onDelete: Cascade)
+  name            String
+  status          String
+  format          String?  // "SINGLE_IMAGE" | "VIDEO" | "CAROUSEL" | "COLLECTION" | null
+  metaUpdatedTime DateTime?
+  syncedAt        DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([adAccountId, metaAdId])
+}
+
+// Daily metric rows pulled from Meta's /act_X/insights endpoint at multiple
+// levels (account, campaign, adset, ad). One row per (adAccount, date, level,
+// entityId). Spend stored in account currency's smallest unit (cents).
+// On re-sync, rows are upserted (Meta backfills attribution for ~28 days —
+// Phase 1.3's cron re-pulls the last 7 days each night to catch updates).
+model InsightsSnapshot {
+  id          String   @id @default(cuid())
+  adAccountId String
+  adAccount   MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  level       String   // "account" | "campaign" | "adset" | "ad"
+  entityId    String   // Meta id of the entity at this level
+  impressions Int      @default(0)
+  reach       Int      @default(0)
+  clicks      Int      @default(0)
+  spendCents  Int      @default(0)
+  ctr         Float    @default(0) // 0..1
+  cpmCents    Int      @default(0)
+  syncedAt    DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([adAccountId, date, level, entityId])
+  @@index([adAccountId, date])
+  @@index([level, entityId, date])
+}
+
+// ─── Operational ────────────────────────────────────────────────────────
+
+// Records each sync attempt per ad account, per kind.
+model SyncLog {
+  id           String        @id @default(cuid())
+  adAccountId  String
+  adAccount    MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  kind         String        // "discovery" | "campaigns" | "ad_sets" | "ads" | "insights"
+  status       String        // "success" | "failed"
+  error        String?
+  startedAt    DateTime
+  finishedAt   DateTime?
+}
+
+// Every write operation we perform on Meta. Empty in Phase 0.5 (read-only),
+// but the table exists so we never have to add it under pressure later.
+// userId is nullable because we have no user-auth in Phase 0.5.
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  action      String   // e.g. "connection.create", "ad_account.select"
+  targetType  String
+  targetId    String
+  before      Json?
+  after       Json?
+  createdAt   DateTime @default(now())
+}
