@@ -18,6 +18,6 @@ declare module "facebook-nodejs-business-sdk" {
   }
 
   export class Campaign {
-    [key: string]: any;
+    [key: string]: unknown;
   }
 }

@@ -76,9 +76,12 @@ function normalizeError(err: unknown): Error {
   const metaError = e.response?.error;
 
   if (metaError) {
-    const normalized = new Error(metaError.message ?? 'Meta API error');
-    (normalized as any).metaCode = metaError.code;
-    (normalized as any).metaSubcode = metaError.error_subcode;
+    const normalized = new Error(metaError.message ?? 'Meta API error') as Error & {
+      metaCode?: number;
+      metaSubcode?: number;
+    };
+    normalized.metaCode = metaError.code;
+    normalized.metaSubcode = metaError.error_subcode;
     return normalized;
   }
 
