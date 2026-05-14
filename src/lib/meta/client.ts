@@ -458,6 +458,46 @@ class MetaClient {
   }
 
   /**
+   * Fetch ad previews across multiple placement formats in one shot.
+   *
+   * Meta's `/{ad_id}/previews` endpoint returns a single-placement iframe
+   * snippet per call — we parallelize across formats so the UI can render
+   * a side-by-side grid (Feed, IG Feed, Story, Reel, Right column…) in
+   * one round-trip instead of N waterfalled calls.
+   *
+   * Per-format failures don't fail the whole batch — we surface `error`
+   * on the affected cells so the user still sees the working ones.
+   */
+  async getAdPreviews(
+    connectionId: string,
+    metaAdId: string,
+    formats: string[],
+  ): Promise<Array<{ format: string; html: string | null; error?: string }>> {
+    const { accessToken } = await getCredential(connectionId);
+    return Promise.all(
+      formats.map(async (format) => {
+        try {
+          const resp = await metaGet<{ data: Array<{ body?: string }> }>(
+            `/${metaAdId}/previews`,
+            accessToken,
+            { ad_format: format },
+          );
+          const html = resp.data?.[0]?.body ?? null;
+          return { format, html };
+        } catch (err) {
+          const message =
+            err instanceof MetaApiError
+              ? err.message
+              : err instanceof Error
+                ? err.message
+                : "Preview failed";
+          return { format, html: null, error: message };
+        }
+      }),
+    );
+  }
+
+  /**
    * Pull daily insights for an ad account at one level.
    * `since`/`until` are YYYY-MM-DD strings (inclusive).
    *

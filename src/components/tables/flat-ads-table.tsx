@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Archive,
-  ChevronRight,
   Pause,
   Play,
   X,
@@ -12,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { getAdFormatLabel, type FlatDisplayAd } from "@/lib/display";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { AdPreviewButton } from "@/components/ads/ad-preview-button";
 
 type BulkAction = "pause" | "activate" | "archive";
 
@@ -256,7 +256,7 @@ export function FlatAdsTable({ ads }: FlatAdsTableProps) {
               <th className="px-4 py-2.5 text-right">CTR</th>
               <th className="px-4 py-2.5">Status</th>
               <th className="px-4 py-2.5">Last edited</th>
-              <th className="w-8 px-4 py-2.5" aria-hidden="true" />
+              <th className="w-12 px-4 py-2.5 text-right">Preview</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -331,7 +331,7 @@ export function FlatAdsTable({ ads }: FlatAdsTableProps) {
                     {a.lastEdited}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <ChevronRight className="ml-auto h-4 w-4 text-subtle transition-colors group-hover:text-foreground" />
+                    <AdPreviewButton metaAdId={a.id} adName={a.name} />
                   </td>
                 </tr>
               );

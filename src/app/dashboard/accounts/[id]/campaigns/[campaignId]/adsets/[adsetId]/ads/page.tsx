@@ -13,6 +13,7 @@ import { getAdFormatLabel } from "@/lib/display";
 import { SyncNowButton } from "@/components/sync/sync-now-button";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { EmptyState } from "@/components/ui/empty-state";
+import { AdPreviewButton } from "@/components/ads/ad-preview-button";
 import { resolveDateRange } from "@/lib/date-range";
 
 function formatMoney(amount: number, currency: string) {
@@ -236,6 +237,7 @@ export default async function AdsPage({
                 <th className="px-4 py-2.5 text-right">CTR</th>
                 <th className="px-4 py-2.5">Status</th>
                 <th className="px-4 py-2.5">Last edited</th>
+                <th className="w-12 px-4 py-2.5 text-right">Preview</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -300,6 +302,9 @@ export default async function AdsPage({
                     </td>
                     <td className="px-4 py-3 text-sm text-muted">
                       {formatRelative(a.metaUpdatedTime)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <AdPreviewButton metaAdId={a.metaAdId} adName={a.name} />
                     </td>
                   </tr>
                 );
