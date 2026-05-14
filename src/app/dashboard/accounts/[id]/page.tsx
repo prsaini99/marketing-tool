@@ -1,22 +1,19 @@
 /**
- * Account detail page — the "see more" view from the accounts row menu.
+ * Account detail page — the merged "details + campaigns" view.
  *
- * Lives at /dashboard/accounts/[id] (single segment, no /campaigns).
+ * Lives at /dashboard/accounts/[id] and is the default destination when
+ * clicking a row on /dashboard/accounts. Combines:
+ *   • Compact header (name, status, breadcrumb)
+ *   • Stat strip (currency, timezone, campaigns synced, selected)
+ *   • Performance KPIs over the selected window
+ *   • Campaigns table with bulk ops (same component used elsewhere)
  *
- * Shows account-level state that doesn't fit cleanly on the campaigns
- * drill-down: metadata, lifetime KPIs over the selected window, connection
- * lineage, and recent sync history. Schedules + Disconnect intentionally
- * left for a follow-up.
+ * Sync history is one click away via the Sync history button (modal).
+ * Connection lineage was moved to Settings — no need to repeat here.
  */
 
 import Link from "next/link";
-import {
-  Building2,
-  ChevronRight,
-  CircleDot,
-  Clock,
-  Plug,
-} from "lucide-react";
+import { Building2, ChevronRight, Megaphone } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
 import { cn } from "@/lib/utils";
 import { resolveDateRange } from "@/lib/date-range";
@@ -24,6 +21,10 @@ import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { EmptyState } from "@/components/ui/empty-state";
 import { KpiCard } from "@/components/insights/kpi-card";
 import { SyncNowButton } from "@/components/sync/sync-now-button";
+import { SyncHistoryButton } from "@/components/sync/sync-history-button";
+import { SchedulesButton } from "@/components/schedules/schedules-button";
+import { CampaignsTable } from "@/components/tables/campaigns-table";
+import type { DisplayCampaign } from "@/lib/display";
 
 function formatMoney(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -39,8 +40,8 @@ function formatCompact(n: number) {
   return n.toLocaleString();
 }
 
-function formatRelative(d: Date | null | undefined): string {
-  if (!d) return "—";
+function formatRelative(d: Date | null | undefined): string | null {
+  if (!d) return null;
   const ms = Date.now() - d.getTime();
   if (ms < 60_000) return "just now";
   if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`;
@@ -50,14 +51,6 @@ function formatRelative(d: Date | null | undefined): string {
     month: "short",
     day: "numeric",
   }).format(d);
-}
-
-function formatDuration(start: Date, end: Date | null): string {
-  if (!end) return "—";
-  const ms = end.getTime() - start.getTime();
-  if (ms < 1_000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1_000).toFixed(1)}s`;
-  return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1_000)}s`;
 }
 
 const STATUS_STYLE: Record<
@@ -90,13 +83,6 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-const SYNC_KIND_LABEL: Record<string, string> = {
-  campaigns: "Campaigns",
-  adsets: "Ad sets",
-  ads: "Ads",
-  insights: "Insights",
-};
-
 export default async function AccountDetailPage({
   params,
   searchParams,
@@ -111,9 +97,7 @@ export default async function AccountDetailPage({
 
   const account = await prisma.metaAdAccount.findFirst({
     where: { metaAdAccountId: fullAccountId, selectedForSync: true },
-    include: {
-      business: { include: { connection: true } },
-    },
+    include: { business: true },
   });
 
   if (!account) {
@@ -141,39 +125,101 @@ export default async function AccountDetailPage({
 
   const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
 
-  const [accountTotals, campaignsCount, insightsSync, syncLogs] =
-    await Promise.all([
-      prisma.insightsSnapshot.aggregate({
-        where: {
-          adAccountId: account.id,
-          level: "account",
-          ...dateFilter,
-        },
-        _sum: { spendCents: true, impressions: true, clicks: true },
-      }),
-      prisma.campaign.count({
-        where: { adAccountId: account.id },
-      }),
-      prisma.syncLog.findFirst({
-        where: {
-          adAccountId: account.id,
-          kind: "insights",
-          status: "success",
-        },
-        orderBy: { finishedAt: "desc" },
-      }),
-      prisma.syncLog.findMany({
-        where: { adAccountId: account.id },
-        orderBy: { startedAt: "desc" },
-        take: 10,
-      }),
-    ]);
+  const [
+    accountTotals,
+    campaigns,
+    campaignsSync,
+    insightsSync,
+    perCampaign,
+    syncLogs,
+  ] = await Promise.all([
+    prisma.insightsSnapshot.aggregate({
+      where: { adAccountId: account.id, level: "account", ...dateFilter },
+      _sum: { spendCents: true, impressions: true, clicks: true },
+    }),
+    prisma.campaign.findMany({
+      where: { adAccountId: account.id },
+      orderBy: { name: "asc" },
+    }),
+    prisma.syncLog.findFirst({
+      where: { adAccountId: account.id, kind: "campaigns", status: "success" },
+      orderBy: { finishedAt: "desc" },
+    }),
+    prisma.syncLog.findFirst({
+      where: { adAccountId: account.id, kind: "insights", status: "success" },
+      orderBy: { finishedAt: "desc" },
+    }),
+    prisma.insightsSnapshot.groupBy({
+      by: ["entityId"],
+      where: {
+        adAccountId: account.id,
+        level: "campaign",
+        ...(dateRange.since ? { date: { gte: dateRange.since } } : {}),
+      },
+      _sum: { spendCents: true, impressions: true, clicks: true },
+    }),
+    prisma.syncLog.findMany({
+      where: { adAccountId: account.id },
+      orderBy: { startedAt: "desc" },
+      take: 10,
+    }),
+  ]);
 
   const hasInsights = Boolean(insightsSync);
   const spendCents = accountTotals._sum.spendCents ?? 0;
   const impressions = accountTotals._sum.impressions ?? 0;
   const clicks = accountTotals._sum.clicks ?? 0;
   const ctr = impressions > 0 ? clicks / impressions : 0;
+  const currency = account.currency;
+
+  const metricsByCampaign = new Map(
+    perCampaign.map((m) => [
+      m.entityId,
+      {
+        spendCents: m._sum.spendCents ?? 0,
+        impressions: m._sum.impressions ?? 0,
+        clicks: m._sum.clicks ?? 0,
+      },
+    ]),
+  );
+
+  const activeCount = campaigns.filter((c) => c.status === "ACTIVE").length;
+  const pausedCount = campaigns.filter((c) => c.status === "PAUSED").length;
+
+  const displayCampaigns: DisplayCampaign[] = campaigns.map((c) => {
+    const m = metricsByCampaign.get(c.metaCampaignId);
+    const imps = m?.impressions ?? 0;
+    const clks = m?.clicks ?? 0;
+    return {
+      id: c.metaCampaignId,
+      adAccountId: account.metaAdAccountId,
+      businessId: account.businessId,
+      businessName: account.business.name,
+      adAccountName: account.name,
+      currency,
+      name: c.name,
+      status: c.status,
+      objective: c.objective ?? "",
+      dailyBudgetCents: c.dailyBudgetCents,
+      lifetimeBudgetCents: c.lifetimeBudgetCents,
+      spend7d: hasInsights ? (m?.spendCents ?? 0) / 100 : null,
+      impressions: hasInsights ? imps : null,
+      clicks: hasInsights ? clks : null,
+      ctr: hasInsights ? (imps > 0 ? clks / imps : 0) : null,
+      lastEdited: formatRelative(c.metaUpdatedTime) ?? "—",
+    };
+  });
+
+  // SyncLog dates → ISO strings for the client component (Date objects don't
+  // round-trip through the server/client boundary cleanly).
+  const logsForClient = syncLogs.map((l) => ({
+    id: l.id,
+    kind: l.kind,
+    status: l.status,
+    error: l.error,
+    startedAt: l.startedAt.toISOString(),
+    finishedAt: l.finishedAt ? l.finishedAt.toISOString() : null,
+  }));
 
   return (
     <div className="space-y-5">
@@ -197,22 +243,23 @@ export default async function AccountDetailPage({
           </div>
           <p className="mt-1 text-sm text-muted">
             <span className="text-foreground">{account.business.name}</span> ·{" "}
-            {fullAccountId} · {account.currency} · {account.timezone}
+            {fullAccountId} · {currency} · {account.timezone} · {activeCount}{" "}
+            active · {pausedCount} paused
           </p>
         </div>
         <div className="flex items-start gap-2">
           <DateRangeDropdown />
-          <SyncNowButton accountId={id} kinds={["insights"]} label="Sync insights" />
+          <SchedulesButton accountIdUrl={id} accountName={account.name} />
+          <SyncHistoryButton logs={logsForClient} />
+          <SyncNowButton accountId={id} kinds={["campaigns", "insights"]} />
         </div>
       </div>
 
-      {/* Meta strip */}
+      {/* Stat strip */}
       <dl className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-xs sm:grid-cols-4">
         <div>
           <dt className="text-subtle">Currency</dt>
-          <dd className="mt-0.5 font-medium text-foreground">
-            {account.currency}
-          </dd>
+          <dd className="mt-0.5 font-medium text-foreground">{currency}</dd>
         </div>
         <div>
           <dt className="text-subtle">Timezone</dt>
@@ -223,7 +270,7 @@ export default async function AccountDetailPage({
         <div>
           <dt className="text-subtle">Campaigns synced</dt>
           <dd className="mt-0.5 font-medium text-foreground">
-            {campaignsCount}
+            {campaigns.length}
           </dd>
         </div>
         <div>
@@ -243,9 +290,7 @@ export default async function AccountDetailPage({
         <div className="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard
             label="Spend"
-            value={
-              hasInsights ? formatMoney(spendCents / 100, account.currency) : "—"
-            }
+            value={hasInsights ? formatMoney(spendCents / 100, currency) : "—"}
           />
           <KpiCard
             label="Impressions"
@@ -262,133 +307,37 @@ export default async function AccountDetailPage({
         </div>
       </section>
 
-      {/* Connection lineage */}
-      <section className="rounded-lg border border-border bg-background p-5">
-        <div className="flex items-start gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-surface-2">
-            <Plug className="h-3.5 w-3.5 text-muted" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold tracking-tight">Connection</h3>
-            <p className="mt-0.5 text-xs text-muted">
-              Synced via{" "}
-              <span className="text-foreground">
-                {account.business.connection.label ||
-                  account.business.connection.tokenOwnerName ||
-                  "Untitled connection"}
-              </span>{" "}
-              · token owner{" "}
-              <span className="text-foreground">
-                {account.business.connection.tokenOwnerName ?? "—"}
-              </span>{" "}
-              · last discovered{" "}
-              {formatRelative(account.business.connection.lastDiscoveredAt)}
-            </p>
-          </div>
-          <Link
-            href="/dashboard/settings"
-            className="shrink-0 text-xs text-muted hover:text-foreground"
-          >
-            Manage in Settings →
-          </Link>
-        </div>
-      </section>
-
-      {/* Sync history */}
+      {/* Campaigns */}
       <section>
-        <div className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-muted" />
-          <h2 className="text-sm font-semibold tracking-tight">
-            Recent sync history
-          </h2>
+        <h2 className="text-sm font-semibold tracking-tight">Campaigns</h2>
+        <div className="mt-2">
+          {campaigns.length === 0 ? (
+            <EmptyState
+              icon={Megaphone}
+              title={
+                campaignsSync
+                  ? "No campaigns in this ad account"
+                  : "No campaigns synced yet"
+              }
+              description={
+                campaignsSync
+                  ? "This account has no campaigns. They'll appear here when created in Meta Ads Manager."
+                  : "Click Sync now above to pull campaigns from Meta."
+              }
+            />
+          ) : (
+            <CampaignsTable
+              campaigns={displayCampaigns}
+              accountId={id}
+              currency={currency}
+            />
+          )}
         </div>
-        <p className="mt-0.5 text-xs text-muted">
-          Latest 10 sync attempts for this account.
+        <p className="mt-3 text-xs text-subtle">
+          Spend / impressions / CTR aggregate {dateRange.label.toLowerCase()} of
+          insights snapshots.
         </p>
-
-        {syncLogs.length === 0 ? (
-          <p className="mt-3 rounded-md border border-dashed border-border bg-surface px-4 py-6 text-center text-sm text-subtle">
-            No sync runs yet. Trigger a sync from this account&apos;s drill-down
-            pages to populate.
-          </p>
-        ) : (
-          <div className="mt-3 overflow-hidden rounded-lg border border-border bg-background">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-surface text-left text-xs font-medium uppercase tracking-wide text-subtle">
-                  <th className="px-4 py-2.5">Kind</th>
-                  <th className="px-4 py-2.5">Status</th>
-                  <th className="px-4 py-2.5">Started</th>
-                  <th className="px-4 py-2.5">Duration</th>
-                  <th className="px-4 py-2.5">Detail</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {syncLogs.map((l) => (
-                  <tr key={l.id} className="hover:bg-surface transition-colors">
-                    <td className="px-4 py-2.5 text-sm font-medium">
-                      {SYNC_KIND_LABEL[l.kind] ?? l.kind}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                          l.status === "success"
-                            ? "bg-green-50 text-green-700"
-                            : l.status === "running"
-                              ? "bg-blue-50 text-blue-700"
-                              : "bg-red-50 text-red-700",
-                        )}
-                      >
-                        <CircleDot
-                          className={cn(
-                            "h-3 w-3",
-                            l.status === "success"
-                              ? "text-green-500"
-                              : l.status === "running"
-                                ? "text-blue-500"
-                                : "text-red-500",
-                          )}
-                        />
-                        {l.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-muted">
-                      {formatRelative(l.startedAt)}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs tabular-nums text-muted">
-                      {formatDuration(l.startedAt, l.finishedAt)}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-subtle">
-                      {l.error ? (
-                        <span
-                          className="line-clamp-1 text-danger"
-                          title={l.error}
-                        >
-                          {l.error}
-                        </span>
-                      ) : (
-                        <span className="text-subtle">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </section>
-
-      {/* Footer link */}
-      <div className="border-t border-border pt-4">
-        <Link
-          href={`/dashboard/accounts/${id}/campaigns`}
-          className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground"
-        >
-          View campaigns in this account
-          <ChevronRight className="h-3.5 w-3.5" />
-        </Link>
-      </div>
     </div>
   );
 }

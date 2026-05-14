@@ -106,6 +106,50 @@ export interface DisplayAdSet {
   lastEdited: string;
 }
 
+// Flat variant for cross-account ad-set listings (mirrors DisplayCampaign).
+// Adds account/business/currency context so the flat table can group and
+// the bulk budget modal can compute eligibility per currency.
+// Metric fields are null until an insights sync has run.
+export interface FlatDisplayAdSet {
+  id: string; // metaAdSetId
+  adAccountId: string; // act_-prefixed
+  businessId: string;
+  businessName: string;
+  adAccountName: string;
+  currency: string;
+  campaignName: string;
+  campaignId: string; // metaCampaignId
+  name: string;
+  status: string;
+  optimizationGoal: string | null;
+  dailyBudgetCents: number | null;
+  lifetimeBudgetCents: number | null;
+  spend: number | null; // display units (not cents)
+  impressions: number | null;
+  ctr: number | null; // 0..1
+  lastEdited: string;
+}
+
+export interface FlatDisplayAd {
+  id: string; // metaAdId
+  adAccountId: string;
+  businessId: string;
+  businessName: string;
+  adAccountName: string;
+  currency: string;
+  adSetName: string;
+  adSetId: string; // metaAdSetId
+  campaignName: string;
+  campaignId: string; // metaCampaignId
+  name: string;
+  status: string;
+  format: string | null;
+  spend: number | null;
+  impressions: number | null;
+  ctr: number | null; // 0..1
+  lastEdited: string;
+}
+
 const KNOWN_OPTIMIZATION_GOALS: Record<string, string> = {
   PURCHASES: "Purchases",
   LINK_CLICKS: "Link clicks",

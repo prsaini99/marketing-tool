@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getObjectiveLabel, type DisplayCampaign } from "@/lib/display";
@@ -67,6 +67,11 @@ export function CampaignsTable({
   currency,
 }: CampaignsTableProps) {
   const router = useRouter();
+  // Preserve the active range / client filters when drilling into ad sets,
+  // so the user keeps the same window as they navigate deeper.
+  const searchParams = useSearchParams();
+  const range = searchParams.get("range");
+  const querySuffix = range ? `?range=${range}` : "";
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-background">
@@ -86,7 +91,7 @@ export function CampaignsTable({
         </thead>
         <tbody className="divide-y divide-border">
           {campaigns.map((c) => {
-            const href = `/dashboard/accounts/${accountId}/campaigns/${c.id}/adsets`;
+            const href = `/dashboard/accounts/${accountId}/campaigns/${c.id}/adsets${querySuffix}`;
             return (
               <tr
                 key={c.id}

@@ -1,9 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import type { DisplayAdAccount } from "@/lib/display";
-import { AccountRowMenu } from "./account-row-menu";
 
 function formatMoney(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -65,26 +64,25 @@ interface AccountsTableProps {
 
 export function AccountsTable({ accounts }: AccountsTableProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const range = searchParams.get("range");
+  const querySuffix = range ? `?range=${range}` : "";
 
-  // No overflow-hidden on the wrapper below — the row menu (⋯) anchors via
-  // absolute positioning and would get clipped. Rounded corners on the thead
-  // are reapplied per-cell so the visual stays clean.
   return (
-    <div className="rounded-lg border border-border bg-background">
+    <div className="overflow-hidden rounded-lg border border-border bg-background">
       <table className="w-full">
         <thead>
-          <tr className="border-b border-border bg-surface text-left text-xs font-medium uppercase tracking-wide text-subtle [&>th:first-child]:rounded-tl-lg [&>th:last-child]:rounded-tr-lg">
+          <tr className="border-b border-border bg-surface text-left text-xs font-medium uppercase tracking-wide text-subtle">
             <th className="px-4 py-2.5">Account</th>
             <th className="px-4 py-2.5 text-right">Spend</th>
             <th className="px-4 py-2.5 text-right">Active campaigns</th>
             <th className="px-4 py-2.5">Status</th>
             <th className="px-4 py-2.5">Last sync</th>
-            <th className="w-12 px-4 py-2.5 text-right">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {accounts.map((a) => {
-            const href = `/dashboard/accounts/${a.id.replace("act_", "")}/campaigns`;
+            const href = `/dashboard/accounts/${a.id.replace("act_", "")}${querySuffix}`;
             return (
               <tr
                 key={a.id}
@@ -128,12 +126,6 @@ export function AccountsTable({ accounts }: AccountsTableProps) {
                   {a.lastSync ?? (
                     <span className="text-subtle">Not synced</span>
                   )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <AccountRowMenu
-                    accountIdUrl={a.id.replace("act_", "")}
-                    accountName={a.name}
-                  />
                 </td>
               </tr>
             );

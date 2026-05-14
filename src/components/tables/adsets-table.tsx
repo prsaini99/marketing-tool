@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getOptimizationGoalLabel, type DisplayAdSet } from "@/lib/display";
@@ -69,6 +69,9 @@ export function AdSetsTable({
   currency,
 }: AdSetsTableProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const range = searchParams.get("range");
+  const querySuffix = range ? `?range=${range}` : "";
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-background">
@@ -88,7 +91,7 @@ export function AdSetsTable({
         </thead>
         <tbody className="divide-y divide-border">
           {adSets.map((s) => {
-            const href = `/dashboard/accounts/${accountId}/campaigns/${campaignId}/adsets/${s.id}/ads`;
+            const href = `/dashboard/accounts/${accountId}/campaigns/${campaignId}/adsets/${s.id}/ads${querySuffix}`;
             return (
               <tr
                 key={s.id}

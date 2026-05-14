@@ -1,10 +1,10 @@
-import { Download, Megaphone } from "lucide-react";
+import { Megaphone } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
 import { EmptyState } from "@/components/ui/empty-state";
-import { FlatCampaignsTable } from "@/components/tables/flat-campaigns-table";
+import { FlatAdsTable } from "@/components/tables/flat-ads-table";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { resolveDateRange } from "@/lib/date-range";
-import type { DisplayCampaign } from "@/lib/display";
+import type { FlatDisplayAd } from "@/lib/display";
 
 function formatRelative(d: Date | null): string {
   if (!d) return "—";
@@ -19,7 +19,7 @@ function formatRelative(d: Date | null): string {
   }).format(d);
 }
 
-export default async function CampaignsFlatPage({
+export default async function AdsFlatPage({
   searchParams,
 }: {
   searchParams: Promise<{ client?: string; range?: string }>;
@@ -35,8 +35,8 @@ export default async function CampaignsFlatPage({
 
   const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
 
-  const [rows, perCampaign, anyInsightsSync] = await Promise.all([
-    prisma.campaign.findMany({
+  const [rows, perAd, anyInsightsSync] = await Promise.all([
+    prisma.ad.findMany({
       where: {
         adAccount: {
           selectedForSync: true,
@@ -54,13 +54,20 @@ export default async function CampaignsFlatPage({
             business: { select: { name: true } },
           },
         },
+        adSet: {
+          select: {
+            metaAdSetId: true,
+            name: true,
+            campaign: { select: { metaCampaignId: true, name: true } },
+          },
+        },
       },
       orderBy: { name: "asc" },
     }),
     prisma.insightsSnapshot.groupBy({
       by: ["adAccountId", "entityId"],
       where: {
-        level: "campaign",
+        level: "ad",
         adAccount: {
           selectedForSync: true,
           ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
@@ -82,11 +89,9 @@ export default async function CampaignsFlatPage({
     }),
   ]);
 
-  // Key by (adAccountInternalId, metaCampaignId) — same campaign id can exist
-  // across different ad accounts in principle.
-  const key = (acctId: string, campId: string) => `${acctId}::${campId}`;
-  const metricsByCampaign = new Map(
-    perCampaign.map((m) => [
+  const key = (acctId: string, adId: string) => `${acctId}::${adId}`;
+  const metricsByAd = new Map(
+    perAd.map((m) => [
       key(m.adAccountId, m.entityId),
       {
         spendCents: m._sum.spendCents ?? 0,
@@ -100,57 +105,50 @@ export default async function CampaignsFlatPage({
   const activeCount = rows.filter((r) => r.status === "ACTIVE").length;
   const pausedCount = rows.filter((r) => r.status === "PAUSED").length;
 
-  const campaigns: DisplayCampaign[] = rows.map((c) => {
-    const m = metricsByCampaign.get(key(c.adAccount.id, c.metaCampaignId));
+  const ads: FlatDisplayAd[] = rows.map((a) => {
+    const m = metricsByAd.get(key(a.adAccount.id, a.metaAdId));
     const imps = m?.impressions ?? 0;
     const clks = m?.clicks ?? 0;
     return {
-      id: c.metaCampaignId,
-      adAccountId: c.adAccount.metaAdAccountId,
-      businessId: c.adAccount.businessId,
-      businessName: c.adAccount.business.name,
-      adAccountName: c.adAccount.name,
-      currency: c.adAccount.currency,
-      name: c.name,
-      status: c.status,
-      objective: c.objective ?? "",
-      dailyBudgetCents: c.dailyBudgetCents,
-      lifetimeBudgetCents: c.lifetimeBudgetCents,
-      spend7d: hasInsights ? (m?.spendCents ?? 0) / 100 : null,
+      id: a.metaAdId,
+      adAccountId: a.adAccount.metaAdAccountId,
+      businessId: a.adAccount.businessId,
+      businessName: a.adAccount.business.name,
+      adAccountName: a.adAccount.name,
+      currency: a.adAccount.currency,
+      adSetName: a.adSet.name,
+      adSetId: a.adSet.metaAdSetId,
+      campaignName: a.adSet.campaign.name,
+      campaignId: a.adSet.campaign.metaCampaignId,
+      name: a.name,
+      status: a.status,
+      format: a.format,
+      spend: hasInsights ? (m?.spendCents ?? 0) / 100 : null,
       impressions: hasInsights ? imps : null,
-      clicks: hasInsights ? clks : null,
       ctr: hasInsights ? (imps > 0 ? clks / imps : 0) : null,
-      lastEdited: formatRelative(c.metaUpdatedTime),
+      lastEdited: formatRelative(a.metaUpdatedTime),
     };
   });
 
-  const totalAcrossAll = await prisma.campaign.count({
+  const totalAcrossAll = await prisma.ad.count({
     where: { adAccount: { selectedForSync: true } },
   });
-
-  // Build the export URL with the same scope the user is looking at.
-  const exportQs = new URLSearchParams();
-  if (client) exportQs.set("client", client);
-  if (range) exportQs.set("range", range);
-  const exportHref = `/api/campaigns/export.csv${
-    exportQs.toString() ? `?${exportQs.toString()}` : ""
-  }`;
 
   return (
     <div className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Campaigns</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Ads</h1>
           <p className="mt-0.5 text-sm text-muted">
             {selectedBusiness ? (
               <>
-                {campaigns.length} campaigns under{" "}
+                {ads.length} ads under{" "}
                 <span className="text-foreground">{selectedBusiness.name}</span>{" "}
                 · {activeCount} active · {pausedCount} paused
               </>
             ) : (
               <>
-                {campaigns.length} campaigns across all connected clients ·{" "}
+                {ads.length} ads across all connected clients ·{" "}
                 {activeCount} active · {pausedCount} paused
               </>
             )}
@@ -158,35 +156,27 @@ export default async function CampaignsFlatPage({
         </div>
         <div className="flex items-start gap-2">
           <DateRangeDropdown />
-          {/* Plain <a> for native download behavior — no client-side router. */}
-          <a
-            href={exportHref}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-medium hover:bg-surface-2 transition-colors"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Export to CSV
-          </a>
         </div>
       </div>
 
       {totalAcrossAll === 0 ? (
         <EmptyState
           icon={Megaphone}
-          title="No campaigns synced yet"
-          description="Drill into an ad account and click Sync now to pull campaigns from Meta."
+          title="No ads synced yet"
+          description="Drill into an ad account and click Sync now to pull ads from Meta."
           action={{
             label: "Go to accounts",
             href: "/dashboard/accounts",
           }}
         />
-      ) : campaigns.length === 0 ? (
+      ) : ads.length === 0 ? (
         <EmptyState
           icon={Megaphone}
-          title={`No campaigns under ${selectedBusiness?.name ?? "this client"}`}
+          title={`No ads under ${selectedBusiness?.name ?? "this client"}`}
           description="Switch clients in the top bar, or sync this client's ad accounts."
         />
       ) : (
-        <FlatCampaignsTable campaigns={campaigns} />
+        <FlatAdsTable ads={ads} />
       )}
 
       <p className="text-xs text-subtle">

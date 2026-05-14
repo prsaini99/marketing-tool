@@ -11,15 +11,12 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getObjectiveLabel, type DisplayCampaign } from "@/lib/display";
+import { getOptimizationGoalLabel, type FlatDisplayAdSet } from "@/lib/display";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
-import { BudgetEditModal } from "@/components/campaigns/budget-edit-modal";
+import { AdSetBudgetEditModal } from "@/components/adsets/budget-edit-modal";
 
 type BulkAction = "pause" | "activate" | "archive";
 
-// Per-action: which current statuses are eligible? Used to disable buttons
-// when no selected campaigns can possibly change, and to split the confirm
-// modal copy into "will change" vs "already in target / skipped".
 const ELIGIBLE_STATUS: Record<BulkAction, (status: string) => boolean> = {
   pause: (s) => s === "ACTIVE",
   activate: (s) => s === "PAUSED",
@@ -29,32 +26,32 @@ const ELIGIBLE_STATUS: Record<BulkAction, (status: string) => boolean> = {
 const ACTION_META: Record<
   BulkAction,
   {
-    verb: string; // "pause" / "activate" / "archive"
+    verb: string;
     confirmLabel: string;
     variant: "neutral" | "danger";
-    impact: string; // sentence about what happens to eligible ones
+    impact: string;
   }
 > = {
   pause: {
     verb: "pause",
-    confirmLabel: "Pause campaigns",
+    confirmLabel: "Pause ad sets",
     variant: "neutral",
     impact:
-      "They'll stop delivering ads on Meta. No data is lost — you can re-activate any time.",
+      "They'll stop delivering on Meta. No data is lost — you can re-activate any time.",
   },
   activate: {
     verb: "activate",
-    confirmLabel: "Activate campaigns",
+    confirmLabel: "Activate ad sets",
     variant: "neutral",
     impact:
-      "They'll resume delivering ads on Meta and start spending their assigned budgets.",
+      "They'll resume delivering on Meta and start spending their budgets.",
   },
   archive: {
     verb: "archive",
-    confirmLabel: "Archive campaigns",
+    confirmLabel: "Archive ad sets",
     variant: "danger",
     impact:
-      "They'll be archived on Meta. Historical data is preserved and Meta lets you un-archive later, but they'll disappear from your active lists.",
+      "They'll be archived on Meta. Historical data is preserved and Meta lets you un-archive later, but they'll disappear from active lists.",
   },
 };
 
@@ -66,12 +63,12 @@ function formatMoney(amount: number, currency: string) {
   }).format(amount);
 }
 
-function formatBudget(campaign: DisplayCampaign) {
-  if (campaign.dailyBudgetCents != null) {
-    return `${formatMoney(campaign.dailyBudgetCents / 100, campaign.currency)} / day`;
+function formatBudget(s: FlatDisplayAdSet) {
+  if (s.dailyBudgetCents != null) {
+    return `${formatMoney(s.dailyBudgetCents / 100, s.currency)} / day`;
   }
-  if (campaign.lifetimeBudgetCents != null) {
-    return `${formatMoney(campaign.lifetimeBudgetCents / 100, campaign.currency)} lifetime`;
+  if (s.lifetimeBudgetCents != null) {
+    return `${formatMoney(s.lifetimeBudgetCents / 100, s.currency)} lifetime`;
   }
   return "—";
 }
@@ -108,11 +105,11 @@ function StatusPill({ status }: { status: string }) {
   );
 }
 
-interface FlatCampaignsTableProps {
-  campaigns: DisplayCampaign[];
+interface FlatAdSetsTableProps {
+  adSets: FlatDisplayAdSet[];
 }
 
-export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
+export function FlatAdSetsTable({ adSets }: FlatAdSetsTableProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const range = searchParams.get("range");
@@ -120,8 +117,6 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const headerRef = useRef<HTMLInputElement>(null);
 
-  // Bulk-action state: tracks which action's confirm modal is open + the
-  // in-flight + error state for the API call.
   const [pendingAction, setPendingAction] = useState<BulkAction | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
@@ -131,20 +126,16 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
     setBulkLoading(true);
     setBulkError(null);
     try {
-      const res = await fetch("/api/campaigns/bulk-status", {
+      const res = await fetch("/api/adsets/bulk-status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
-          metaCampaignIds: Array.from(selectedIds),
+          metaAdSetIds: Array.from(selectedIds),
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error ?? `HTTP ${res.status}`);
-      }
-      // Partial failures: leave the modal open with a summary so the user
-      // can see what worked and what didn't, then dismiss manually.
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
       if (data.failed > 0) {
         setBulkError(
           `Done: ${data.ok} succeeded · ${data.failed} failed${
@@ -165,14 +156,12 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
     }
   }
 
-  // Native checkboxes can't show an "indeterminate" state via attribute;
-  // it must be set as a property on the DOM node.
   useEffect(() => {
     if (headerRef.current) {
       headerRef.current.indeterminate =
-        selectedIds.size > 0 && selectedIds.size < campaigns.length;
+        selectedIds.size > 0 && selectedIds.size < adSets.length;
     }
-  }, [selectedIds.size, campaigns.length]);
+  }, [selectedIds.size, adSets.length]);
 
   function toggleRow(id: string) {
     setSelectedIds((prev) => {
@@ -184,32 +173,25 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
   }
 
   function toggleAll() {
-    if (selectedIds.size === campaigns.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(campaigns.map((c) => c.id)));
-    }
+    if (selectedIds.size === adSets.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(adSets.map((s) => s.id)));
   }
 
   const allSelected =
-    campaigns.length > 0 && selectedIds.size === campaigns.length;
+    adSets.length > 0 && selectedIds.size === adSets.length;
   const hasSelection = selectedIds.size > 0;
 
-  const selectedCampaigns = campaigns.filter((c) => selectedIds.has(c.id));
+  const selectedAdSets = adSets.filter((s) => selectedIds.has(s.id));
   const distinctClientCount = new Set(
-    selectedCampaigns.map((c) => c.businessId),
+    selectedAdSets.map((s) => s.businessId),
   ).size;
 
-  // How many of the selected campaigns can each action actually affect?
-  // Powers both the button disabled state and the modal's preview.
   function eligibleCount(action: BulkAction): number {
-    return selectedCampaigns.filter((c) => ELIGIBLE_STATUS[action](c.status))
-      .length;
+    return selectedAdSets.filter((s) => ELIGIBLE_STATUS[action](s.status)).length;
   }
 
   return (
     <div className="space-y-3">
-      {/* Bulk action toolbar */}
       {hasSelection && (
         <div className="flex items-center justify-between rounded-lg border border-accent/30 bg-accent-subtle px-3 py-2">
           <div className="flex items-center gap-3 text-sm">
@@ -244,7 +226,7 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
                   disabled={disabled}
                   title={
                     disabled
-                      ? `No selected campaigns can be ${ACTION_META[action].verb}d`
+                      ? `No selected ad sets can be ${ACTION_META[action].verb}d`
                       : undefined
                   }
                   className={cn(
@@ -264,11 +246,9 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
               );
             })}
             {(() => {
-              // Eligible if the campaign has EITHER a daily or lifetime budget —
-              // the modal lets the user pick which one to edit.
-              const eligibleBudget = selectedCampaigns.filter(
-                (c) =>
-                  c.dailyBudgetCents != null || c.lifetimeBudgetCents != null,
+              const eligibleBudget = selectedAdSets.filter(
+                (s) =>
+                  s.dailyBudgetCents != null || s.lifetimeBudgetCents != null,
               ).length;
               const disabled = eligibleBudget === 0;
               return (
@@ -278,7 +258,7 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
                   disabled={disabled}
                   title={
                     disabled
-                      ? "No selected campaigns have a daily or lifetime budget"
+                      ? "No selected ad sets have a daily or lifetime budget"
                       : undefined
                   }
                   className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-sm font-medium hover:bg-surface-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
@@ -303,11 +283,11 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
                   checked={allSelected}
                   onChange={toggleAll}
                   className="h-3.5 w-3.5 cursor-pointer rounded border-border accent-blue-600"
-                  aria-label="Select all campaigns"
+                  aria-label="Select all ad sets"
                 />
               </th>
-              <th className="px-4 py-2.5">Campaign</th>
-              <th className="px-4 py-2.5">Objective</th>
+              <th className="px-4 py-2.5">Ad set</th>
+              <th className="px-4 py-2.5">Optimization goal</th>
               <th className="px-4 py-2.5">Budget</th>
               <th className="px-4 py-2.5 text-right">Spend</th>
               <th className="px-4 py-2.5 text-right">Impressions</th>
@@ -318,13 +298,13 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {campaigns.map((c) => {
-              const isSelected = selectedIds.has(c.id);
-              const accountIdNoPrefix = c.adAccountId.replace("act_", "");
-              const href = `/dashboard/accounts/${accountIdNoPrefix}/campaigns/${c.id}/adsets${querySuffix}`;
+            {adSets.map((s) => {
+              const isSelected = selectedIds.has(s.id);
+              const accountIdNoPrefix = s.adAccountId.replace("act_", "");
+              const href = `/dashboard/accounts/${accountIdNoPrefix}/campaigns/${s.campaignId}/adsets/${s.id}/ads${querySuffix}`;
               return (
                 <tr
-                  key={c.id}
+                  key={s.id}
                   role="link"
                   tabIndex={0}
                   onClick={() => router.push(href)}
@@ -343,52 +323,52 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
                     <input
                       type="checkbox"
                       checked={isSelected}
-                      onChange={() => toggleRow(c.id)}
+                      onChange={() => toggleRow(s.id)}
                       onClick={(e) => e.stopPropagation()}
                       className="h-3.5 w-3.5 cursor-pointer rounded border-border accent-blue-600"
-                      aria-label={`Select ${c.name}`}
+                      aria-label={`Select ${s.name}`}
                     />
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-col">
-                      <span className="text-sm font-medium">{c.name}</span>
+                      <span className="text-sm font-medium">{s.name}</span>
                       <span className="text-xs text-subtle">
-                        {c.businessName} · {c.adAccountName}
+                        {s.businessName} · {s.adAccountName} · {s.campaignName}
                       </span>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-sm text-muted">
-                    {getObjectiveLabel(c.objective)}
+                    {getOptimizationGoalLabel(s.optimizationGoal)}
                   </td>
                   <td className="px-4 py-3 text-sm tabular-nums">
-                    {formatBudget(c)}
+                    {formatBudget(s)}
                   </td>
                   <td className="px-4 py-3 text-right text-sm font-medium tabular-nums">
-                    {c.spend7d != null ? (
-                      formatMoney(c.spend7d, c.currency)
+                    {s.spend != null ? (
+                      formatMoney(s.spend, s.currency)
                     ) : (
                       <span className="font-normal text-subtle">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums">
-                    {c.impressions != null ? (
-                      c.impressions.toLocaleString()
+                    {s.impressions != null ? (
+                      s.impressions.toLocaleString()
                     ) : (
                       <span className="text-subtle">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums">
-                    {c.ctr != null ? (
-                      `${(c.ctr * 100).toFixed(2)}%`
+                    {s.ctr != null ? (
+                      `${(s.ctr * 100).toFixed(2)}%`
                     ) : (
                       <span className="text-subtle">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <StatusPill status={c.status} />
+                    <StatusPill status={s.status} />
                   </td>
                   <td className="px-4 py-3 text-sm text-muted">
-                    {c.lastEdited}
+                    {s.lastEdited}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <ChevronRight className="ml-auto h-4 w-4 text-subtle transition-colors group-hover:text-foreground" />
@@ -400,9 +380,9 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
         </table>
       </div>
 
-      <BudgetEditModal
+      <AdSetBudgetEditModal
         open={budgetOpen}
-        selectedCampaigns={selectedCampaigns}
+        selectedAdSets={selectedAdSets}
         onClose={() => setBudgetOpen(false)}
         onDone={() => {
           setBudgetOpen(false);
@@ -417,7 +397,7 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
         const skipped = selectedIds.size - eligible;
         const title = `${
           meta.verb.charAt(0).toUpperCase() + meta.verb.slice(1)
-        } ${eligible} campaign${eligible === 1 ? "" : "s"}?`;
+        } ${eligible} ad set${eligible === 1 ? "" : "s"}?`;
         return (
           <ConfirmModal
             open={true}
@@ -428,7 +408,7 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
                   <span className="font-medium text-foreground">
                     {eligible}
                   </span>{" "}
-                  campaign{eligible === 1 ? "" : "s"} across{" "}
+                  ad set{eligible === 1 ? "" : "s"} across{" "}
                   <span className="font-medium text-foreground">
                     {distinctClientCount}
                   </span>{" "}
@@ -440,7 +420,7 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
                     <span className="font-medium text-foreground">
                       {skipped}
                     </span>{" "}
-                    selected campaign{skipped === 1 ? "" : "s"}{" "}
+                    selected ad set{skipped === 1 ? "" : "s"}{" "}
                     {skipped === 1 ? "is" : "are"} already in the target state
                     and will be skipped.
                   </p>

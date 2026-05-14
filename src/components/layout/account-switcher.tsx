@@ -16,6 +16,8 @@ const FILTERABLE_ROUTES = new Set<string>([
   "/dashboard/accounts",
   "/dashboard/insights",
   "/dashboard/campaigns",
+  "/dashboard/adsets",
+  "/dashboard/ads",
   "/dashboard/settings",
 ]);
 
@@ -124,15 +126,21 @@ export function AccountSwitcher({
                   onClick={() => navigate(b.id)}
                   className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-sm hover:bg-surface-2"
                 >
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-5 w-5 items-center justify-center rounded bg-surface-2 text-[11px] font-semibold text-muted">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-surface-2 text-[11px] font-semibold text-muted">
                       {b.name[0]}
                     </div>
-                    <span>{b.name}</span>
+                    <span className="truncate" title={b.name}>
+                      {b.name}
+                    </span>
                   </div>
-                  {selectedId === b.id && (
-                    <Check className="h-3.5 w-3.5 text-accent" />
-                  )}
+                  {/* Reserve check-mark width on every row so selecting an item
+                      doesn't shrink the label and cause it to wrap. */}
+                  <Check
+                    className={`h-3.5 w-3.5 shrink-0 text-accent ${
+                      selectedId === b.id ? "" : "invisible"
+                    }`}
+                  />
                 </button>
               </li>
             ))}

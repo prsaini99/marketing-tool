@@ -367,6 +367,97 @@ class MetaClient {
   }
 
   /**
+   * Change an ad set's budget on Meta. Cents in the account currency.
+   * Mirrors updateCampaignBudget but targets /{adset_id}.
+   */
+  async updateAdSetBudget(
+    connectionId: string,
+    metaAdSetId: string,
+    budgetType: "daily" | "lifetime",
+    cents: number,
+  ): Promise<void> {
+    if (!Number.isFinite(cents) || cents <= 0) {
+      throw new Error("cents must be a positive integer");
+    }
+    const { accessToken } = await getCredential(connectionId);
+    const url = new URL(`${META_API_BASE}/${metaAdSetId}`);
+    url.searchParams.set("access_token", accessToken);
+    url.searchParams.set(
+      budgetType === "daily" ? "daily_budget" : "lifetime_budget",
+      String(Math.round(cents)),
+    );
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      let metaErr: { message?: string; code?: number } | undefined;
+      try {
+        const body = await res.json();
+        metaErr = body?.error;
+      } catch {
+        /* non-JSON body */
+      }
+      throw new MetaApiError(
+        metaErr?.message ?? `Meta API returned ${res.status}`,
+        res.status,
+        metaErr?.code,
+      );
+    }
+  }
+
+  /** Change an ad set's status on Meta. Mirrors updateCampaignStatus. */
+  async updateAdSetStatus(
+    connectionId: string,
+    metaAdSetId: string,
+    newStatus: "PAUSED" | "ACTIVE" | "ARCHIVED",
+  ): Promise<void> {
+    const { accessToken } = await getCredential(connectionId);
+    const url = new URL(`${META_API_BASE}/${metaAdSetId}`);
+    url.searchParams.set("access_token", accessToken);
+    url.searchParams.set("status", newStatus);
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      let metaErr: { message?: string; code?: number } | undefined;
+      try {
+        const body = await res.json();
+        metaErr = body?.error;
+      } catch {
+        /* non-JSON body */
+      }
+      throw new MetaApiError(
+        metaErr?.message ?? `Meta API returned ${res.status}`,
+        res.status,
+        metaErr?.code,
+      );
+    }
+  }
+
+  /** Change an ad's status on Meta. Mirrors updateCampaignStatus. */
+  async updateAdStatus(
+    connectionId: string,
+    metaAdId: string,
+    newStatus: "PAUSED" | "ACTIVE" | "ARCHIVED",
+  ): Promise<void> {
+    const { accessToken } = await getCredential(connectionId);
+    const url = new URL(`${META_API_BASE}/${metaAdId}`);
+    url.searchParams.set("access_token", accessToken);
+    url.searchParams.set("status", newStatus);
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      let metaErr: { message?: string; code?: number } | undefined;
+      try {
+        const body = await res.json();
+        metaErr = body?.error;
+      } catch {
+        /* non-JSON body */
+      }
+      throw new MetaApiError(
+        metaErr?.message ?? `Meta API returned ${res.status}`,
+        res.status,
+        metaErr?.code,
+      );
+    }
+  }
+
+  /**
    * Pull daily insights for an ad account at one level.
    * `since`/`until` are YYYY-MM-DD strings (inclusive).
    *
