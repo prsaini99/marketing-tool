@@ -14,6 +14,7 @@ import { SyncNowButton } from "@/components/sync/sync-now-button";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AdPreviewButton } from "@/components/ads/ad-preview-button";
+import { NewAdButton } from "@/components/ads/new-ad-button";
 import { resolveDateRange } from "@/lib/date-range";
 
 function formatMoney(amount: number, currency: string) {
@@ -211,6 +212,14 @@ export default async function AdsPage({
         <div className="flex items-start gap-2">
           <DateRangeDropdown />
           <SyncNowButton accountId={id} kinds={["ads", "insights"]} />
+          {adSet && (
+            <NewAdButton
+              adSet={{
+                metaAdSetId: adSet.metaAdSetId,
+                name: adSet.name,
+              }}
+            />
+          )}
         </div>
       </div>
 

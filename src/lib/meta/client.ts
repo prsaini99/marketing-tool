@@ -464,6 +464,88 @@ class MetaClient {
   }
 
   /**
+   * Upload an image to Meta's ad library and return the resulting image_hash.
+   *
+   * Meta exposes `POST /act_{id}/adimages` as multipart/form-data with the
+   * file under the `source` field. The response is keyed by filename:
+   *   { images: { "foo.jpg": { hash: "abc123…", url: "https://…" } } }
+   *
+   * The hash is what creative specs reference via
+   * `link_data.image_hash` — same image can be reused across many ads.
+   *
+   * Throws MetaApiError on any non-OK response so the service can stamp
+   * the audit row + abort before the dependent ad-create call fires.
+   */
+  async uploadAdImage(
+    connectionId: string,
+    metaAdAccountId: string,
+    file: Blob,
+    filename: string,
+  ): Promise<{ hash: string; url?: string }> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/adimages`);
+    url.searchParams.set("access_token", accessToken);
+
+    const form = new FormData();
+    form.append("source", file, filename);
+
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    const body = (await res.json()) as {
+      images?: Record<string, { hash?: string; url?: string }>;
+    };
+    // Response is keyed by filename — grab whatever's first.
+    const first = body.images ? Object.values(body.images)[0] : undefined;
+    if (!first?.hash) {
+      throw new MetaApiError(
+        "Meta did not return an image_hash",
+        res.status,
+      );
+    }
+    return { hash: first.hash, url: first.url };
+  }
+
+  /**
+   * Create a new ad on Meta. Caller is responsible for shaping the creative
+   * payload (object_story_spec or creative_id reference) — we forward as-is.
+   */
+  async createAd(
+    connectionId: string,
+    metaAdAccountId: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ id: string }> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/ads`);
+    url.searchParams.set("access_token", accessToken);
+    for (const [key, value] of Object.entries(payload)) {
+      if (value == null) continue;
+      if (typeof value === "object") {
+        url.searchParams.set(key, JSON.stringify(value));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    return res.json() as Promise<{ id: string }>;
+  }
+
+  /**
    * Change an ad set's budget on Meta. Cents in the account currency.
    * Mirrors updateCampaignBudget but targets /{adset_id}.
    */
