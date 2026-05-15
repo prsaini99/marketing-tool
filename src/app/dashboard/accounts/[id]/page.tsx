@@ -23,6 +23,7 @@ import { KpiCard } from "@/components/insights/kpi-card";
 import { SyncNowButton } from "@/components/sync/sync-now-button";
 import { SyncHistoryButton } from "@/components/sync/sync-history-button";
 import { SchedulesButton } from "@/components/schedules/schedules-button";
+import { NewCampaignButton } from "@/components/campaigns/new-campaign-button";
 import { CampaignsTable } from "@/components/tables/campaigns-table";
 import type { DisplayCampaign } from "@/lib/display";
 
@@ -252,6 +253,17 @@ export default async function AccountDetailPage({
           <SchedulesButton accountIdUrl={id} accountName={account.name} />
           <SyncHistoryButton logs={logsForClient} />
           <SyncNowButton accountId={id} kinds={["campaigns", "insights"]} />
+          <NewCampaignButton
+            accounts={[
+              {
+                metaAdAccountId: account.metaAdAccountId,
+                name: account.name,
+                currency: account.currency,
+                businessName: account.business.name,
+              },
+            ]}
+            lockedAdAccountId={account.metaAdAccountId}
+          />
         </div>
       </div>
 

@@ -5,6 +5,7 @@ import { AdSetsTable } from "@/components/tables/adsets-table";
 import { SyncNowButton } from "@/components/sync/sync-now-button";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { EmptyState } from "@/components/ui/empty-state";
+import { NewAdSetButton } from "@/components/adsets/new-adset-button";
 import { resolveDateRange } from "@/lib/date-range";
 import type { DisplayAdSet } from "@/lib/display";
 
@@ -160,6 +161,19 @@ export default async function AdSetsPage({
         <div className="flex items-start gap-2">
           <DateRangeDropdown />
           <SyncNowButton accountId={id} kinds={["adsets", "insights"]} />
+          {campaign && (
+            <NewAdSetButton
+              campaign={{
+                metaCampaignId: campaign.metaCampaignId,
+                name: campaign.name,
+                objective: campaign.objective ?? "OUTCOME_TRAFFIC",
+                hasCbo:
+                  campaign.dailyBudgetCents != null ||
+                  campaign.lifetimeBudgetCents != null,
+              }}
+              currency={currency}
+            />
+          )}
         </div>
       </div>
 

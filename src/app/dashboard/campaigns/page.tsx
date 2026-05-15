@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db/prisma";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FlatCampaignsTable } from "@/components/tables/flat-campaigns-table";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
+import { NewCampaignButton } from "@/components/campaigns/new-campaign-button";
+import { SearchBar } from "@/components/ui/search-bar";
 import { resolveDateRange } from "@/lib/date-range";
 import type { DisplayCampaign } from "@/lib/display";
 
@@ -22,10 +24,11 @@ function formatRelative(d: Date | null): string {
 export default async function CampaignsFlatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; range?: string }>;
+  searchParams: Promise<{ client?: string; range?: string; q?: string }>;
 }) {
-  const { client, range } = await searchParams;
+  const { client, range, q } = await searchParams;
   const dateRange = resolveDateRange(range);
+  const query = q?.trim();
   const selectedBusiness = client
     ? await prisma.metaBusiness.findUnique({
         where: { id: client },
@@ -35,52 +38,79 @@ export default async function CampaignsFlatPage({
 
   const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
 
-  const [rows, perCampaign, anyInsightsSync] = await Promise.all([
-    prisma.campaign.findMany({
-      where: {
-        adAccount: {
-          selectedForSync: true,
-          ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
+  const [rows, perCampaign, anyInsightsSync, accountsForCreate] =
+    await Promise.all([
+      prisma.campaign.findMany({
+        where: {
+          adAccount: {
+            selectedForSync: true,
+            ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
+          },
+          ...(query
+            ? { name: { contains: query, mode: "insensitive" } }
+            : {}),
         },
-      },
-      include: {
-        adAccount: {
-          select: {
-            id: true,
-            metaAdAccountId: true,
-            name: true,
-            currency: true,
-            businessId: true,
-            business: { select: { name: true } },
+        include: {
+          adAccount: {
+            select: {
+              id: true,
+              metaAdAccountId: true,
+              name: true,
+              currency: true,
+              businessId: true,
+              business: { select: { name: true } },
+            },
           },
         },
-      },
-      orderBy: { name: "asc" },
-    }),
-    prisma.insightsSnapshot.groupBy({
-      by: ["adAccountId", "entityId"],
-      where: {
-        level: "campaign",
-        adAccount: {
+        orderBy: { name: "asc" },
+      }),
+      prisma.insightsSnapshot.groupBy({
+        by: ["adAccountId", "entityId"],
+        where: {
+          level: "campaign",
+          adAccount: {
+            selectedForSync: true,
+            ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
+          },
+          ...dateFilter,
+        },
+        _sum: { spendCents: true, impressions: true, clicks: true },
+      }),
+      prisma.syncLog.findFirst({
+        where: {
+          kind: "insights",
+          status: "success",
+          adAccount: {
+            selectedForSync: true,
+            ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
+          },
+        },
+        select: { id: true },
+      }),
+      // Account list for the New campaign picker — every selected account,
+      // de-duplicated by Meta id (same account can be connected via two tokens).
+      prisma.metaAdAccount.findMany({
+        where: {
           selectedForSync: true,
           ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
         },
-        ...dateFilter,
-      },
-      _sum: { spendCents: true, impressions: true, clicks: true },
-    }),
-    prisma.syncLog.findFirst({
-      where: {
-        kind: "insights",
-        status: "success",
-        adAccount: {
-          selectedForSync: true,
-          ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
+        select: {
+          metaAdAccountId: true,
+          name: true,
+          currency: true,
+          business: { select: { name: true } },
         },
-      },
-      select: { id: true },
-    }),
-  ]);
+        distinct: ["metaAdAccountId"],
+        orderBy: [{ business: { name: "asc" } }, { name: "asc" }],
+      }),
+    ]);
+
+  const newCampaignAccounts = accountsForCreate.map((a) => ({
+    metaAdAccountId: a.metaAdAccountId,
+    name: a.name,
+    currency: a.currency,
+    businessName: a.business.name,
+  }));
 
   // Key by (adAccountInternalId, metaCampaignId) — same campaign id can exist
   // across different ad accounts in principle.
@@ -157,6 +187,7 @@ export default async function CampaignsFlatPage({
           </p>
         </div>
         <div className="flex items-start gap-2">
+          <SearchBar placeholder="Search campaigns…" />
           <DateRangeDropdown />
           {/* Plain <a> for native download behavior — no client-side router. */}
           <a
@@ -166,6 +197,7 @@ export default async function CampaignsFlatPage({
             <Download className="h-3.5 w-3.5" />
             Export to CSV
           </a>
+          <NewCampaignButton accounts={newCampaignAccounts} />
         </div>
       </div>
 
@@ -178,6 +210,12 @@ export default async function CampaignsFlatPage({
             label: "Go to accounts",
             href: "/dashboard/accounts",
           }}
+        />
+      ) : campaigns.length === 0 && query ? (
+        <EmptyState
+          icon={Megaphone}
+          title={`No campaigns match “${query}”`}
+          description="Try a shorter query, or clear the search to see all campaigns."
         />
       ) : campaigns.length === 0 ? (
         <EmptyState

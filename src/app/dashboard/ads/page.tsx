@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FlatAdsTable } from "@/components/tables/flat-ads-table";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
+import { SearchBar } from "@/components/ui/search-bar";
 import { resolveDateRange } from "@/lib/date-range";
 import type { FlatDisplayAd } from "@/lib/display";
 
@@ -22,10 +23,11 @@ function formatRelative(d: Date | null): string {
 export default async function AdsFlatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; range?: string }>;
+  searchParams: Promise<{ client?: string; range?: string; q?: string }>;
 }) {
-  const { client, range } = await searchParams;
+  const { client, range, q } = await searchParams;
   const dateRange = resolveDateRange(range);
+  const query = q?.trim();
   const selectedBusiness = client
     ? await prisma.metaBusiness.findUnique({
         where: { id: client },
@@ -42,6 +44,9 @@ export default async function AdsFlatPage({
           selectedForSync: true,
           ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
         },
+        ...(query
+          ? { name: { contains: query, mode: "insensitive" } }
+          : {}),
       },
       include: {
         adAccount: {
@@ -155,6 +160,7 @@ export default async function AdsFlatPage({
           </p>
         </div>
         <div className="flex items-start gap-2">
+          <SearchBar placeholder="Search ads…" />
           <DateRangeDropdown />
         </div>
       </div>
@@ -168,6 +174,12 @@ export default async function AdsFlatPage({
             label: "Go to accounts",
             href: "/dashboard/accounts",
           }}
+        />
+      ) : ads.length === 0 && query ? (
+        <EmptyState
+          icon={Megaphone}
+          title={`No ads match “${query}”`}
+          description="Try a shorter query, or clear the search to see all ads."
         />
       ) : ads.length === 0 ? (
         <EmptyState

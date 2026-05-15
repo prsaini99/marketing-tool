@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db/prisma";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DisconnectButton } from "@/components/connections/disconnect-button";
 import { DisconnectAllButton } from "@/components/connections/disconnect-all-button";
+import { SignOutButton } from "@/components/auth/sign-out-button";
 
 function ConnectionStatusPill({ status }: { status: ConnectionStatus }) {
   const styles: Record<ConnectionStatus, string> = {
@@ -232,16 +233,11 @@ export default async function SettingsPage() {
                 <p className="text-sm font-medium">Sign out of this device</p>
               </div>
               <p className="mt-0.5 text-xs text-muted">
-                Sign-out is wired once auth lands. For now, this button is inactive.
+                Clears the session cookie. You&apos;ll need to sign in again
+                with the master credentials to come back.
               </p>
             </div>
-            <button
-              type="button"
-              disabled
-              className="shrink-0 inline-flex items-center rounded-md border border-red-300 bg-background px-2.5 py-1.5 text-sm font-medium text-danger hover:bg-red-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Sign out
-            </button>
+            <SignOutButton />
           </div>
         </div>
       </section>

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FlatAdSetsTable } from "@/components/tables/flat-adsets-table";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
+import { SearchBar } from "@/components/ui/search-bar";
 import { resolveDateRange } from "@/lib/date-range";
 import type { FlatDisplayAdSet } from "@/lib/display";
 
@@ -22,10 +23,11 @@ function formatRelative(d: Date | null): string {
 export default async function AdSetsFlatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; range?: string }>;
+  searchParams: Promise<{ client?: string; range?: string; q?: string }>;
 }) {
-  const { client, range } = await searchParams;
+  const { client, range, q } = await searchParams;
   const dateRange = resolveDateRange(range);
+  const query = q?.trim();
   const selectedBusiness = client
     ? await prisma.metaBusiness.findUnique({
         where: { id: client },
@@ -42,6 +44,9 @@ export default async function AdSetsFlatPage({
           selectedForSync: true,
           ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
         },
+        ...(query
+          ? { name: { contains: query, mode: "insensitive" } }
+          : {}),
       },
       include: {
         adAccount: {
@@ -153,6 +158,7 @@ export default async function AdSetsFlatPage({
           </p>
         </div>
         <div className="flex items-start gap-2">
+          <SearchBar placeholder="Search ad sets…" />
           <DateRangeDropdown />
         </div>
       </div>
@@ -166,6 +172,12 @@ export default async function AdSetsFlatPage({
             label: "Go to accounts",
             href: "/dashboard/accounts",
           }}
+        />
+      ) : adSets.length === 0 && query ? (
+        <EmptyState
+          icon={Layers}
+          title={`No ad sets match “${query}”`}
+          description="Try a shorter query, or clear the search to see all ad sets."
         />
       ) : adSets.length === 0 ? (
         <EmptyState

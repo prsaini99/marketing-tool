@@ -39,6 +39,59 @@ export class MetaApiError extends Error {
   }
 }
 
+interface RawMetaError {
+  message?: string;
+  type?: string;
+  code?: number;
+  error_subcode?: number;
+  // Meta's user-friendly fields — usually MUCH more specific than `message`,
+  // which is often just "Invalid parameter" for 400s.
+  error_user_title?: string;
+  error_user_msg?: string;
+}
+
+/**
+ * Read Meta's error payload from a non-OK response and produce a message
+ * that's actually useful in the UI. Meta wraps the real reason in
+ * `error_user_msg` while `message` stays generic — surface the most
+ * specific field available.
+ */
+async function readMetaError(res: Response): Promise<{
+  message: string;
+  code?: number;
+}> {
+  let metaErr: RawMetaError | undefined;
+  try {
+    const body = await res.json();
+    metaErr = body?.error;
+  } catch {
+    // Non-JSON body — caller falls back to HTTP status.
+  }
+  if (!metaErr) {
+    return { message: `Meta API returned ${res.status}` };
+  }
+  const parts: string[] = [];
+  // Most specific first.
+  if (metaErr.error_user_title && metaErr.error_user_msg) {
+    parts.push(`${metaErr.error_user_title}: ${metaErr.error_user_msg}`);
+  } else if (metaErr.error_user_msg) {
+    parts.push(metaErr.error_user_msg);
+  } else if (metaErr.error_user_title) {
+    parts.push(metaErr.error_user_title);
+  } else if (metaErr.message) {
+    parts.push(metaErr.message);
+  }
+  if (metaErr.error_subcode) {
+    parts.push(`(code ${metaErr.code}/${metaErr.error_subcode})`);
+  } else if (metaErr.code) {
+    parts.push(`(code ${metaErr.code})`);
+  }
+  return {
+    message: parts.join(" ") || `Meta API returned ${res.status}`,
+    code: metaErr.code,
+  };
+}
+
 interface MetaPagedResponse<T> {
   data: T[];
   paging?: {
@@ -74,18 +127,8 @@ async function metaGet<T>(
 
   const res = await fetch(url.toString());
   if (!res.ok) {
-    let metaErr: { message?: string; code?: number } | undefined;
-    try {
-      const body = await res.json();
-      metaErr = body?.error;
-    } catch {
-      // Non-JSON body — fall through with HTTP status only.
-    }
-    throw new MetaApiError(
-      metaErr?.message ?? `Meta API returned ${res.status}`,
-      res.status,
-      metaErr?.code,
-    );
+    const { message, code } = await readMetaError(res);
+    throw new MetaApiError(message, res.status, code);
   }
   return res.json() as Promise<T>;
 }
@@ -312,18 +355,8 @@ class MetaClient {
 
     const res = await fetch(url.toString(), { method: "POST" });
     if (!res.ok) {
-      let metaErr: { message?: string; code?: number } | undefined;
-      try {
-        const body = await res.json();
-        metaErr = body?.error;
-      } catch {
-        /* non-JSON body */
-      }
-      throw new MetaApiError(
-        metaErr?.message ?? `Meta API returned ${res.status}`,
-        res.status,
-        metaErr?.code,
-      );
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
     }
   }
 
@@ -351,19 +384,83 @@ class MetaClient {
 
     const res = await fetch(url.toString(), { method: "POST" });
     if (!res.ok) {
-      let metaErr: { message?: string; code?: number } | undefined;
-      try {
-        const body = await res.json();
-        metaErr = body?.error;
-      } catch {
-        /* non-JSON body */
-      }
-      throw new MetaApiError(
-        metaErr?.message ?? `Meta API returned ${res.status}`,
-        res.status,
-        metaErr?.code,
-      );
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
     }
+  }
+
+  /**
+   * Create a new campaign on Meta under the given ad account.
+   *
+   * The payload is the field set the caller wants to send — we forward it
+   * verbatim as URL-encoded params (Meta's POST endpoints accept query-string
+   * form, no JSON body). Object values are JSON-stringified (Meta does this
+   * for `special_ad_categories` and a few others).
+   *
+   * Returns the new campaign's Meta id on success. Throws MetaApiError on
+   * any 4xx/5xx so the service layer can surface the message and stamp the
+   * audit row as failed.
+   */
+  async createCampaign(
+    connectionId: string,
+    metaAdAccountId: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ id: string }> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/campaigns`);
+    url.searchParams.set("access_token", accessToken);
+    for (const [key, value] of Object.entries(payload)) {
+      if (value == null) continue;
+      if (typeof value === "object") {
+        url.searchParams.set(key, JSON.stringify(value));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    return res.json() as Promise<{ id: string }>;
+  }
+
+  /**
+   * Create a new ad set on Meta under the given ad account.
+   *
+   * Mirrors createCampaign — payload is forwarded as URL-encoded params,
+   * objects (`targeting`, `attribution_spec`) get JSON-stringified. The
+   * service layer is responsible for shaping the payload to match the
+   * parent campaign's constraints (e.g., no budget when campaign has CBO).
+   */
+  async createAdSet(
+    connectionId: string,
+    metaAdAccountId: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ id: string }> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/adsets`);
+    url.searchParams.set("access_token", accessToken);
+    for (const [key, value] of Object.entries(payload)) {
+      if (value == null) continue;
+      if (typeof value === "object") {
+        url.searchParams.set(key, JSON.stringify(value));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    return res.json() as Promise<{ id: string }>;
   }
 
   /**
@@ -388,18 +485,8 @@ class MetaClient {
     );
     const res = await fetch(url.toString(), { method: "POST" });
     if (!res.ok) {
-      let metaErr: { message?: string; code?: number } | undefined;
-      try {
-        const body = await res.json();
-        metaErr = body?.error;
-      } catch {
-        /* non-JSON body */
-      }
-      throw new MetaApiError(
-        metaErr?.message ?? `Meta API returned ${res.status}`,
-        res.status,
-        metaErr?.code,
-      );
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
     }
   }
 
@@ -415,18 +502,8 @@ class MetaClient {
     url.searchParams.set("status", newStatus);
     const res = await fetch(url.toString(), { method: "POST" });
     if (!res.ok) {
-      let metaErr: { message?: string; code?: number } | undefined;
-      try {
-        const body = await res.json();
-        metaErr = body?.error;
-      } catch {
-        /* non-JSON body */
-      }
-      throw new MetaApiError(
-        metaErr?.message ?? `Meta API returned ${res.status}`,
-        res.status,
-        metaErr?.code,
-      );
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
     }
   }
 
@@ -442,18 +519,8 @@ class MetaClient {
     url.searchParams.set("status", newStatus);
     const res = await fetch(url.toString(), { method: "POST" });
     if (!res.ok) {
-      let metaErr: { message?: string; code?: number } | undefined;
-      try {
-        const body = await res.json();
-        metaErr = body?.error;
-      } catch {
-        /* non-JSON body */
-      }
-      throw new MetaApiError(
-        metaErr?.message ?? `Meta API returned ${res.status}`,
-        res.status,
-        metaErr?.code,
-      );
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
     }
   }
 
