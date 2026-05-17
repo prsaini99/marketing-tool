@@ -5,7 +5,17 @@ import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type SyncKind = "campaigns" | "adsets" | "ads" | "insights";
+export type SyncKind =
+  | "campaigns"
+  | "adsets"
+  | "ads"
+  | "insights"
+  | "account-detail"
+  | "creatives"
+  | "images"
+  | "videos"
+  | "audiences"
+  | "conversions";
 
 interface SyncNowButtonProps {
   // Unprefixed metaAdAccountId — same shape used in the page URL.
@@ -23,6 +33,12 @@ const STEP_LABEL: Record<SyncKind, string> = {
   adsets: "ad sets",
   ads: "ads",
   insights: "insights",
+  "account-detail": "account health",
+  creatives: "creatives",
+  images: "images",
+  videos: "videos",
+  audiences: "audiences",
+  conversions: "conversions",
 };
 
 export function SyncNowButton({

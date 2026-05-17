@@ -144,6 +144,11 @@ export interface FlatDisplayAd {
   name: string;
   status: string;
   format: string | null;
+  // Creative + thumbnail surfaced inline so the flat ads table can render
+  // a per-row preview without joining AdCreative. Both null if Meta didn't
+  // return a creative for this ad (rare — drafts, deleted creatives).
+  metaCreativeId: string | null;
+  creativeThumbnailUrl: string | null;
   spend: number | null;
   impressions: number | null;
   ctr: number | null; // 0..1
