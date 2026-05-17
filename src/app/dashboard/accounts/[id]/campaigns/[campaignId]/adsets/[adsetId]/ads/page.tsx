@@ -1,29 +1,15 @@
 import Link from "next/link";
-import {
-  ChevronRight,
-  Image as ImageIcon,
-  LayoutGrid,
-  Layers,
-  Megaphone,
-  Video,
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ChevronRight, Megaphone } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
-import { getAdFormatLabel } from "@/lib/display";
 import { SyncNowButton } from "@/components/sync/sync-now-button";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { EmptyState } from "@/components/ui/empty-state";
-import { AdPreviewButton } from "@/components/ads/ad-preview-button";
 import { NewAdButton } from "@/components/ads/new-ad-button";
+import {
+  PerAdsetAdsTable,
+  type AdRow,
+} from "@/components/tables/per-adset-ads-table";
 import { resolveDateRange } from "@/lib/date-range";
-
-function formatMoney(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount);
-}
 
 function formatRelative(d: Date | null | undefined): string {
   if (!d) return "—";
@@ -36,51 +22,6 @@ function formatRelative(d: Date | null | undefined): string {
     month: "short",
     day: "numeric",
   }).format(d);
-}
-
-function formatIcon(format: string | null) {
-  switch (format) {
-    case "VIDEO":
-      return Video;
-    case "CAROUSEL":
-      return LayoutGrid;
-    case "COLLECTION":
-      return Layers;
-    default:
-      return ImageIcon;
-  }
-}
-
-function statusStyle(status: string) {
-  switch (status) {
-    case "ACTIVE":
-      return { pill: "bg-green-50 text-green-700", dot: "bg-green-500", label: "Active" };
-    case "PAUSED":
-      return { pill: "bg-amber-50 text-amber-700", dot: "bg-amber-500", label: "Paused" };
-    case "DELETED":
-      return { pill: "bg-red-50 text-red-700", dot: "bg-red-500", label: "Deleted" };
-    case "ARCHIVED":
-      return { pill: "bg-zinc-100 text-zinc-600", dot: "bg-zinc-400", label: "Archived" };
-    default: {
-      const label = status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, " ");
-      return { pill: "bg-zinc-100 text-zinc-600", dot: "bg-zinc-400", label };
-    }
-  }
-}
-
-function StatusPill({ status }: { status: string }) {
-  const s = statusStyle(status);
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium",
-        s.pill,
-      )}
-    >
-      <span className={cn("h-1.5 w-1.5 rounded-full", s.dot)} />
-      {s.label}
-    </span>
-  );
 }
 
 export default async function AdsPage({
@@ -166,6 +107,22 @@ export default async function AdsPage({
   const currency = account.currency;
   const hasInsights = Boolean(insightsSync);
 
+  const rows: AdRow[] = ads.map((a) => {
+    const m = metricsByAd.get(a.metaAdId);
+    return {
+      id: a.id,
+      metaAdId: a.metaAdId,
+      name: a.name,
+      status: a.status,
+      format: a.format,
+      creativeThumbnailUrl: a.creativeThumbnailUrl,
+      metaUpdatedTime: a.metaUpdatedTime,
+      spendCents: m?.spendCents ?? 0,
+      impressions: m?.impressions ?? 0,
+      clicks: m?.clicks ?? 0,
+    };
+  });
+
   return (
     <div className="space-y-4">
       {/* Breadcrumb */}
@@ -211,7 +168,13 @@ export default async function AdsPage({
         </div>
         <div className="flex items-start gap-2">
           <DateRangeDropdown />
-          <SyncNowButton accountId={id} kinds={["ads", "insights"]} />
+          {/* The detail page reads creative + image + video joins from
+              local DB; this sync chain keeps all four tables fresh so a
+              click into any ad shows accurate asset info. */}
+          <SyncNowButton
+            accountId={id}
+            kinds={["ads", "creatives", "images", "videos", "insights"]}
+          />
           {adSet && (
             <NewAdButton
               adSet={{
@@ -230,101 +193,24 @@ export default async function AdsPage({
           description={
             lastSync
               ? "This ad set has no ads. They'll appear once created in Meta."
-              : "Click Sync ads above to pull from Meta."
+              : "Click Sync now above to pull from Meta."
           }
         />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-background">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border bg-surface text-left text-xs font-medium uppercase tracking-wide text-subtle">
-                <th className="px-4 py-2.5">Ad</th>
-                <th className="px-4 py-2.5">Format</th>
-                <th className="px-4 py-2.5 text-right">Spend</th>
-                <th className="px-4 py-2.5 text-right">Impressions</th>
-                <th className="px-4 py-2.5 text-right">Clicks</th>
-                <th className="px-4 py-2.5 text-right">CTR</th>
-                <th className="px-4 py-2.5">Status</th>
-                <th className="px-4 py-2.5">Last edited</th>
-                <th className="w-12 px-4 py-2.5 text-right">Preview</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {ads.map((a) => {
-                const Icon = formatIcon(a.format);
-                const m = metricsByAd.get(a.metaAdId);
-                const impressions = m?.impressions ?? 0;
-                const clicks = m?.clicks ?? 0;
-                const spendCents = m?.spendCents ?? 0;
-                const ctr = impressions > 0 ? clicks / impressions : 0;
-                return (
-                  <tr
-                    key={a.id}
-                    className="hover:bg-surface transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-surface-2 ring-1 ring-border">
-                          <Icon className="h-4 w-4 text-subtle" />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium">{a.name}</span>
-                          <span className="text-xs text-subtle">
-                            {a.metaAdId}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted">
-                      {getAdFormatLabel(a.format)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-medium tabular-nums">
-                      {hasInsights ? (
-                        formatMoney(spendCents / 100, currency)
-                      ) : (
-                        <span className="font-normal text-subtle">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm tabular-nums">
-                      {hasInsights ? (
-                        impressions.toLocaleString()
-                      ) : (
-                        <span className="text-subtle">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm tabular-nums">
-                      {hasInsights ? (
-                        clicks.toLocaleString()
-                      ) : (
-                        <span className="text-subtle">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm tabular-nums">
-                      {hasInsights ? (
-                        `${(ctr * 100).toFixed(2)}%`
-                      ) : (
-                        <span className="text-subtle">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusPill status={a.status} />
-                    </td>
-                    <td className="px-4 py-3 text-sm text-muted">
-                      {formatRelative(a.metaUpdatedTime)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <AdPreviewButton metaAdId={a.metaAdId} adName={a.name} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <PerAdsetAdsTable
+          rows={rows}
+          currency={currency}
+          hasInsights={hasInsights}
+          accountIdUrl={id}
+          campaignId={campaignId}
+          adsetId={adsetId}
+          rangeQuery={range ?? null}
+        />
       )}
 
       <p className="text-xs text-subtle">
-        Per-ad metrics aggregate {dateRange.label.toLowerCase()}.
+        Click any row to open the ad&apos;s detail — creative, image, video and
+        per-ad insights. Per-ad metrics aggregate {dateRange.label.toLowerCase()}.
       </p>
     </div>
   );

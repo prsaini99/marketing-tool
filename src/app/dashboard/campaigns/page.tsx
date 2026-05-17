@@ -5,6 +5,7 @@ import { FlatCampaignsTable } from "@/components/tables/flat-campaigns-table";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { NewCampaignButton } from "@/components/campaigns/new-campaign-button";
 import { SearchBar } from "@/components/ui/search-bar";
+import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
 import { resolveDateRange } from "@/lib/date-range";
 import type { DisplayCampaign } from "@/lib/display";
 
@@ -189,6 +190,11 @@ export default async function CampaignsFlatPage({
         <div className="flex items-start gap-2">
           <SearchBar placeholder="Search campaigns…" />
           <DateRangeDropdown />
+          <BulkSyncButton
+            kind="campaigns"
+            accountsInScope={accountsForCreate.length}
+            businessId={selectedBusiness?.id ?? null}
+          />
           {/* Plain <a> for native download behavior — no client-side router. */}
           <a
             href={exportHref}

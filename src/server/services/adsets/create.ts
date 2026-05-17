@@ -32,15 +32,26 @@ export interface CreateAdSetTargeting {
     facebookPositions?: string[]; // ["feed", "right_hand_column", ...]
     instagramPositions?: string[]; // ["stream", "story", "reels", ...]
   } | null;
+  // Meta audience IDs to include / exclude. Meta wants them serialized as
+  // `custom_audiences: [{id}, …]` and `excluded_custom_audiences: [{id}, …]`.
+  // Both optional; absent means "no audience targeting" for that side.
+  includedAudienceIds?: string[];
+  excludedAudienceIds?: string[];
 }
 
 // Meta requires `promoted_object` on the ad set for objectives that need
 // something to "count" — conversions, leads, app installs. We forward only
 // the fields the caller provides; the goal selector in the UI decides which
 // fields show up.
+//
+// For conversion-objective ad sets there are two valid shapes:
+//   • Standard event:  { pixelId, customEventType }
+//   • Saved rule:      { customConversionId }
+// They're mutually exclusive; the caller picks one.
 export interface CreateAdSetPromotedObject {
   pixelId?: string;
   customEventType?: string; // e.g., "PURCHASE"
+  customConversionId?: string; // saved custom conversion id
   pageId?: string;
   applicationId?: string;
   objectStoreUrl?: string;
@@ -177,6 +188,17 @@ export async function createAdSet(
       targeting.publisher_platforms = publisherPlatforms;
     }
   }
+  // Custom audiences: include / exclude lists. Meta wants the {id}-object
+  // shape, not raw strings, so wrap them here.
+  if (input.targeting.includedAudienceIds?.length) {
+    targeting.custom_audiences = input.targeting.includedAudienceIds.map(
+      (id) => ({ id }),
+    );
+  }
+  if (input.targeting.excludedAudienceIds?.length) {
+    targeting.excluded_custom_audiences =
+      input.targeting.excludedAudienceIds.map((id) => ({ id }));
+  }
 
   const payload: Record<string, unknown> = {
     name,
@@ -203,6 +225,9 @@ export async function createAdSet(
     if (input.promotedObject.pixelId) po.pixel_id = input.promotedObject.pixelId;
     if (input.promotedObject.customEventType) {
       po.custom_event_type = input.promotedObject.customEventType;
+    }
+    if (input.promotedObject.customConversionId) {
+      po.custom_conversion_id = input.promotedObject.customConversionId;
     }
     if (input.promotedObject.pageId) po.page_id = input.promotedObject.pageId;
     if (input.promotedObject.applicationId) {

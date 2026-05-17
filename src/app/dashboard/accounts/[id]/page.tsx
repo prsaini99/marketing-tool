@@ -13,7 +13,12 @@
  */
 
 import Link from "next/link";
-import { Building2, ChevronRight, Megaphone } from "lucide-react";
+import {
+  AlertTriangle,
+  Building2,
+  ChevronRight,
+  Megaphone,
+} from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
 import { cn } from "@/lib/utils";
 import { resolveDateRange } from "@/lib/date-range";
@@ -34,6 +39,58 @@ function formatMoney(amount: number, currency: string) {
     maximumFractionDigits: 0,
   }).format(amount);
 }
+
+// Same as formatMoney but keeps the fractional units. Used for Account
+// health figures where "₹12.34 outstanding" is meaningfully different
+// from "₹12" — KPIs round, balances don't.
+function formatMoneyExact(amount: number, currency: string) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+// Meta's disable_reason codes → human label + remediation hint. Labels are
+// kept terse so they fit inside a banner without wrapping on narrow screens.
+const DISABLE_REASON_LABEL: Record<string, { label: string; hint: string }> = {
+  ADS_INTEGRITY_POLICY: {
+    label: "Disabled — ads policy violation",
+    hint: "Review Meta's ads policy; appeal from Business Settings → Account quality.",
+  },
+  ADS_IP_REVIEW: {
+    label: "Disabled — IP review",
+    hint: "Meta is reviewing intellectual-property concerns. No action needed until they reach out.",
+  },
+  RISK_PAYMENT: {
+    label: "Disabled — payment risk",
+    hint: "Add or verify a funding source in Meta Ads Manager → Billing.",
+  },
+  GRAY_ACCOUNT_SHUT_DOWN: {
+    label: "Disabled — gray account",
+    hint: "Account inactivity / fraud signal. Contact Meta support.",
+  },
+  ADS_AFC_REVIEW: {
+    label: "Disabled — AFC review",
+    hint: "Automated fraud check in progress. Wait for Meta's verdict.",
+  },
+  BUSINESS_INTEGRITY_RAR: {
+    label: "Disabled — business integrity",
+    hint: "Business Manager flagged for review. Check Account quality.",
+  },
+  PERMANENT_CLOSE: {
+    label: "Permanently closed",
+    hint: "This account is unusable. Create a new ad account under the Business.",
+  },
+  UNUSED_RESELLER_ACCOUNT: {
+    label: "Unused reseller account",
+    hint: "Reseller-issued account never activated; ignore unless you expected to use it.",
+  },
+  UNUSED_ACCOUNT: {
+    label: "Unused account",
+    hint: "Account inactive for an extended period; create a new one if needed.",
+  },
+};
 
 function formatCompact(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -252,7 +309,10 @@ export default async function AccountDetailPage({
           <DateRangeDropdown />
           <SchedulesButton accountIdUrl={id} accountName={account.name} />
           <SyncHistoryButton logs={logsForClient} />
-          <SyncNowButton accountId={id} kinds={["campaigns", "insights"]} />
+          <SyncNowButton
+            accountId={id}
+            kinds={["account-detail", "campaigns", "insights"]}
+          />
           <NewCampaignButton
             accounts={[
               {
@@ -292,6 +352,140 @@ export default async function AccountDetailPage({
           </dd>
         </div>
       </dl>
+
+      {/* Account health — mirrored from Meta into MetaAdAccount on the
+          "account-detail" sync kind. Numbers are as fresh as the last sync;
+          hit Sync now to refresh. */}
+      <section>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold tracking-tight">
+            Account health
+          </h2>
+          {account.healthSyncedAt ? (
+            <span className="text-[11px] text-subtle">
+              Synced {formatRelative(account.healthSyncedAt)}
+            </span>
+          ) : (
+            <span className="text-[11px] text-subtle">Never synced</span>
+          )}
+        </div>
+
+        {account.healthSyncedAt === null ? (
+          <div className="mt-2 flex items-start gap-2 rounded-md border border-dashed border-border bg-surface px-3 py-2 text-xs text-muted">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+            <div>
+              <p className="font-medium text-foreground">
+                Account health not synced yet
+              </p>
+              <p className="mt-0.5">
+                Click <span className="font-medium">Sync now</span> above to
+                pull balance, spend cap, and lifetime spend from Meta.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {account.disableReason && (
+              <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-700" />
+                <div>
+                  <p className="font-medium text-amber-900">
+                    {DISABLE_REASON_LABEL[account.disableReason]?.label ??
+                      `Disabled — ${account.disableReason}`}
+                  </p>
+                  <p className="mt-0.5 text-amber-800">
+                    {DISABLE_REASON_LABEL[account.disableReason]?.hint ??
+                      "Check Meta Ads Manager for the reason."}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <KpiCard
+                label="Lifetime spend"
+                value={formatMoneyExact(
+                  (account.amountSpentCents ?? 0) / 100,
+                  currency,
+                )}
+              />
+              <KpiCard
+                label="Balance"
+                value={formatMoneyExact(
+                  (account.balanceCents ?? 0) / 100,
+                  currency,
+                )}
+              />
+              <div className="rounded-lg border border-border bg-background px-4 py-3">
+                <p className="text-xs text-subtle">Spend cap</p>
+                {account.spendCapCents === null ? (
+                  <p className="mt-1 text-base font-semibold tracking-tight text-foreground">
+                    No cap
+                  </p>
+                ) : (
+                  <>
+                    <p className="mt-1 text-base font-semibold tracking-tight text-foreground">
+                      {formatMoneyExact(account.spendCapCents / 100, currency)}
+                    </p>
+                    {/* Thin progress bar showing how close lifetime spend is
+                        to the cap. Capped at 100% width even if Meta reports
+                        spend > cap (can happen during reconciliation). */}
+                    <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-surface-2">
+                      <div
+                        className={cn(
+                          "h-full rounded-full",
+                          (account.amountSpentCents ?? 0) >=
+                            account.spendCapCents
+                            ? "bg-amber-500"
+                            : "bg-accent",
+                        )}
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.round(
+                              ((account.amountSpentCents ?? 0) /
+                                account.spendCapCents) *
+                                100,
+                            ),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="rounded-lg border border-border bg-background px-4 py-3">
+                <p className="text-xs text-subtle">Min daily budget</p>
+                <p className="mt-1 text-base font-semibold tracking-tight text-foreground">
+                  {account.minDailyBudgetCents === null
+                    ? "—"
+                    : formatMoneyExact(
+                        account.minDailyBudgetCents / 100,
+                        currency,
+                      )}
+                </p>
+                <p className="mt-0.5 text-[11px] text-subtle">
+                  Meta&apos;s floor for new ad sets
+                </p>
+              </div>
+            </div>
+
+            {(account.businessCountryCode || account.fundingSourceId) && (
+              <p className="mt-2 text-[11px] text-subtle">
+                {account.businessCountryCode && (
+                  <span>Country: {account.businessCountryCode}</span>
+                )}
+                {account.businessCountryCode && account.fundingSourceId && (
+                  <span className="mx-1.5">·</span>
+                )}
+                {account.fundingSourceId && (
+                  <span>Funding source ID: {account.fundingSourceId}</span>
+                )}
+              </p>
+            )}
+          </>
+        )}
+      </section>
 
       {/* KPIs */}
       <section>

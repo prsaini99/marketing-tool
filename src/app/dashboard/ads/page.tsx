@@ -128,6 +128,8 @@ export default async function AdsFlatPage({
       name: a.name,
       status: a.status,
       format: a.format,
+      metaCreativeId: a.metaCreativeId,
+      creativeThumbnailUrl: a.creativeThumbnailUrl,
       spend: hasInsights ? (m?.spendCents ?? 0) / 100 : null,
       impressions: hasInsights ? imps : null,
       ctr: hasInsights ? (imps > 0 ? clks / imps : 0) : null,

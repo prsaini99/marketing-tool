@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ReachEstimateCard } from "./reach-estimate-card";
 
 interface ParentCampaign {
   metaCampaignId: string;
@@ -14,13 +15,43 @@ interface ParentCampaign {
   hasCbo: boolean;
 }
 
+// Audience option for the Custom audiences picker. Pre-filtered server-side
+// to the audiences belonging to this ad set's parent ad account.
+export interface AvailableAudience {
+  id: string;                           // Meta audience id
+  name: string;
+  subtype: string | null;
+  approximateCount: number | null;
+  ready: boolean;                       // operationStatus indicates ready-to-use
+}
+
+// Saved custom conversion option for the Promoted object picker. Lets the
+// user pick a saved rule instead of the raw Pixel ID + event type combo.
+export interface AvailableConversion {
+  id: string;                           // Meta custom_conversion_id
+  name: string;
+  customEventType: string | null;
+}
+
 interface CreateAdSetModalProps {
   open: boolean;
   campaign: ParentCampaign;
+  // Meta ad account id (act_-prefixed or unprefixed). Needed by the live
+  // reach-estimate card so it can hit the correct /act_X/delivery_estimate.
+  metaAdAccountId: string;
   currency: string;
   // ISO country code for the ad account's market — used as the default
   // targeting country so users don't have to type it every time.
   defaultCountry?: string;
+  // Saved custom audiences for this ad account (already-synced in our DB).
+  // Empty array is fine — the picker degrades to a "no audiences synced
+  // yet" hint pointing to the Audiences page.
+  audiences?: AvailableAudience[];
+  // Saved custom conversions for this ad account. Drives the alternative
+  // path in the Promoted object block — pick a saved rule instead of
+  // typing a Pixel ID + event type by hand. Empty array is fine; the
+  // picker degrades to a hint pointing to the Conversions page.
+  conversions?: AvailableConversion[];
   onClose: () => void;
 }
 
@@ -117,8 +148,11 @@ function formatCurrency(amount: number, currency: string): string {
 export function CreateAdSetModal({
   open,
   campaign,
+  metaAdAccountId,
   currency,
   defaultCountry = "IN",
+  audiences = [],
+  conversions = [],
   onClose,
 }: CreateAdSetModalProps) {
   const router = useRouter();
@@ -153,11 +187,25 @@ export function CreateAdSetModal({
   );
   const [status, setStatus] = useState<"PAUSED" | "ACTIVE">("PAUSED");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Custom audiences chosen for include / exclude. Stored as Sets of Meta
+  // audience ids so dedup is automatic; we serialize to {id} objects for
+  // the Meta payload at submit time.
+  const [includedAudienceIds, setIncludedAudienceIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [excludedAudienceIds, setExcludedAudienceIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   // Promoted-object inputs. Only the ones matching the current goal's shape
   // are shown/required; the rest stay null and don't get sent.
+  // pixelMode toggles between hand-typing Pixel ID + event vs. picking a
+  // saved custom conversion. The two map to different `promoted_object`
+  // shapes in the Meta payload — never sent together.
+  const [pixelMode, setPixelMode] = useState<"standard" | "saved">("standard");
   const [pixelId, setPixelId] = useState("");
   const [pixelEvent, setPixelEvent] = useState("PURCHASE");
+  const [savedConversionId, setSavedConversionId] = useState("");
   const [pageId, setPageId] = useState("");
   const [appId, setAppId] = useState("");
   const [appStoreUrl, setAppStoreUrl] = useState("");
@@ -186,8 +234,12 @@ export function CreateAdSetModal({
     setIgPositions(new Set(["stream", "story", "reels"]));
     setStatus("PAUSED");
     setShowAdvanced(false);
+    setIncludedAudienceIds(new Set());
+    setExcludedAudienceIds(new Set());
+    setPixelMode("standard");
     setPixelId("");
     setPixelEvent("PURCHASE");
+    setSavedConversionId("");
     setPageId("");
     setAppId("");
     setAppStoreUrl("");
@@ -263,8 +315,12 @@ export function CreateAdSetModal({
       }
     }
     if (promotedShape === "pixel") {
-      if (!pixelId.trim()) return "Pixel ID is required for conversion goals.";
-      if (!pixelEvent) return "Pick a conversion event.";
+      if (pixelMode === "standard") {
+        if (!pixelId.trim()) return "Pixel ID is required for conversion goals.";
+        if (!pixelEvent) return "Pick a conversion event.";
+      } else {
+        if (!savedConversionId) return "Pick a saved custom conversion.";
+      }
     }
     if (promotedShape === "page" && !pageId.trim()) {
       return "Facebook Page ID is required for lead generation.";
@@ -287,6 +343,17 @@ export function CreateAdSetModal({
     age_max: Number.isFinite(ageMaxNum) ? ageMaxNum : 65,
   };
   if (gendersForPayload) targetingForPayload.genders = gendersForPayload;
+  // Custom audiences — Meta expects arrays of {id} objects, not bare ids.
+  if (includedAudienceIds.size > 0) {
+    targetingForPayload.custom_audiences = Array.from(includedAudienceIds).map(
+      (id) => ({ id }),
+    );
+  }
+  if (excludedAudienceIds.size > 0) {
+    targetingForPayload.excluded_custom_audiences = Array.from(
+      excludedAudienceIds,
+    ).map((id) => ({ id }));
+  }
   if (placementMode === "manual") {
     const publisherPlatforms: string[] = [];
     if (fbPositions.size > 0) {
@@ -315,11 +382,17 @@ export function CreateAdSetModal({
   }
   if (startTimeIso) previewPayload.start_time = startTimeIso;
   if (endTimeIso) previewPayload.end_time = endTimeIso;
-  if (promotedShape === "pixel" && pixelId.trim()) {
-    previewPayload.promoted_object = {
-      pixel_id: pixelId.trim(),
-      custom_event_type: pixelEvent,
-    };
+  if (promotedShape === "pixel") {
+    if (pixelMode === "standard" && pixelId.trim()) {
+      previewPayload.promoted_object = {
+        pixel_id: pixelId.trim(),
+        custom_event_type: pixelEvent,
+      };
+    } else if (pixelMode === "saved" && savedConversionId) {
+      previewPayload.promoted_object = {
+        custom_conversion_id: savedConversionId,
+      };
+    }
   } else if (promotedShape === "page" && pageId.trim()) {
     previewPayload.promoted_object = { page_id: pageId.trim() };
   } else if (
@@ -362,6 +435,14 @@ export function CreateAdSetModal({
             ageMin: ageMinNum,
             ageMax: ageMaxNum,
             genders: gendersForPayload,
+            includedAudienceIds:
+              includedAudienceIds.size > 0
+                ? Array.from(includedAudienceIds)
+                : undefined,
+            excludedAudienceIds:
+              excludedAudienceIds.size > 0
+                ? Array.from(excludedAudienceIds)
+                : undefined,
             placements:
               placementMode === "manual"
                 ? {
@@ -374,7 +455,9 @@ export function CreateAdSetModal({
           },
           promotedObject:
             promotedShape === "pixel"
-              ? { pixelId: pixelId.trim(), customEventType: pixelEvent }
+              ? pixelMode === "saved"
+                ? { customConversionId: savedConversionId }
+                : { pixelId: pixelId.trim(), customEventType: pixelEvent }
               : promotedShape === "page"
                 ? { pageId: pageId.trim() }
                 : promotedShape === "app"
@@ -492,41 +575,120 @@ export function CreateAdSetModal({
                     Promoted object
                   </div>
                   <p className="text-[11px] text-subtle">
-                    Conversion goals need a Meta Pixel and the event to optimize for.
+                    Conversion goals optimize toward a Pixel event. Pick a
+                    standard event by hand, or a saved custom conversion
+                    (recommended if your senior already configured one).
                   </p>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">
-                      Pixel ID <span className="text-danger">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={pixelId}
-                      onChange={(e) => setPixelId(e.target.value)}
-                      placeholder="e.g. 1234567890123456"
-                      disabled={submitting}
-                      className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                    />
-                    <p className="text-[11px] text-subtle">
-                      Find your Pixel ID in Meta Events Manager → Data sources.
-                    </p>
+                  <div className="inline-flex rounded-md border border-border bg-background p-0.5 text-xs">
+                    {(["standard", "saved"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setPixelMode(m)}
+                        disabled={submitting}
+                        className={cn(
+                          "rounded-sm px-2.5 py-1 font-medium transition-colors",
+                          pixelMode === m
+                            ? "bg-surface-2 text-foreground"
+                            : "text-muted hover:text-foreground",
+                        )}
+                      >
+                        {m === "standard"
+                          ? "Standard event"
+                          : "Saved custom conversion"}
+                      </button>
+                    ))}
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-foreground">
-                      Conversion event <span className="text-danger">*</span>
-                    </label>
-                    <select
-                      value={pixelEvent}
-                      onChange={(e) => setPixelEvent(e.target.value)}
-                      disabled={submitting}
-                      className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                    >
-                      {PIXEL_EVENTS.map((ev) => (
-                        <option key={ev.value} value={ev.value}>
-                          {ev.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+
+                  {pixelMode === "standard" ? (
+                    <>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-foreground">
+                          Pixel ID <span className="text-danger">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={pixelId}
+                          onChange={(e) => setPixelId(e.target.value)}
+                          placeholder="e.g. 1234567890123456"
+                          disabled={submitting}
+                          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                        />
+                        <p className="text-[11px] text-subtle">
+                          Find your Pixel ID in Meta Events Manager → Data
+                          sources.
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-foreground">
+                          Conversion event{" "}
+                          <span className="text-danger">*</span>
+                        </label>
+                        <select
+                          value={pixelEvent}
+                          onChange={(e) => setPixelEvent(e.target.value)}
+                          disabled={submitting}
+                          className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                        >
+                          {PIXEL_EVENTS.map((ev) => (
+                            <option key={ev.value} value={ev.value}>
+                              {ev.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-foreground">
+                        Saved custom conversion{" "}
+                        <span className="text-danger">*</span>
+                      </label>
+                      {conversions.length === 0 ? (
+                        <p className="rounded-md border border-dashed border-border bg-surface px-3 py-2 text-[11px] text-muted">
+                          No custom conversions synced for this account.
+                          Visit{" "}
+                          <span className="font-medium text-foreground">
+                            Conversions
+                          </span>{" "}
+                          in the sidebar and click Sync now to populate this
+                          picker, or switch back to{" "}
+                          <span className="font-medium text-foreground">
+                            Standard event
+                          </span>
+                          .
+                        </p>
+                      ) : (
+                        <>
+                          <select
+                            value={savedConversionId}
+                            onChange={(e) =>
+                              setSavedConversionId(e.target.value)
+                            }
+                            disabled={submitting}
+                            className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                          >
+                            <option value="">— Pick a conversion —</option>
+                            {conversions.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                                {c.customEventType
+                                  ? ` · ${c.customEventType}`
+                                  : ""}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[11px] text-subtle">
+                            Sends{" "}
+                            <span className="font-mono">
+                              promoted_object.custom_conversion_id
+                            </span>{" "}
+                            instead of the Pixel + event combo.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               {promotedShape === "page" && (
@@ -747,6 +909,71 @@ export function CreateAdSetModal({
                     ))}
                   </div>
                 </div>
+
+                {/* Custom audiences picker. Two parallel pill lists +
+                    dropdowns: Include (people you DO want to target) and
+                    Exclude (people you don't, like existing customers).
+                    Audiences already chosen on either side are filtered out
+                    of both dropdowns to prevent contradictions. Audiences
+                    that aren't `ready` are surfaced but disabled, with a
+                    pointer to the Audiences page to sync. */}
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-foreground">
+                    Custom audiences (optional)
+                  </label>
+                  {audiences.length === 0 ? (
+                    <p className="rounded-md border border-dashed border-border bg-surface px-3 py-2 text-[11px] text-muted">
+                      No custom audiences synced for this account yet. Visit{" "}
+                      <span className="font-medium text-foreground">
+                        Audiences
+                      </span>{" "}
+                      in the sidebar and click Sync now to populate the picker.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <AudienceSubpicker
+                        kind="Include"
+                        helper="Show this ad to people in these audiences."
+                        selected={includedAudienceIds}
+                        otherSelected={excludedAudienceIds}
+                        audiences={audiences}
+                        onAdd={(id) =>
+                          setIncludedAudienceIds(
+                            (prev) => new Set(prev).add(id),
+                          )
+                        }
+                        onRemove={(id) =>
+                          setIncludedAudienceIds((prev) => {
+                            const next = new Set(prev);
+                            next.delete(id);
+                            return next;
+                          })
+                        }
+                        disabled={submitting}
+                      />
+                      <AudienceSubpicker
+                        kind="Exclude"
+                        helper="Don't show this ad to people in these audiences."
+                        selected={excludedAudienceIds}
+                        otherSelected={includedAudienceIds}
+                        audiences={audiences}
+                        onAdd={(id) =>
+                          setExcludedAudienceIds(
+                            (prev) => new Set(prev).add(id),
+                          )
+                        }
+                        onRemove={(id) =>
+                          setExcludedAudienceIds((prev) => {
+                            const next = new Set(prev);
+                            next.delete(id);
+                            return next;
+                          })
+                        }
+                        disabled={submitting}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Placements */}
@@ -907,6 +1134,21 @@ export function CreateAdSetModal({
               <pre className="mt-3 overflow-x-auto rounded-md border border-border bg-background p-3 text-[11px] leading-relaxed text-foreground">
                 {JSON.stringify(previewPayload, null, 2)}
               </pre>
+
+              {/* Live reach estimate. Fires against
+                  /act_X/delivery_estimate with the same targeting that
+                  would go on POST /act_X/adsets, debounced 500ms. Only
+                  enabled once countries are set — Meta rejects the call
+                  otherwise. */}
+              <div className="mt-3">
+                <ReachEstimateCard
+                  metaAdAccountId={metaAdAccountId}
+                  targeting={targetingForPayload}
+                  optimizationGoal={optimizationGoal}
+                  enabled={countries.length > 0}
+                />
+              </div>
+
               <div className="mt-3 space-y-1 text-[11px] text-subtle">
                 <div className="flex justify-between">
                   <span>Parent campaign</span>
@@ -964,5 +1206,113 @@ export function CreateAdSetModal({
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * Pill list + add-from-dropdown widget for one side of the custom audience
+ * picker (Include OR Exclude). Pure presentation — the parent owns the
+ * Set<string> state and the add/remove handlers.
+ *
+ * Dropdown filters out audiences already chosen on either side (an audience
+ * being included AND excluded is a Meta-side contradiction). Non-ready
+ * audiences stay in the list but render with an asterisk and a tooltip
+ * explaining their state — the user can still pick them, but they should
+ * know what they're getting.
+ */
+function AudienceSubpicker({
+  kind,
+  helper,
+  selected,
+  otherSelected,
+  audiences,
+  onAdd,
+  onRemove,
+  disabled,
+}: {
+  kind: "Include" | "Exclude";
+  helper: string;
+  selected: Set<string>;
+  otherSelected: Set<string>;
+  audiences: AvailableAudience[];
+  onAdd: (id: string) => void;
+  onRemove: (id: string) => void;
+  disabled: boolean;
+}) {
+  const available = audiences.filter(
+    (a) => !selected.has(a.id) && !otherSelected.has(a.id),
+  );
+  const byId = new Map(audiences.map((a) => [a.id, a]));
+  const chosen = Array.from(selected)
+    .map((id) => byId.get(id))
+    .filter((a): a is AvailableAudience => Boolean(a));
+
+  return (
+    <div className="rounded-md border border-border bg-surface px-2.5 py-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-foreground">
+          {kind}
+        </span>
+        <span className="text-[10px] text-subtle">
+          {selected.size} selected
+        </span>
+      </div>
+      <p className="mt-0.5 text-[11px] text-subtle">{helper}</p>
+
+      {chosen.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {chosen.map((a) => (
+            <span
+              key={a.id}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-1.5 py-0.5 text-[11px]"
+              title={
+                a.subtype
+                  ? `${a.subtype}${a.approximateCount != null ? ` · ~${a.approximateCount.toLocaleString()} people` : ""}`
+                  : undefined
+              }
+            >
+              <span className="max-w-[12rem] truncate">{a.name}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(a.id)}
+                disabled={disabled}
+                aria-label={`Remove ${a.name}`}
+                className="rounded-full p-0.5 text-subtle hover:bg-surface-2 hover:text-foreground disabled:opacity-50"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <select
+        // Always reads as the placeholder option — selecting an audience
+        // fires onChange which calls onAdd, then we reset back to "".
+        value=""
+        onChange={(e) => {
+          const id = e.target.value;
+          if (id) onAdd(id);
+        }}
+        disabled={disabled || available.length === 0}
+        className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <option value="">
+          {available.length === 0
+            ? "— All audiences chosen —"
+            : `+ Add audience to ${kind.toLowerCase()}…`}
+        </option>
+        {available.map((a) => (
+          <option key={a.id} value={a.id}>
+            {a.name}
+            {a.subtype ? ` · ${a.subtype}` : ""}
+            {a.approximateCount != null
+              ? ` · ~${a.approximateCount.toLocaleString()}`
+              : ""}
+            {a.ready ? "" : " · NOT READY"}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }

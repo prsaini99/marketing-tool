@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { Plus } from "lucide-react";
-import { CreateAdSetModal } from "./create-adset-modal";
+import {
+  CreateAdSetModal,
+  type AvailableAudience,
+  type AvailableConversion,
+} from "./create-adset-modal";
 
 interface NewAdSetButtonProps {
   campaign: {
@@ -11,14 +15,26 @@ interface NewAdSetButtonProps {
     objective: string;
     hasCbo: boolean;
   };
+  // Meta ad account id (the campaign's parent account). Threaded down to
+  // the modal so the live reach-estimate card knows which account to ask.
+  metaAdAccountId: string;
   currency: string;
   defaultCountry?: string;
+  // Pre-fetched server-side from the AdCreative-parent ad account; passed
+  // through to the modal so the Custom audiences picker has its options.
+  audiences?: AvailableAudience[];
+  // Same idea as `audiences` — saved custom conversions for the picker
+  // inside the Promoted object block.
+  conversions?: AvailableConversion[];
 }
 
 export function NewAdSetButton({
   campaign,
+  metaAdAccountId,
   currency,
   defaultCountry,
+  audiences,
+  conversions,
 }: NewAdSetButtonProps) {
   const [open, setOpen] = useState(false);
   const disabled = !campaign.metaCampaignId;
@@ -41,8 +57,11 @@ export function NewAdSetButton({
       <CreateAdSetModal
         open={open}
         campaign={campaign}
+        metaAdAccountId={metaAdAccountId}
         currency={currency}
         defaultCountry={defaultCountry}
+        audiences={audiences}
+        conversions={conversions}
         onClose={() => setOpen(false)}
       />
     </>
