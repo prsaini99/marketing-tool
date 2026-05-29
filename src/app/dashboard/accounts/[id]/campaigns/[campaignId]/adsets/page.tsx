@@ -58,31 +58,84 @@ export default async function AdSetsPage({
     where: { adAccountId: account.id, metaCampaignId: campaignId },
   });
 
-  const [adSets, lastSync, insightsSync, perAdSet] = await Promise.all([
-    campaign
-      ? prisma.adSet.findMany({
-          where: { campaignId: campaign.id },
-          orderBy: { name: "asc" },
-        })
-      : Promise.resolve([]),
-    prisma.syncLog.findFirst({
-      where: { adAccountId: account.id, kind: "adsets", status: "success" },
-      orderBy: { finishedAt: "desc" },
-    }),
-    prisma.syncLog.findFirst({
-      where: { adAccountId: account.id, kind: "insights", status: "success" },
-      orderBy: { finishedAt: "desc" },
-    }),
-    prisma.insightsSnapshot.groupBy({
-      by: ["entityId"],
-      where: {
-        adAccountId: account.id,
-        level: "adset",
-        ...(dateRange.since ? { date: { gte: dateRange.since } } : {}),
-      },
-      _sum: { spendCents: true, impressions: true, clicks: true },
-    }),
-  ]);
+  const [
+    adSets,
+    lastSync,
+    insightsSync,
+    perAdSet,
+    audiences,
+    conversions,
+  ] = await Promise.all([
+      campaign
+        ? prisma.adSet.findMany({
+            where: { campaignId: campaign.id },
+            orderBy: { name: "asc" },
+          })
+        : Promise.resolve([]),
+      prisma.syncLog.findFirst({
+        where: { adAccountId: account.id, kind: "adsets", status: "success" },
+        orderBy: { finishedAt: "desc" },
+      }),
+      prisma.syncLog.findFirst({
+        where: {
+          adAccountId: account.id,
+          kind: "insights",
+          status: "success",
+        },
+        orderBy: { finishedAt: "desc" },
+      }),
+      prisma.insightsSnapshot.groupBy({
+        by: ["entityId"],
+        where: {
+          adAccountId: account.id,
+          level: "adset",
+          ...(dateRange.since ? { date: { gte: dateRange.since } } : {}),
+        },
+        _sum: { spendCents: true, impressions: true, clicks: true },
+      }),
+      // Pulled here (not inside the modal) so the picker opens instantly
+      // when the user clicks "New ad set" — no spinner on first render.
+      prisma.customAudience.findMany({
+        where: { adAccountId: account.id },
+        select: {
+          metaAudienceId: true,
+          name: true,
+          subtype: true,
+          approximateCount: true,
+          operationStatus: true,
+        },
+        orderBy: { name: "asc" },
+      }),
+      prisma.customConversion.findMany({
+        where: { adAccountId: account.id },
+        select: {
+          metaConversionId: true,
+          name: true,
+          customEventType: true,
+        },
+        orderBy: { name: "asc" },
+      }),
+    ]);
+
+  // Map the DB rows to the picker's expected shape. `ready` is derived from
+  // the loose "operationStatus" string — Meta uses a few synonyms here, all
+  // treated as ready as long as the substring matches.
+  const audienceOptions = audiences.map((a) => ({
+    id: a.metaAudienceId,
+    name: a.name,
+    subtype: a.subtype,
+    approximateCount: a.approximateCount,
+    ready: Boolean(
+      a.operationStatus &&
+        /ready|normal/i.test(a.operationStatus),
+    ),
+  }));
+
+  const conversionOptions = conversions.map((c) => ({
+    id: c.metaConversionId,
+    name: c.name,
+    customEventType: c.customEventType,
+  }));
 
   const metricsByAdSet = new Map(
     perAdSet.map((m) => [
@@ -160,7 +213,13 @@ export default async function AdSetsPage({
         </div>
         <div className="flex items-start gap-2">
           <DateRangeDropdown />
-          <SyncNowButton accountId={id} kinds={["adsets", "insights"]} />
+          {/* Includes "audiences" so the Custom audiences picker inside
+              the New ad set modal opens with the latest audience list — no
+              second sync trip required. */}
+          <SyncNowButton
+            accountId={id}
+            kinds={["adsets", "audiences", "conversions", "insights"]}
+          />
           {campaign && (
             <NewAdSetButton
               campaign={{
@@ -171,6 +230,9 @@ export default async function AdSetsPage({
                   campaign.dailyBudgetCents != null ||
                   campaign.lifetimeBudgetCents != null,
               }}
+              metaAdAccountId={account.metaAdAccountId}
+              audiences={audienceOptions}
+              conversions={conversionOptions}
               currency={currency}
             />
           )}

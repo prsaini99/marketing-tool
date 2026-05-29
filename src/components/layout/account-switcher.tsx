@@ -18,7 +18,13 @@ const FILTERABLE_ROUTES = new Set<string>([
   "/dashboard/campaigns",
   "/dashboard/adsets",
   "/dashboard/ads",
+  "/dashboard/creatives",
+  "/dashboard/images",
+  "/dashboard/videos",
+  "/dashboard/audiences",
+  "/dashboard/conversions",
   "/dashboard/audit-log",
+  "/dashboard/setup-guide",
   "/dashboard/settings",
 ]);
 

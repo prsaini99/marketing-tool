@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Archive,
+  Image as ImageIcon,
   Pause,
   Play,
   X,
@@ -292,12 +294,35 @@ export function FlatAdsTable({ ads }: FlatAdsTableProps) {
                     />
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium">{a.name}</span>
-                      <span className="text-xs text-subtle">
-                        {a.businessName} · {a.adAccountName} · {a.campaignName}{" "}
-                        · {a.adSetName}
-                      </span>
+                    <div className="flex items-center gap-3">
+                      {/* Asset preview tile — Meta returns the creative
+                          thumbnail inline on the /ads endpoint, so we
+                          surface it as a visual marker. Drill-into-
+                          creative happens on the per-adset ads page via
+                          row expansion, not from this flat overview. */}
+                      {a.creativeThumbnailUrl ? (
+                        <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded ring-1 ring-border">
+                          <Image
+                            src={a.creativeThumbnailUrl}
+                            alt={a.name}
+                            fill
+                            sizes="36px"
+                            className="object-cover"
+                            unoptimized
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-surface-2 ring-1 ring-border">
+                          <ImageIcon className="h-4 w-4 text-subtle" />
+                        </div>
+                      )}
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium">{a.name}</span>
+                        <span className="text-xs text-subtle">
+                          {a.businessName} · {a.adAccountName} ·{" "}
+                          {a.campaignName} · {a.adSetName}
+                        </span>
+                      </div>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-sm text-muted">

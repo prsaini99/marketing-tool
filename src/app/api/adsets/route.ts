@@ -154,12 +154,22 @@ export async function POST(req: Request) {
     };
   }
 
+  // Custom audience IDs (include / exclude). Both optional; absent or empty
+  // arrays drop through cleanly — the service only emits them when non-empty.
+  const includedAudienceIds = isStringArray(t.includedAudienceIds)
+    ? t.includedAudienceIds
+    : undefined;
+  const excludedAudienceIds = isStringArray(t.excludedAudienceIds)
+    ? t.excludedAudienceIds
+    : undefined;
+
   // Promoted object — every field is optional; we just pick out the strings
   // that look right and pass them through. Meta validates the combination.
   let promotedObject:
     | {
         pixelId?: string;
         customEventType?: string;
+        customConversionId?: string;
         pageId?: string;
         applicationId?: string;
         objectStoreUrl?: string;
@@ -171,6 +181,10 @@ export async function POST(req: Request) {
       pixelId: typeof po.pixelId === "string" ? po.pixelId : undefined,
       customEventType:
         typeof po.customEventType === "string" ? po.customEventType : undefined,
+      customConversionId:
+        typeof po.customConversionId === "string"
+          ? po.customConversionId
+          : undefined,
       pageId: typeof po.pageId === "string" ? po.pageId : undefined,
       applicationId:
         typeof po.applicationId === "string" ? po.applicationId : undefined,
@@ -199,6 +213,8 @@ export async function POST(req: Request) {
         ageMax: t.ageMax,
         genders,
         placements,
+        includedAudienceIds,
+        excludedAudienceIds,
       },
       promotedObject,
     });

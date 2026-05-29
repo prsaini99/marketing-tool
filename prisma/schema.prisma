@@ -80,26 +80,49 @@ model MetaBusiness {
 
 // Ad accounts under a MetaBusiness. selectedForSync gates whether Phase 1
 // sync jobs will mirror campaigns/ad sets/ads/insights for this account.
+//
+// Account-health fields (balance/spendCap/...) are populated by the
+// "account-detail" sync kind — these mirror what Meta's
+// `/act_{id}?fields=...` returns. They drift on Meta's side as ads spend
+// and top-ups clear, so the UI shows `healthSyncedAt` next to them so the
+// reader knows how stale the number is. `null` everywhere means the detail
+// sync hasn't run yet for this account.
 model MetaAdAccount {
-  id              String   @id @default(cuid())
-  metaAdAccountId String   // e.g. "act_1234567890"
-  name            String
-  currency        String
-  timezone        String
-  status          String   // Meta's account status string
-  selectedForSync Boolean  @default(false)
-  businessId      String
-  business        MetaBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id                  String   @id @default(cuid())
+  metaAdAccountId     String   // e.g. "act_1234567890"
+  name                String
+  currency            String
+  timezone            String
+  status              String   // Meta's account status string
+  selectedForSync     Boolean  @default(false)
+  businessId          String
+  business            MetaBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
-  campaigns       Campaign[]
-  adSets          AdSet[]
-  ads             Ad[]
-  insights        InsightsSnapshot[]
-  syncLogs        SyncLog[]
-  schedules       SyncSchedule[]
+  // Account health fields — pulled from Meta on the "account-detail" sync.
+  // Money in account-currency cents. `spendCapCents = null` means no cap.
+  balanceCents        Int?
+  spendCapCents       Int?
+  amountSpentCents    Int?
+  minDailyBudgetCents Int?
+  fundingSourceId     String?
+  businessCountryCode String?
+  disableReason       String?  // null when account is healthy; stable code otherwise
+  healthSyncedAt      DateTime?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  campaigns           Campaign[]
+  adSets              AdSet[]
+  ads                 Ad[]
+  creatives           AdCreative[]
+  images              AdImage[]
+  videos              AdVideo[]
+  audiences           CustomAudience[]
+  conversions         CustomConversion[]
+  insights            InsightsSnapshot[]
+  syncLogs            SyncLog[]
+  schedules           SyncSchedule[]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   @@unique([businessId, metaAdAccountId])
 }
@@ -176,22 +199,175 @@ model AdSet {
 
 // Ads under an AdSet. Phase 1.1 syncs basic metadata (creative `format` is
 // extracted via a separate /{creative_id} call — deferred for now, left null).
+//
+// `metaCreativeId` + `creativeThumbnailUrl` link an ad to the creative it's
+// using. Meta returns both inline via `?fields=creative{id,thumbnail_url}`,
+// so we don't need a separate creative-detail fetch per ad. The
+// metaCreativeId points to AdCreative.metaCreativeId for richer joins;
+// thumbnail is mirrored on the Ad row so tables can render an inline
+// preview without joining when AdCreative isn't synced yet.
 model Ad {
+  id                   String   @id @default(cuid())
+  metaAdId             String
+  adAccountId          String
+  adAccount            MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  adSetId              String
+  adSet                AdSet @relation(fields: [adSetId], references: [id], onDelete: Cascade)
+  name                 String
+  status               String
+  format               String?  // "SINGLE_IMAGE" | "VIDEO" | "CAROUSEL" | "COLLECTION" | null
+  metaCreativeId       String?
+  creativeThumbnailUrl String?
+  metaUpdatedTime      DateTime?
+  syncedAt             DateTime @default(now())
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([adAccountId, metaAdId])
+}
+
+// Ad creatives pulled from Meta's /act_{id}/adcreatives endpoint. A creative
+// is the "design" half of an ad — body text, headline, image/video, link,
+// CTA — owned at account level and reusable across multiple Ads. We mirror
+// the most-displayed fields so the UI can render a browse grid without
+// hitting Meta on every render. Long-form / structured fields (asset feed
+// spec, full object_story_spec) are deliberately omitted — fetch them
+// per-creative on detail view if needed later.
+model AdCreative {
+  id                  String   @id @default(cuid())
+  metaCreativeId      String
+  adAccountId         String
+  adAccount           MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  // Meta sometimes leaves `name` blank (it's optional). We keep it nullable
+  // and let the UI fall back to "Untitled creative" or the creative id.
+  name                String?
+  body                String?  // "primary text" in Ads Manager parlance
+  title               String?  // headline
+  linkUrl             String?
+  imageUrl            String?
+  imageHash           String?
+  thumbnailUrl        String?
+  videoId             String?
+  callToActionType    String?  // SHOP_NOW, LEARN_MORE, SIGN_UP, …
+  status              String?  // ACTIVE | IN_PROCESS | WITH_ISSUES | DELETED
+  effectiveStoryId    String?  // page_id_post_id form; useful for previewing
+  pageId              String?  // FB Page id from object_story_spec
+  instagramActorId    String?
+  objectType          String?  // SHARE | VIDEO | PHOTO | …
+  syncedAt            DateTime @default(now())
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([adAccountId, metaCreativeId])
+}
+
+// Raw images uploaded to an account's ad library — what `image_hash` on a
+// creative actually points to. We mirror them so the UI can show a browse
+// view AND a future Create-Ad picker can let users reuse an existing image
+// instead of re-uploading. Meta's `hash` field is the natural id (it's
+// content-addressed), so we make (adAccountId, hash) the unique key.
+model AdImage {
   id              String   @id @default(cuid())
-  metaAdId        String
+  metaImageHash   String   // Meta's `hash` — content-addressed image fingerprint
   adAccountId     String
   adAccount       MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  adSetId         String
-  adSet           AdSet @relation(fields: [adSetId], references: [id], onDelete: Cascade)
-  name            String
-  status          String
-  format          String?  // "SINGLE_IMAGE" | "VIDEO" | "CAROUSEL" | "COLLECTION" | null
-  metaUpdatedTime DateTime?
+  url             String?  // Direct CDN URL — short-lived; refetch if 404s
+  name            String?  // Original filename if Meta retained it
+  width           Int?
+  height          Int?
+  status          String?  // ACTIVE | DELETED | INTERNAL
+  metaCreatedTime DateTime?
   syncedAt        DateTime @default(now())
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  @@unique([adAccountId, metaAdId])
+  @@unique([adAccountId, metaImageHash])
+}
+
+// Raw videos uploaded to an account's ad library. Same role as AdImage but
+// for video assets — a creative references the underlying video by
+// `video_id`, and one video can back many creatives. We mirror the metadata
+// (not the file) so the UI can show a browse grid with thumbnails.
+model AdVideo {
+  id               String   @id @default(cuid())
+  metaVideoId      String   // Meta's `id` for the video object
+  adAccountId      String
+  adAccount        MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  title            String?
+  description      String?
+  thumbnailUrl     String?  // Meta's `picture` field — single-frame poster
+  sourceUrl        String?  // Direct mp4 URL — short-lived; refetch if 404s
+  lengthSeconds    Float?
+  status           String?  // ready | processing | error | …
+  metaCreatedTime  DateTime?
+  syncedAt         DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([adAccountId, metaVideoId])
+}
+
+// Saved audience lists pulled from /act_X/customaudiences. A custom audience
+// is a targeting shortcut — a pre-built list of specific people (uploaded
+// CRM, pixel visitors, video viewers, lookalikes, …) that ad sets can
+// include or exclude. Mirroring them lets the Create Ad Set picker present
+// the agency's saved audiences as a dropdown instead of forcing the user to
+// remember opaque Meta IDs.
+//
+// Money/count fields stay strings or ints depending on Meta's response —
+// `approximateCount` is integer; Meta returns "1000+" for very small or
+// privacy-bucketed audiences, in which case we store null.
+model CustomAudience {
+  id                 String   @id @default(cuid())
+  metaAudienceId     String
+  adAccountId        String
+  adAccount          MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  name               String
+  // CUSTOM | WEBSITE | LOOKALIKE | ENGAGEMENT | APP | OFFLINE_CONVERSION | …
+  subtype            String?
+  description        String?
+  approximateCount   Int?
+  // READY | PROCESSING | UPDATING | RECENTLY_USED | PENDING_TARGET …
+  operationStatus    String?
+  dataSourceSubtype  String?  // free-form Meta string, useful for UX hints
+  metaCreatedTime    DateTime?
+  syncedAt           DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([adAccountId, metaAudienceId])
+}
+
+// Saved custom conversions, pulled from /act_X/customconversions. A custom
+// conversion is a rule layered on top of Pixel events ("Purchase with value
+// > $100", "URL contains /thank-you", …) that ad sets reference via
+// `promoted_object.custom_conversion_id` to optimize delivery + report ROI.
+// We mirror them so the Create Ad Set form can present a picker beside the
+// raw-Pixel-event entry path.
+//
+// `rule` is the JSON predicate string Meta returns verbatim — preserved
+// (not parsed) so we can display it to the senior without round-tripping.
+model CustomConversion {
+  id                 String   @id @default(cuid())
+  metaConversionId   String
+  adAccountId        String
+  adAccount          MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  name               String
+  description        String?
+  // Raw JSON predicate (e.g. {"and":[{"event":{"eq":"Purchase"}},
+  // {"value":{"gt":100}}]}). Stored as text since the shape is open-ended.
+  rule               String?
+  // PURCHASE | ADD_TO_CART | LEAD | COMPLETE_REGISTRATION | OTHER | …
+  customEventType    String?
+  // Pixel id this conversion is built on top of.
+  eventSourceId      String?
+  metaLastFiredTime  DateTime?
+  metaCreatedTime    DateTime?
+  syncedAt           DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([adAccountId, metaConversionId])
 }
 
 // Daily metric rows pulled from Meta's /act_X/insights endpoint at multiple
