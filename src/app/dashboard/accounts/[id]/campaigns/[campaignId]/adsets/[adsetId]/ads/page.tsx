@@ -182,6 +182,7 @@ export default async function AdsPage({
                 metaAdSetId: adSet.metaAdSetId,
                 name: adSet.name,
               }}
+              metaAdAccountId={account.metaAdAccountId}
             />
           )}
         </div>

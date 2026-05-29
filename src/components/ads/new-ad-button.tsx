@@ -9,9 +9,11 @@ interface NewAdButtonProps {
     metaAdSetId: string;
     name: string;
   };
+  // Parent ad account's Meta id (act_…) — scopes the video library picker.
+  metaAdAccountId: string;
 }
 
-export function NewAdButton({ adSet }: NewAdButtonProps) {
+export function NewAdButton({ adSet, metaAdAccountId }: NewAdButtonProps) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -26,6 +28,7 @@ export function NewAdButton({ adSet }: NewAdButtonProps) {
       <CreateAdModal
         open={open}
         adSet={adSet}
+        metaAdAccountId={metaAdAccountId}
         onClose={() => setOpen(false)}
       />
     </>

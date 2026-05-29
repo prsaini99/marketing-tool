@@ -3,67 +3,65 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Loader2, UploadCloud, X } from "lucide-react";
-import { pollVideoUntilReady, uploadVideoChunked } from "@/lib/upload-video";
+import { ImagePlus, Loader2, X } from "lucide-react";
 
 /**
- * Upload an ad video via Meta's resumable, 3-phase flow (see
- * src/lib/upload-video.ts for the chunked driver). Progress is driven by
- * bytes transferred so the user sees a real bar; Meta encodes async after.
+ * Upload a standalone image into an account's library (POST /api/images).
+ * Unlike video, there's no chunking or encoding wait — Meta returns the hash
+ * immediately, so this is a single multipart request. Counterpart to the
+ * Upload-video modal.
  */
 
-export interface VideoAccountOption {
+export interface ImageAccountOption {
   metaAdAccountId: string; // act_-prefixed
   name: string;
   businessName: string;
 }
 
-interface UploadVideoModalProps {
+interface UploadImageModalProps {
   open: boolean;
-  accounts: VideoAccountOption[];
+  accounts: ImageAccountOption[];
   onClose: () => void;
 }
 
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
 function formatBytes(n: number): string {
-  if (n >= 1_073_741_824) return `${(n / 1_073_741_824).toFixed(1)} GB`;
   if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)} MB`;
   if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${n} B`;
 }
 
-export function UploadVideoModal({
+export function UploadImageModal({
   open,
   accounts,
   onClose,
-}: UploadVideoModalProps) {
+}: UploadImageModalProps) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [accountId, setAccountId] = useState(accounts[0]?.metaAdAccountId ?? "");
+  const [accountId, setAccountId] = useState(
+    accounts[0]?.metaAdAccountId ?? "",
+  );
   const [file, setFile] = useState<File | null>(null);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-
-  // Upload state machine: idle → uploading (with %) → done/error.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0); // 0..100
-  const [phase, setPhase] = useState<string>("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
-    if (!open) return;
+    if (open) return;
     setAccountId(accounts[0]?.metaAdAccountId ?? "");
     setFile(null);
-    setTitle("");
-    setDescription("");
-    setError(null);
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     setUploading(false);
-    setProgress(0);
-    setPhase("");
+    setError(null);
   }, [open, accounts]);
 
   useEffect(() => {
@@ -84,11 +82,33 @@ export function UploadVideoModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, uploading, onClose]);
 
+  function handleFile(f: File | null) {
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    if (!f) {
+      setFile(null);
+      return;
+    }
+    if (!f.type.startsWith("image/")) {
+      setError("Please pick an image file.");
+      return;
+    }
+    if (f.size > MAX_IMAGE_BYTES) {
+      setError(
+        `Image is ${formatBytes(f.size)} — limit is ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`,
+      );
+      return;
+    }
+    setError(null);
+    setFile(f);
+    setPreviewUrl(URL.createObjectURL(f));
+  }
+
   const validationError = (() => {
     if (!accountId) return "Pick an ad account.";
-    if (!file) return "Choose a video file.";
-    if (file && !file.type.startsWith("video/"))
-      return "That file isn't a video.";
+    if (!file) return "Choose an image file.";
     return null;
   })();
 
@@ -96,35 +116,15 @@ export function UploadVideoModal({
     if (validationError || !file) return;
     setUploading(true);
     setError(null);
-    setProgress(0);
-
     try {
-      const { videoId } = await uploadVideoChunked(file, accountId, {
-        title,
-        description,
-        onPhase: setPhase,
-        onProgress: setProgress,
-      });
-
-      // Bytes are on Meta; now it encodes. Poll until ready so the library
-      // shows it as Ready with a thumbnail automatically — no manual Sync.
-      // The status endpoint refreshes the local row read-through, so a plain
-      // router.refresh() afterwards reflects the latest state either way.
-      setProgress(100);
-      setPhase("Processing on Meta…");
-      const status = await pollVideoUntilReady(videoId, accountId, {
-        onTick: (s) => {
-          if (s.status) {
-            setPhase(`Processing on Meta… (${s.status.toLowerCase()})`);
-          }
-        },
-      });
-      const ready =
-        (!status.status || status.status.toLowerCase() === "ready") &&
-        Boolean(status.thumbnailUrl);
-      setPhase(ready ? "Ready" : "Still processing — will appear after Sync");
+      const form = new FormData();
+      form.set("accountId", accountId);
+      form.set("image", file, file.name);
+      const res = await fetch("/api/images", { method: "POST", body: form });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
       router.refresh();
-      setTimeout(() => onClose(), ready ? 700 : 1500);
+      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
       setUploading(false);
@@ -142,20 +142,20 @@ export function UploadVideoModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="upload-video-title"
+        aria-labelledby="upload-image-title"
         className="flex w-full max-w-lg flex-col rounded-lg border border-border bg-background shadow-lg"
       >
         <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-3.5">
           <div>
             <h2
-              id="upload-video-title"
+              id="upload-image-title"
               className="text-sm font-semibold tracking-tight"
             >
-              Upload video
+              Upload image
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              Uploaded in chunks through our server — your token stays
-              server-side. Meta encodes it after upload.
+              Uploaded to the account&apos;s ad-image library — your token stays
+              server-side. Reusable across ads &amp; creatives.
             </p>
           </div>
           <button
@@ -191,52 +191,58 @@ export function UploadVideoModal({
             </select>
           </div>
 
-          <div className="space-y-1">
+          <div className="space-y-2">
             <label className="text-xs font-medium text-foreground">
-              Video file <span className="text-danger">*</span>
+              Image file <span className="text-danger">*</span>
             </label>
             <input
               ref={fileInputRef}
               type="file"
-              accept="video/*"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              accept="image/*"
+              onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
               disabled={uploading}
-              className="block w-full text-sm text-muted file:mr-3 file:rounded-md file:border file:border-border file:bg-surface file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-surface-2"
+              className="hidden"
             />
-            {file && (
-              <p className="text-[11px] text-subtle">
-                {file.name} · {formatBytes(file.size)}
-              </p>
+            {previewUrl ? (
+              <div className="space-y-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewUrl}
+                  alt="Selected image"
+                  className="max-h-64 w-full rounded-md border border-border object-contain"
+                />
+                <div className="flex items-center justify-between text-[11px] text-subtle">
+                  <span className="truncate">
+                    {file?.name} · {file ? formatBytes(file.size) : ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleFile(null);
+                      if (fileInputRef.current) fileInputRef.current.value = "";
+                    }}
+                    disabled={uploading}
+                    className="ml-2 shrink-0 rounded border border-border bg-background px-2 py-0.5 hover:bg-surface-2"
+                  >
+                    Replace
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="flex w-full flex-col items-center justify-center gap-1.5 rounded-md border border-dashed border-border bg-surface px-4 py-6 text-xs text-muted hover:bg-surface-2 transition-colors"
+              >
+                <ImagePlus className="h-5 w-5 text-subtle" />
+                <span>Click to choose an image</span>
+                <span className="text-[10px] text-subtle">
+                  JPG / PNG · up to {MAX_IMAGE_BYTES / 1024 / 1024} MB
+                </span>
+              </button>
             )}
           </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground">
-              Title (optional)
-            </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              disabled={uploading}
-              className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-            />
-          </div>
-
-          {(uploading || progress > 0) && (
-            <div className="space-y-1">
-              <div className="flex justify-between text-[11px] text-subtle">
-                <span>{phase}</span>
-                <span className="tabular-nums">{progress}%</span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
-                <div
-                  className="h-full rounded-full bg-accent transition-all"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-            </div>
-          )}
 
           {error && (
             <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-danger">
@@ -267,9 +273,9 @@ export function UploadVideoModal({
               {uploading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <UploadCloud className="h-3.5 w-3.5" />
+                <ImagePlus className="h-3.5 w-3.5" />
               )}
-              {uploading ? "Uploading…" : "Upload video"}
+              {uploading ? "Uploading…" : "Upload image"}
             </button>
           </div>
         </div>
