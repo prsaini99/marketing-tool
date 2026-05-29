@@ -1,9 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getOptimizationGoalLabel, type DisplayAdSet } from "@/lib/display";
+import {
+  EditAdSetModal,
+  type EditableAdSet,
+} from "@/components/adsets/edit-adset-modal";
+import { DuplicateButton } from "@/components/common/duplicate-button";
+import { DeleteButton } from "@/components/common/delete-button";
 
 function formatMoney(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -73,6 +80,8 @@ export function AdSetsTable({
   const range = searchParams.get("range");
   const querySuffix = range ? `?range=${range}` : "";
 
+  const [editing, setEditing] = useState<EditableAdSet | null>(null);
+
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-background">
       <table className="w-full">
@@ -86,7 +95,7 @@ export function AdSetsTable({
             <th className="px-4 py-2.5 text-right">Cost / result</th>
             <th className="px-4 py-2.5">Status</th>
             <th className="px-4 py-2.5">Last edited</th>
-            <th className="w-8 px-4 py-2.5" aria-hidden="true" />
+            <th className="w-20 px-4 py-2.5 text-right">Edit</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -143,14 +152,48 @@ export function AdSetsTable({
                   <StatusPill status={s.status} />
                 </td>
                 <td className="px-4 py-3 text-sm text-muted">{s.lastEdited}</td>
-                <td className="px-4 py-3 text-right">
-                  <ChevronRight className="ml-auto h-4 w-4 text-subtle transition-colors group-hover:text-foreground" />
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1">
+                    {/* Edit opens the modal; stopPropagation so the row's
+                        drill-down navigation doesn't also fire. */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing({
+                          metaAdSetId: s.id,
+                          name: s.name,
+                          status: s.status,
+                          optimizationGoal: s.optimizationGoal,
+                          dailyBudgetCents: s.dailyBudgetCents,
+                          lifetimeBudgetCents: s.lifetimeBudgetCents ?? null,
+                        });
+                      }}
+                      aria-label={`Edit ${s.name}`}
+                      title="Edit ad set"
+                      className="rounded-md p-1.5 text-subtle transition-colors hover:bg-surface-2 hover:text-foreground"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <DuplicateButton level="adset" metaId={s.id} name={s.name} />
+                    <DeleteButton entityType="adset" metaId={s.id} name={s.name} />
+                    <ChevronRight className="h-4 w-4 text-subtle transition-colors group-hover:text-foreground" />
+                  </div>
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      {editing && (
+        <EditAdSetModal
+          open={true}
+          adSet={editing}
+          currency={currency}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }

@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
+import { DeleteButton } from "@/components/common/delete-button";
+import { UploadVideoButton } from "@/components/videos/upload-video-button";
 
 // Meta's video status values are lowercase; map the common ones. Anything
 // unknown falls through to a neutral pill.
@@ -103,12 +105,26 @@ export default async function VideoLibraryPage({
     where: { adAccount: { selectedForSync: true } },
   });
 
-  const accountsInScope = await prisma.metaAdAccount.count({
+  // Accounts the bulk Sync button hits + the Upload-video account picker.
+  const scopeAccounts = await prisma.metaAdAccount.findMany({
     where: {
       selectedForSync: true,
       ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
     },
+    select: {
+      metaAdAccountId: true,
+      name: true,
+      business: { select: { name: true } },
+    },
+    distinct: ["metaAdAccountId"],
+    orderBy: [{ business: { name: "asc" } }, { name: "asc" }],
   });
+  const accountsInScope = scopeAccounts.length;
+  const accountOptions = scopeAccounts.map((a) => ({
+    metaAdAccountId: a.metaAdAccountId,
+    name: a.name,
+    businessName: a.business.name,
+  }));
 
   return (
     <div className="space-y-4">
@@ -135,6 +151,7 @@ export default async function VideoLibraryPage({
             accountsInScope={accountsInScope}
             businessId={selectedBusiness?.id ?? null}
           />
+          <UploadVideoButton accounts={accountOptions} />
         </div>
       </div>
 
@@ -235,6 +252,13 @@ export default async function VideoLibraryPage({
                   <p className="text-[10px] text-subtle">
                     {v.adAccount.business.name} · {v.adAccount.name}
                   </p>
+                  <div className="flex justify-end border-t border-border pt-1.5">
+                    <DeleteButton
+                      entityType="video"
+                      metaId={v.metaVideoId}
+                      name={v.title ?? "this video"}
+                    />
+                  </div>
                 </div>
               </article>
             );

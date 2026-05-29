@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
+import { NewCreativeButton } from "@/components/creatives/new-creative-button";
+import { DeleteButton } from "@/components/common/delete-button";
 
 // Map Meta's call_to_action_type enum to readable labels.
 const CTA_LABEL: Record<string, string> = {
@@ -113,14 +115,27 @@ export default async function CreativesFlatPage({
     where: { adAccount: { selectedForSync: true } },
   });
 
-  // Count of ad accounts the bulk Sync button will hit. Scoped by client
-  // when one is selected; otherwise covers every selected-for-sync account.
-  const accountsInScope = await prisma.metaAdAccount.count({
+  // Accounts the bulk Sync button hits + the New-creative account picker.
+  // Scoped by client filter; de-duped by Meta id.
+  const scopeAccounts = await prisma.metaAdAccount.findMany({
     where: {
       selectedForSync: true,
       ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
     },
+    select: {
+      metaAdAccountId: true,
+      name: true,
+      business: { select: { name: true } },
+    },
+    distinct: ["metaAdAccountId"],
+    orderBy: [{ business: { name: "asc" } }, { name: "asc" }],
   });
+  const accountsInScope = scopeAccounts.length;
+  const accountOptions = scopeAccounts.map((a) => ({
+    metaAdAccountId: a.metaAdAccountId,
+    name: a.name,
+    businessName: a.business.name,
+  }));
 
   const activeCount = rows.filter((r) => r.status === "ACTIVE").length;
   const issuesCount = rows.filter((r) => r.status === "WITH_ISSUES").length;
@@ -152,6 +167,7 @@ export default async function CreativesFlatPage({
             accountsInScope={accountsInScope}
             businessId={selectedBusiness?.id ?? null}
           />
+          <NewCreativeButton accounts={accountOptions} />
         </div>
       </div>
 
@@ -250,6 +266,13 @@ export default async function CreativesFlatPage({
                     <span className="text-[10px] text-subtle">
                       {c.adAccount.business.name} · {c.adAccount.name}
                     </span>
+                  </div>
+                  <div className="flex justify-end border-t border-border pt-1.5">
+                    <DeleteButton
+                      entityType="creative"
+                      metaId={c.metaCreativeId}
+                      name={c.name ?? c.title ?? "this creative"}
+                    />
                   </div>
                 </div>
               </article>

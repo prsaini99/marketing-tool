@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
+import { DeleteButton } from "@/components/common/delete-button";
 
 const STATUS_STYLE: Record<string, { pill: string; label: string }> = {
   ACTIVE: { pill: "bg-green-50 text-green-700", label: "Active" },
@@ -197,6 +198,13 @@ export default async function ImageLibraryPage({
                   <p className="text-[10px] text-subtle">
                     {dims ?? "—"} · {img.adAccount.business.name}
                   </p>
+                  <div className="flex justify-end border-t border-border pt-1.5">
+                    <DeleteButton
+                      entityType="image"
+                      metaId={img.metaImageHash}
+                      name={img.name ?? "this image"}
+                    />
+                  </div>
                 </div>
               </article>
             );

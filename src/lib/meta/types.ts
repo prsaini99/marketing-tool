@@ -37,6 +37,7 @@ export interface NormalizedCampaign {
   objective: CampaignObjective | string; // string fallback for new objectives
   dailyBudgetCents: number | null;
   lifetimeBudgetCents: number | null;
+  spendCapCents: number | null;
   metaUpdatedTime: Date | null;
 }
 

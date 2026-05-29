@@ -47,6 +47,9 @@ export interface DisplayCampaign {
   objective: string;
   dailyBudgetCents: number | null;
   lifetimeBudgetCents: number | null;
+  // Campaign-wide spend cap (cents); null = no cap. Used to pre-fill the
+  // Edit Campaign modal.
+  spendCapCents: number | null;
   // Insights-driven; null until insights sync runs.
   spend7d: number | null;
   impressions: number | null;

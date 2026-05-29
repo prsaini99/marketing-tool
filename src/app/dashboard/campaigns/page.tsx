@@ -147,6 +147,7 @@ export default async function CampaignsFlatPage({
       objective: c.objective ?? "",
       dailyBudgetCents: c.dailyBudgetCents,
       lifetimeBudgetCents: c.lifetimeBudgetCents,
+      spendCapCents: c.spendCapCents,
       spend7d: hasInsights ? (m?.spendCents ?? 0) / 100 : null,
       impressions: hasInsights ? imps : null,
       clicks: hasInsights ? clks : null,

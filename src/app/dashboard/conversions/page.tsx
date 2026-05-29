@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
+import { NewConversionButton } from "@/components/conversions/new-conversion-button";
+import { DeleteButton } from "@/components/common/delete-button";
 
 // Meta's custom_event_type values → human labels. The OTHER bucket catches
 // anything URL-rule-based or custom-named.
@@ -128,12 +130,27 @@ export default async function ConversionsPage({
     where: { adAccount: { selectedForSync: true } },
   });
 
-  const accountsInScope = await prisma.metaAdAccount.count({
+  // Accounts the user can create a conversion under — scoped to the active
+  // client filter, de-duped by Meta id.
+  const scopeAccounts = await prisma.metaAdAccount.findMany({
     where: {
       selectedForSync: true,
       ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
     },
+    select: {
+      metaAdAccountId: true,
+      name: true,
+      business: { select: { name: true } },
+    },
+    distinct: ["metaAdAccountId"],
+    orderBy: [{ business: { name: "asc" } }, { name: "asc" }],
   });
+  const accountsInScope = scopeAccounts.length;
+  const accountOptions = scopeAccounts.map((a) => ({
+    metaAdAccountId: a.metaAdAccountId,
+    name: a.name,
+    businessName: a.business.name,
+  }));
 
   return (
     <div className="space-y-4">
@@ -160,6 +177,7 @@ export default async function ConversionsPage({
             accountsInScope={accountsInScope}
             businessId={selectedBusiness?.id ?? null}
           />
+          <NewConversionButton accounts={accountOptions} />
         </div>
       </div>
 
@@ -191,6 +209,7 @@ export default async function ConversionsPage({
                 <th className="px-4 py-2.5">Pixel</th>
                 <th className="px-4 py-2.5">Last fired</th>
                 <th className="px-4 py-2.5">Account</th>
+                <th className="w-12 px-4 py-2.5 text-right">Delete</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -258,6 +277,13 @@ export default async function ConversionsPage({
                           {c.adAccount.name}
                         </span>
                       </div>
+                    </td>
+                    <td className="px-4 py-3 text-right align-top">
+                      <DeleteButton
+                        entityType="conversion"
+                        metaId={c.metaConversionId}
+                        name={c.name}
+                      />
                     </td>
                   </tr>
                 );

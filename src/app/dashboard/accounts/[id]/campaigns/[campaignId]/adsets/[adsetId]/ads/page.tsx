@@ -115,6 +115,7 @@ export default async function AdsPage({
       name: a.name,
       status: a.status,
       format: a.format,
+      metaCreativeId: a.metaCreativeId,
       creativeThumbnailUrl: a.creativeThumbnailUrl,
       metaUpdatedTime: a.metaUpdatedTime,
       spendCents: m?.spendCents ?? 0,

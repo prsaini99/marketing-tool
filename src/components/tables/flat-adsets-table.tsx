@@ -7,6 +7,7 @@ import {
   Banknote,
   ChevronRight,
   Pause,
+  Pencil,
   Play,
   X,
 } from "lucide-react";
@@ -14,6 +15,12 @@ import { cn } from "@/lib/utils";
 import { getOptimizationGoalLabel, type FlatDisplayAdSet } from "@/lib/display";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { AdSetBudgetEditModal } from "@/components/adsets/budget-edit-modal";
+import {
+  EditAdSetModal,
+  type EditableAdSet,
+} from "@/components/adsets/edit-adset-modal";
+import { DuplicateButton } from "@/components/common/duplicate-button";
+import { DeleteButton } from "@/components/common/delete-button";
 
 type BulkAction = "pause" | "activate" | "archive";
 
@@ -121,6 +128,7 @@ export function FlatAdSetsTable({ adSets }: FlatAdSetsTableProps) {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [budgetOpen, setBudgetOpen] = useState(false);
+  const [editing, setEditing] = useState<EditableAdSet | null>(null);
 
   async function runBulk(action: BulkAction) {
     setBulkLoading(true);
@@ -294,7 +302,7 @@ export function FlatAdSetsTable({ adSets }: FlatAdSetsTableProps) {
               <th className="px-4 py-2.5 text-right">CTR</th>
               <th className="px-4 py-2.5">Status</th>
               <th className="px-4 py-2.5">Last edited</th>
-              <th className="w-8 px-4 py-2.5" aria-hidden="true" />
+              <th className="w-20 px-4 py-2.5 text-right">Edit</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -370,8 +378,41 @@ export function FlatAdSetsTable({ adSets }: FlatAdSetsTableProps) {
                   <td className="px-4 py-3 text-sm text-muted">
                     {s.lastEdited}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <ChevronRight className="ml-auto h-4 w-4 text-subtle transition-colors group-hover:text-foreground" />
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      {/* Edit opens the modal; stopPropagation so neither the
+                          row drill-down nor the checkbox toggles. */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditing({
+                            metaAdSetId: s.id,
+                            name: s.name,
+                            status: s.status,
+                            optimizationGoal: s.optimizationGoal,
+                            dailyBudgetCents: s.dailyBudgetCents,
+                            lifetimeBudgetCents: s.lifetimeBudgetCents,
+                          });
+                        }}
+                        aria-label={`Edit ${s.name}`}
+                        title="Edit ad set"
+                        className="rounded-md p-1.5 text-subtle transition-colors hover:bg-surface-2 hover:text-foreground"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <DuplicateButton
+                        level="adset"
+                        metaId={s.id}
+                        name={s.name}
+                      />
+                      <DeleteButton
+                        entityType="adset"
+                        metaId={s.id}
+                        name={s.name}
+                      />
+                      <ChevronRight className="h-4 w-4 text-subtle transition-colors group-hover:text-foreground" />
+                    </div>
                   </td>
                 </tr>
               );
@@ -390,6 +431,18 @@ export function FlatAdSetsTable({ adSets }: FlatAdSetsTableProps) {
           router.refresh();
         }}
       />
+
+      {editing && (
+        <EditAdSetModal
+          open={true}
+          adSet={editing}
+          // Currency is per ad account; pull it from the row being edited.
+          currency={
+            adSets.find((s) => s.id === editing.metaAdSetId)?.currency ?? "USD"
+          }
+          onClose={() => setEditing(null)}
+        />
+      )}
 
       {pendingAction && (() => {
         const meta = ACTION_META[pendingAction];
