@@ -307,7 +307,7 @@ class MetaClient {
       accessToken,
       {
         fields:
-          "id,name,status,objective,daily_budget,lifetime_budget,updated_time",
+          "id,name,status,objective,daily_budget,lifetime_budget,spend_cap,updated_time",
         limit: "200",
       },
     );
@@ -534,6 +534,112 @@ class MetaClient {
   }
 
   /**
+   * List the Facebook Pages an ad account can promote. Used by the Create
+   * Creative picker (object_story_spec needs a page_id). Lightweight: id +
+   * name only, no DB mirror.
+   */
+  async listPromotablePages(
+    connectionId: string,
+    metaAdAccountId: string,
+  ): Promise<Array<{ id: string; name: string }>> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const resp = await metaGet<MetaPagedResponse<{ id: string; name?: string }>>(
+      `/${acctId}/promote_pages`,
+      accessToken,
+      { fields: "id,name", limit: "100" },
+    );
+    return resp.data.map((p) => ({ id: p.id, name: p.name ?? p.id }));
+  }
+
+  /**
+   * Create a standalone ad creative on Meta. Payload is forwarded as
+   * URL-encoded params (object_story_spec gets JSON-stringified, matching
+   * createAd). Returns the new creative id.
+   */
+  async createAdCreative(
+    connectionId: string,
+    metaAdAccountId: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ id: string }> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/adcreatives`);
+    url.searchParams.set("access_token", accessToken);
+    for (const [key, value] of Object.entries(payload)) {
+      if (value == null) continue;
+      if (typeof value === "object") {
+        url.searchParams.set(key, JSON.stringify(value));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    return res.json() as Promise<{ id: string }>;
+  }
+
+  /**
+   * List the Meta Pixels on an ad account. Used by the Create Custom
+   * Conversion picker — a custom conversion is built on top of a pixel
+   * (event_source_id). Lightweight: id + name only, no DB mirror.
+   */
+  async listAdPixels(
+    connectionId: string,
+    metaAdAccountId: string,
+  ): Promise<Array<{ id: string; name: string }>> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const resp = await metaGet<MetaPagedResponse<{ id: string; name?: string }>>(
+      `/${acctId}/adspixels`,
+      accessToken,
+      { fields: "id,name", limit: "100" },
+    );
+    return resp.data.map((p) => ({ id: p.id, name: p.name ?? p.id }));
+  }
+
+  /**
+   * Create a custom conversion on Meta. Payload is forwarded as URL-encoded
+   * params (the `rule` object gets JSON-stringified, matching createCampaign).
+   * Returns the new conversion id.
+   */
+  async createCustomConversion(
+    connectionId: string,
+    metaAdAccountId: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ id: string }> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/customconversions`);
+    url.searchParams.set("access_token", accessToken);
+    for (const [key, value] of Object.entries(payload)) {
+      if (value == null) continue;
+      if (typeof value === "object") {
+        url.searchParams.set(key, JSON.stringify(value));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    return res.json() as Promise<{ id: string }>;
+  }
+
+  /**
    * List custom conversions saved on an ad account. These are rules layered
    * on top of Pixel events (e.g. "Purchase with value > $100", "URL contains
    * /thank-you") used as the optimization target for conversion-objective
@@ -591,6 +697,78 @@ class MetaClient {
       },
     );
     return resp.data.map(normalizeCustomAudience);
+  }
+
+  /**
+   * Create a custom audience container on Meta. For customer-list audiences
+   * this only makes the empty audience — call addUsersToCustomAudience after
+   * to populate it with hashed PII. Payload is forwarded as URL-encoded
+   * params (objects JSON-stringified), same as createCampaign.
+   *
+   * Returns the new audience id.
+   */
+  async createCustomAudience(
+    connectionId: string,
+    metaAdAccountId: string,
+    payload: Record<string, unknown>,
+  ): Promise<{ id: string }> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/customaudiences`);
+    url.searchParams.set("access_token", accessToken);
+    for (const [key, value] of Object.entries(payload)) {
+      if (value == null) continue;
+      if (typeof value === "object") {
+        url.searchParams.set(key, JSON.stringify(value));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    return res.json() as Promise<{ id: string }>;
+  }
+
+  /**
+   * Add hashed users to a customer-list custom audience. `schema` names the
+   * key types ("EMAIL", "PHONE") and `data` is an array of rows, each row an
+   * array of pre-hashed values aligned to schema. Hashing happens in the
+   * caller — this method never sees plaintext PII.
+   *
+   * Meta returns counts of received/invalid entries; we surface
+   * num_received so the service can report how many matched the upload.
+   */
+  async addUsersToCustomAudience(
+    connectionId: string,
+    metaAudienceId: string,
+    schema: string[],
+    data: string[][],
+  ): Promise<{ numReceived: number; numInvalid: number }> {
+    const { accessToken } = await getCredential(connectionId);
+    const url = new URL(`${META_API_BASE}/${metaAudienceId}/users`);
+    url.searchParams.set("access_token", accessToken);
+    url.searchParams.set(
+      "payload",
+      JSON.stringify({ schema, data }),
+    );
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    const body = (await res.json()) as {
+      num_received?: number;
+      num_invalid_entries?: number;
+    };
+    return {
+      numReceived: body.num_received ?? 0,
+      numInvalid: body.num_invalid_entries ?? 0,
+    };
   }
 
   /**
@@ -678,6 +856,40 @@ class MetaClient {
     url.searchParams.set("access_token", accessToken);
     url.searchParams.set("status", newStatus);
 
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+  }
+
+  /**
+   * General-purpose campaign edit. Forwards a partial field set as
+   * URL-encoded params to POST /{campaign_id} — only the fields the caller
+   * includes are touched on Meta's side. Used by the Edit Campaign flow,
+   * which sends just the diff between the form and the campaign's current
+   * values.
+   *
+   * Note: this is broader than updateCampaignStatus / updateCampaignBudget
+   * (which stay as focused helpers for bulk ops). Object values get
+   * JSON-stringified, matching createCampaign's encoding.
+   */
+  async updateCampaign(
+    connectionId: string,
+    metaCampaignId: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const { accessToken } = await getCredential(connectionId);
+    const url = new URL(`${META_API_BASE}/${metaCampaignId}`);
+    url.searchParams.set("access_token", accessToken);
+    for (const [key, value] of Object.entries(payload)) {
+      if (value == null) continue;
+      if (typeof value === "object") {
+        url.searchParams.set(key, JSON.stringify(value));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
     const res = await fetch(url.toString(), { method: "POST" });
     if (!res.ok) {
       const { message, code } = await readMetaError(res);
@@ -811,6 +1023,120 @@ class MetaClient {
   }
 
   /**
+   * Resumable video upload — phase 1 of 3 (start). Opens an upload session
+   * for a file of the given byte size. Returns the new video id + session id
+   * + the first chunk's offsets.
+   *
+   * Why chunked: Vercel serverless functions cap the request body at ~4.5 MB,
+   * and videos are bigger. We upload in sub-4 MB slices so each transfer
+   * request clears that cap while the token stays server-side.
+   */
+  async startVideoUpload(
+    connectionId: string,
+    metaAdAccountId: string,
+    fileSize: number,
+  ): Promise<{
+    uploadSessionId: string;
+    videoId: string;
+    startOffset: number;
+    endOffset: number;
+  }> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/advideos`);
+    url.searchParams.set("access_token", accessToken);
+    url.searchParams.set("upload_phase", "start");
+    url.searchParams.set("file_size", String(fileSize));
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    const body = (await res.json()) as {
+      upload_session_id: string;
+      video_id: string;
+      start_offset: string;
+      end_offset: string;
+    };
+    return {
+      uploadSessionId: body.upload_session_id,
+      videoId: body.video_id,
+      startOffset: Number.parseInt(body.start_offset, 10),
+      endOffset: Number.parseInt(body.end_offset, 10),
+    };
+  }
+
+  /**
+   * Resumable video upload — phase 2 (transfer). Sends one chunk starting at
+   * `startOffset`. Returns the next start/end offsets Meta expects; when
+   * startOffset === endOffset the file is fully transferred.
+   */
+  async transferVideoChunk(
+    connectionId: string,
+    metaAdAccountId: string,
+    uploadSessionId: string,
+    startOffset: number,
+    chunk: Blob,
+  ): Promise<{ startOffset: number; endOffset: number }> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/advideos`);
+    url.searchParams.set("access_token", accessToken);
+
+    const form = new FormData();
+    form.append("upload_phase", "transfer");
+    form.append("upload_session_id", uploadSessionId);
+    form.append("start_offset", String(startOffset));
+    form.append("video_file_chunk", chunk, "chunk");
+
+    const res = await fetch(url.toString(), { method: "POST", body: form });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    const body = (await res.json()) as {
+      start_offset: string;
+      end_offset: string;
+    };
+    return {
+      startOffset: Number.parseInt(body.start_offset, 10),
+      endOffset: Number.parseInt(body.end_offset, 10),
+    };
+  }
+
+  /**
+   * Resumable video upload — phase 3 (finish). Closes the session; Meta then
+   * processes the video async (status goes ready when done). Optional title
+   * sets the video's name.
+   */
+  async finishVideoUpload(
+    connectionId: string,
+    metaAdAccountId: string,
+    uploadSessionId: string,
+    opts?: { title?: string; description?: string },
+  ): Promise<void> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/advideos`);
+    url.searchParams.set("access_token", accessToken);
+    url.searchParams.set("upload_phase", "finish");
+    url.searchParams.set("upload_session_id", uploadSessionId);
+    if (opts?.title) url.searchParams.set("title", opts.title);
+    if (opts?.description) url.searchParams.set("description", opts.description);
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+  }
+
+  /**
    * Create a new ad on Meta. Caller is responsible for shaping the creative
    * payload (object_story_spec or creative_id reference) — we forward as-is.
    */
@@ -885,6 +1211,36 @@ class MetaClient {
     }
   }
 
+  /**
+   * General-purpose ad set edit. Forwards a partial field set to
+   * POST /{adset_id} — only fields the caller includes are touched. Used by
+   * the Edit Ad Set flow, which sends just the diff between the form and the
+   * ad set's current values. Broader than updateAdSetBudget / -Status, which
+   * stay as focused helpers for bulk ops. Object values get JSON-stringified.
+   */
+  async updateAdSet(
+    connectionId: string,
+    metaAdSetId: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const { accessToken } = await getCredential(connectionId);
+    const url = new URL(`${META_API_BASE}/${metaAdSetId}`);
+    url.searchParams.set("access_token", accessToken);
+    for (const [key, value] of Object.entries(payload)) {
+      if (value == null) continue;
+      if (typeof value === "object") {
+        url.searchParams.set(key, JSON.stringify(value));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+  }
+
   /** Change an ad's status on Meta. Mirrors updateCampaignStatus. */
   async updateAdStatus(
     connectionId: string,
@@ -895,6 +1251,136 @@ class MetaClient {
     const url = new URL(`${META_API_BASE}/${metaAdId}`);
     url.searchParams.set("access_token", accessToken);
     url.searchParams.set("status", newStatus);
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+  }
+
+  /**
+   * Delete an object on Meta by id (DELETE /{id}). Works for campaigns,
+   * ad sets, ads, audiences, conversions, creatives, videos — anything
+   * addressed by a bare id. Deleting a campaign/adset cascades to its
+   * children ON META's side automatically.
+   *
+   * Destructive + irreversible: callers MUST gate this behind a confirmation
+   * flow and an AuditLog row (see src/server/services/delete.ts).
+   */
+  async deleteEntity(connectionId: string, metaId: string): Promise<void> {
+    const { accessToken } = await getCredential(connectionId);
+    const url = new URL(`${META_API_BASE}/${metaId}`);
+    url.searchParams.set("access_token", accessToken);
+    const res = await fetch(url.toString(), { method: "DELETE" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+  }
+
+  /**
+   * Delete an ad image by hash. Images don't have a standalone /{id} edge —
+   * they're deleted through the account's adimages endpoint with a `hash`
+   * param: DELETE /act_{id}/adimages?hash=<hash>. Meta rejects if the image
+   * is still referenced by a creative (surfaced verbatim).
+   */
+  async deleteAdImage(
+    connectionId: string,
+    metaAdAccountId: string,
+    hash: string,
+  ): Promise<void> {
+    const { accessToken } = await getCredential(connectionId);
+    const acctId = metaAdAccountId.startsWith("act_")
+      ? metaAdAccountId
+      : `act_${metaAdAccountId}`;
+    const url = new URL(`${META_API_BASE}/${acctId}/adimages`);
+    url.searchParams.set("access_token", accessToken);
+    url.searchParams.set("hash", hash);
+    const res = await fetch(url.toString(), { method: "DELETE" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+  }
+
+  /**
+   * Duplicate a campaign / ad set / ad on Meta via its /copies edge.
+   *
+   * Works the same for all three levels — Meta routes by the id. Options:
+   *   • statusOption — usually "PAUSED" so the copy never auto-spends.
+   *   • deepCopy — campaign/adset only: also copy children (adsets/ads).
+   *   • renameSuffix — appended to the copy's name (e.g. " - Copy").
+   *
+   * Response shape differs by level (copied_campaign_id / copied_adset_id /
+   * copied_ad_id, or a bare id). We probe all of them and return the new id
+   * (null if Meta didn't echo one — caller falls back to a sync).
+   */
+  async copyEntity(
+    connectionId: string,
+    metaId: string,
+    options: {
+      statusOption?: "ACTIVE" | "PAUSED" | "INHERITED_FROM_SOURCE";
+      deepCopy?: boolean;
+      renameSuffix?: string;
+    },
+  ): Promise<{ newId: string | null }> {
+    const { accessToken } = await getCredential(connectionId);
+    const url = new URL(`${META_API_BASE}/${metaId}/copies`);
+    url.searchParams.set("access_token", accessToken);
+    if (options.statusOption) {
+      url.searchParams.set("status_option", options.statusOption);
+    }
+    if (options.deepCopy != null) {
+      url.searchParams.set("deep_copy", String(options.deepCopy));
+    }
+    if (options.renameSuffix) {
+      url.searchParams.set(
+        "rename_options",
+        JSON.stringify({ rename_suffix: options.renameSuffix }),
+      );
+    }
+    const res = await fetch(url.toString(), { method: "POST" });
+    if (!res.ok) {
+      const { message, code } = await readMetaError(res);
+      throw new MetaApiError(message, res.status, code);
+    }
+    const body = (await res.json()) as {
+      copied_campaign_id?: string;
+      copied_adset_id?: string;
+      copied_ad_id?: string;
+      id?: string;
+    };
+    const newId =
+      body.copied_campaign_id ??
+      body.copied_adset_id ??
+      body.copied_ad_id ??
+      body.id ??
+      null;
+    return { newId };
+  }
+
+  /**
+   * General-purpose ad edit. Forwards a partial field set to POST /{ad_id} —
+   * only fields the caller includes are touched. Used by the Edit Ad flow
+   * for name / status / creative-swap. Object values (e.g.
+   * `creative: { creative_id }`) get JSON-stringified, matching createAd.
+   */
+  async updateAd(
+    connectionId: string,
+    metaAdId: string,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const { accessToken } = await getCredential(connectionId);
+    const url = new URL(`${META_API_BASE}/${metaAdId}`);
+    url.searchParams.set("access_token", accessToken);
+    for (const [key, value] of Object.entries(payload)) {
+      if (value == null) continue;
+      if (typeof value === "object") {
+        url.searchParams.set(key, JSON.stringify(value));
+      } else {
+        url.searchParams.set(key, String(value));
+      }
+    }
     const res = await fetch(url.toString(), { method: "POST" });
     if (!res.ok) {
       const { message, code } = await readMetaError(res);
@@ -1280,6 +1766,7 @@ interface RawCampaign {
   objective?: string;
   daily_budget?: string;
   lifetime_budget?: string;
+  spend_cap?: string;
   updated_time?: string;
 }
 
@@ -1299,6 +1786,7 @@ function normalizeCampaign(raw: RawCampaign): NormalizedCampaign {
     objective: raw.objective ?? "",
     dailyBudgetCents: parseBudgetCents(raw.daily_budget),
     lifetimeBudgetCents: parseBudgetCents(raw.lifetime_budget),
+    spendCapCents: parseBudgetCents(raw.spend_cap),
     metaUpdatedTime: raw.updated_time ? new Date(raw.updated_time) : null,
   };
 }

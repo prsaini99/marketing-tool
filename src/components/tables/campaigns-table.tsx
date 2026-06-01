@@ -1,9 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getObjectiveLabel, type DisplayCampaign } from "@/lib/display";
+import {
+  EditCampaignModal,
+  type EditableCampaign,
+} from "@/components/campaigns/edit-campaign-modal";
+import { DuplicateButton } from "@/components/common/duplicate-button";
+import { DeleteButton } from "@/components/common/delete-button";
 
 function formatMoney(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -73,6 +80,10 @@ export function CampaignsTable({
   const range = searchParams.get("range");
   const querySuffix = range ? `?range=${range}` : "";
 
+  // Which campaign's edit modal is open (null = closed). Lives here so the
+  // modal portals out above the table without per-row state.
+  const [editing, setEditing] = useState<EditableCampaign | null>(null);
+
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-background">
       <table className="w-full">
@@ -86,7 +97,7 @@ export function CampaignsTable({
             <th className="px-4 py-2.5 text-right">CTR</th>
             <th className="px-4 py-2.5">Status</th>
             <th className="px-4 py-2.5">Last edited</th>
-            <th className="w-8 px-4 py-2.5" aria-hidden="true" />
+            <th className="w-20 px-4 py-2.5 text-right">Edit</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -143,14 +154,57 @@ export function CampaignsTable({
                   <StatusPill status={c.status} />
                 </td>
                 <td className="px-4 py-3 text-sm text-muted">{c.lastEdited}</td>
-                <td className="px-4 py-3 text-right">
-                  <ChevronRight className="ml-auto h-4 w-4 text-subtle transition-colors group-hover:text-foreground" />
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1">
+                    {/* Edit opens the modal; stopPropagation so the row's
+                        drill-down navigation doesn't also fire. */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditing({
+                          metaCampaignId: c.id,
+                          name: c.name,
+                          status: c.status,
+                          objective: c.objective,
+                          dailyBudgetCents: c.dailyBudgetCents,
+                          lifetimeBudgetCents: c.lifetimeBudgetCents,
+                          spendCapCents: c.spendCapCents,
+                        });
+                      }}
+                      aria-label={`Edit ${c.name}`}
+                      title="Edit campaign"
+                      className="rounded-md p-1.5 text-subtle transition-colors hover:bg-surface-2 hover:text-foreground"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <DuplicateButton
+                      level="campaign"
+                      metaId={c.id}
+                      name={c.name}
+                    />
+                    <DeleteButton
+                      entityType="campaign"
+                      metaId={c.id}
+                      name={c.name}
+                    />
+                    <ChevronRight className="h-4 w-4 text-subtle transition-colors group-hover:text-foreground" />
+                  </div>
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      {editing && (
+        <EditCampaignModal
+          open={true}
+          campaign={editing}
+          currency={currency}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }

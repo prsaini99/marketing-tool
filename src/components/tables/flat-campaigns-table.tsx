@@ -7,6 +7,7 @@ import {
   Banknote,
   ChevronRight,
   Pause,
+  Pencil,
   Play,
   X,
 } from "lucide-react";
@@ -14,6 +15,12 @@ import { cn } from "@/lib/utils";
 import { getObjectiveLabel, type DisplayCampaign } from "@/lib/display";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { BudgetEditModal } from "@/components/campaigns/budget-edit-modal";
+import {
+  EditCampaignModal,
+  type EditableCampaign,
+} from "@/components/campaigns/edit-campaign-modal";
+import { DuplicateButton } from "@/components/common/duplicate-button";
+import { DeleteButton } from "@/components/common/delete-button";
 
 type BulkAction = "pause" | "activate" | "archive";
 
@@ -126,6 +133,13 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [budgetOpen, setBudgetOpen] = useState(false);
+  // Single-campaign edit modal (separate from bulk ops). Stores currency
+  // alongside because the flat table mixes accounts with different
+  // currencies — can't rely on one table-level value.
+  const [editing, setEditing] = useState<{
+    campaign: EditableCampaign;
+    currency: string;
+  } | null>(null);
 
   async function runBulk(action: BulkAction) {
     setBulkLoading(true);
@@ -314,7 +328,7 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
               <th className="px-4 py-2.5 text-right">CTR</th>
               <th className="px-4 py-2.5">Status</th>
               <th className="px-4 py-2.5">Last edited</th>
-              <th className="w-8 px-4 py-2.5" aria-hidden="true" />
+              <th className="w-20 px-4 py-2.5 text-right">Edit</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -390,8 +404,43 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
                   <td className="px-4 py-3 text-sm text-muted">
                     {c.lastEdited}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <ChevronRight className="ml-auto h-4 w-4 text-subtle transition-colors group-hover:text-foreground" />
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditing({
+                            campaign: {
+                              metaCampaignId: c.id,
+                              name: c.name,
+                              status: c.status,
+                              objective: c.objective,
+                              dailyBudgetCents: c.dailyBudgetCents,
+                              lifetimeBudgetCents: c.lifetimeBudgetCents,
+                              spendCapCents: c.spendCapCents,
+                            },
+                            currency: c.currency,
+                          });
+                        }}
+                        aria-label={`Edit ${c.name}`}
+                        title="Edit campaign"
+                        className="rounded-md p-1.5 text-subtle transition-colors hover:bg-surface-2 hover:text-foreground"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <DuplicateButton
+                        level="campaign"
+                        metaId={c.id}
+                        name={c.name}
+                      />
+                      <DeleteButton
+                        entityType="campaign"
+                        metaId={c.id}
+                        name={c.name}
+                      />
+                      <ChevronRight className="h-4 w-4 text-subtle transition-colors group-hover:text-foreground" />
+                    </div>
                   </td>
                 </tr>
               );
@@ -410,6 +459,15 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
           router.refresh();
         }}
       />
+
+      {editing && (
+        <EditCampaignModal
+          open={true}
+          campaign={editing.campaign}
+          currency={editing.currency}
+          onClose={() => setEditing(null)}
+        />
+      )}
 
       {pendingAction && (() => {
         const meta = ACTION_META[pendingAction];

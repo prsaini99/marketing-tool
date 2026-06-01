@@ -115,6 +115,7 @@ export default async function AdsPage({
       name: a.name,
       status: a.status,
       format: a.format,
+      metaCreativeId: a.metaCreativeId,
       creativeThumbnailUrl: a.creativeThumbnailUrl,
       metaUpdatedTime: a.metaUpdatedTime,
       spendCents: m?.spendCents ?? 0,
@@ -181,6 +182,7 @@ export default async function AdsPage({
                 metaAdSetId: adSet.metaAdSetId,
                 name: adSet.name,
               }}
+              metaAdAccountId={account.metaAdAccountId}
             />
           )}
         </div>

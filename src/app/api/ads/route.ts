@@ -1,13 +1,14 @@
 /**
  * POST /api/ads
  *
- * Accepts multipart/form-data so the image file rides with the text fields.
+ * Accepts multipart/form-data so an image file can ride with the text fields.
  * See src/server/services/ads/create.ts for the upload-then-create flow.
  *
- * Form fields:
+ * Form fields (shared):
  *   metaAdSetId        — parent ad set Meta id
  *   name               — ad name
  *   status             — "PAUSED" | "ACTIVE"
+ *   mediaType          — "image" (default) | "video"
  *   pageId             — Facebook Page id
  *   instagramActorId   — optional Instagram identity override
  *   link               — destination URL
@@ -15,10 +16,17 @@
  *   headline           — short headline under the media
  *   description        — optional small text under the headline
  *   callToAction       — Meta CTA enum (e.g. "SHOP_NOW")
+ *
+ * Image ads add:
  *   image              — File: the image to upload to Meta /adimages
  *
- * Reasonable file limit enforced here (10 MB) — beyond that Meta will reject
- * anyway and the upload wastes bandwidth.
+ * Video ads add (the video is already in the account library — we only
+ * reference it; nothing is uploaded here):
+ *   videoId            — library video's Meta id
+ *   thumbnailUrl       — poster URL (Meta requires one for video creatives)
+ *
+ * Reasonable image file limit enforced here (10 MB) — beyond that Meta will
+ * reject anyway and the upload wastes bandwidth.
  */
 
 import { NextResponse } from "next/server";
@@ -115,38 +123,92 @@ export async function POST(req: Request) {
   const instagramActorId =
     getString("instagramActorId").trim() || undefined;
 
-  const imageField = form.get("image");
-  if (!(imageField instanceof Blob) || imageField.size === 0) {
+  const mediaTypeRaw = getString("mediaType").trim() || "image";
+  if (mediaTypeRaw !== "image" && mediaTypeRaw !== "video") {
     return NextResponse.json(
-      { error: "image file is required" },
+      { error: "mediaType must be 'image' or 'video'" },
       { status: 400 },
     );
   }
-  if (imageField.size > MAX_IMAGE_BYTES) {
-    return NextResponse.json(
-      {
-        error: `image too large (max ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)} MB)`,
-      },
-      { status: 413 },
-    );
-  }
-  const imageFilename =
-    imageField instanceof File && imageField.name
-      ? imageField.name
-      : "upload.jpg";
+
+  const base = {
+    metaAdSetId,
+    name,
+    status: status as "PAUSED" | "ACTIVE",
+    pageId,
+    instagramActorId,
+    link,
+    message,
+    headline,
+    description,
+    callToAction,
+  };
 
   try {
+    if (mediaTypeRaw === "video") {
+      const videoId = getString("videoId").trim();
+      if (!videoId) {
+        return NextResponse.json(
+          { error: "videoId is required for a video ad" },
+          { status: 400 },
+        );
+      }
+      const thumbnailUrl = getString("thumbnailUrl").trim();
+      if (!thumbnailUrl) {
+        return NextResponse.json(
+          {
+            error:
+              "thumbnailUrl is required for a video ad — Meta needs a poster",
+          },
+          { status: 400 },
+        );
+      }
+      const result = await createAd({
+        ...base,
+        mediaType: "video",
+        videoId,
+        thumbnailUrl,
+      });
+      return NextResponse.json(result);
+    }
+
+    // Image ad: either reference an existing library image by hash, or
+    // upload a new file. The hash path skips the upload entirely.
+    const imageHash = getString("imageHash").trim();
+    if (imageHash) {
+      const imageUrl = getString("imageUrl").trim() || undefined;
+      const result = await createAd({
+        ...base,
+        mediaType: "image",
+        imageHash,
+        imageUrl,
+      });
+      return NextResponse.json(result);
+    }
+
+    const imageField = form.get("image");
+    if (!(imageField instanceof Blob) || imageField.size === 0) {
+      return NextResponse.json(
+        { error: "image file is required (or pick one from the library)" },
+        { status: 400 },
+      );
+    }
+    if (imageField.size > MAX_IMAGE_BYTES) {
+      return NextResponse.json(
+        {
+          error: `image too large (max ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)} MB)`,
+        },
+        { status: 413 },
+      );
+    }
+    const imageFilename =
+      imageField instanceof File && imageField.name
+        ? imageField.name
+        : "upload.jpg";
+
     const result = await createAd({
-      metaAdSetId,
-      name,
-      status: status as "PAUSED" | "ACTIVE",
-      pageId,
-      instagramActorId,
-      link,
-      message,
-      headline,
-      description,
-      callToAction,
+      ...base,
+      mediaType: "image",
       imageBlob: imageField,
       imageFilename,
     });

@@ -163,6 +163,9 @@ model Campaign {
   objective           String?  // Meta's objective string; null if absent
   dailyBudgetCents    Int?
   lifetimeBudgetCents Int?
+  // Campaign-wide lifetime spend ceiling (cents). null = no cap. Mirrored so
+  // the Edit Campaign form can pre-fill it without a live fetch.
+  spendCapCents       Int?
   metaUpdatedTime     DateTime? // Meta's last-edited timestamp for this campaign
   syncedAt            DateTime @default(now())
   createdAt           DateTime @default(now())

@@ -7,6 +7,7 @@ import {
   Archive,
   Image as ImageIcon,
   Pause,
+  Pencil,
   Play,
   X,
 } from "lucide-react";
@@ -14,6 +15,9 @@ import { cn } from "@/lib/utils";
 import { getAdFormatLabel, type FlatDisplayAd } from "@/lib/display";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { AdPreviewButton } from "@/components/ads/ad-preview-button";
+import { EditAdModal, type EditableAd } from "@/components/ads/edit-ad-modal";
+import { DuplicateButton } from "@/components/common/duplicate-button";
+import { DeleteButton } from "@/components/common/delete-button";
 
 type BulkAction = "pause" | "activate" | "archive";
 
@@ -110,6 +114,7 @@ export function FlatAdsTable({ ads }: FlatAdsTableProps) {
   const [pendingAction, setPendingAction] = useState<BulkAction | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<EditableAd | null>(null);
 
   async function runBulk(action: BulkAction) {
     setBulkLoading(true);
@@ -258,7 +263,7 @@ export function FlatAdsTable({ ads }: FlatAdsTableProps) {
               <th className="px-4 py-2.5 text-right">CTR</th>
               <th className="px-4 py-2.5">Status</th>
               <th className="px-4 py-2.5">Last edited</th>
-              <th className="w-12 px-4 py-2.5 text-right">Preview</th>
+              <th className="w-24 px-4 py-2.5 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -355,8 +360,35 @@ export function FlatAdsTable({ ads }: FlatAdsTableProps) {
                   <td className="px-4 py-3 text-sm text-muted">
                     {a.lastEdited}
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <AdPreviewButton metaAdId={a.id} adName={a.name} />
+                  {/* Action buttons stop bubbling so they don't trigger the
+                      row's drill-down navigation. */}
+                  <td
+                    className="px-4 py-3 text-right"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditing({
+                            metaAdId: a.id,
+                            name: a.name,
+                            status: a.status,
+                            metaCreativeId: a.metaCreativeId,
+                            creativeThumbnailUrl: a.creativeThumbnailUrl,
+                            metaAdAccountId: a.adAccountId,
+                          })
+                        }
+                        aria-label={`Edit ${a.name}`}
+                        title="Edit ad"
+                        className="rounded-md p-1.5 text-subtle transition-colors hover:bg-surface-2 hover:text-foreground"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <DuplicateButton level="ad" metaId={a.id} name={a.name} />
+                      <DeleteButton entityType="ad" metaId={a.id} name={a.name} />
+                      <AdPreviewButton metaAdId={a.id} adName={a.name} />
+                    </div>
                   </td>
                 </tr>
               );
@@ -364,6 +396,10 @@ export function FlatAdsTable({ ads }: FlatAdsTableProps) {
           </tbody>
         </table>
       </div>
+
+      {editing && (
+        <EditAdModal open={true} ad={editing} onClose={() => setEditing(null)} />
+      )}
 
       {pendingAction && (() => {
         const meta = ACTION_META[pendingAction];

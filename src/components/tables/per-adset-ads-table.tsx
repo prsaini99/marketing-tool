@@ -1,16 +1,21 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   Image as ImageIcon,
   LayoutGrid,
   Layers,
+  Pencil,
   Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getAdFormatLabel } from "@/lib/display";
 import { AdPreviewButton } from "@/components/ads/ad-preview-button";
+import { EditAdModal, type EditableAd } from "@/components/ads/edit-ad-modal";
+import { DuplicateButton } from "@/components/common/duplicate-button";
+import { DeleteButton } from "@/components/common/delete-button";
 
 /**
  * Per-adset ads list. Row click navigates to the ad detail page where the
@@ -110,6 +115,7 @@ export interface AdRow {
   name: string;
   status: string;
   format: string | null;
+  metaCreativeId: string | null;
   creativeThumbnailUrl: string | null;
   metaUpdatedTime: Date | null;
   spendCents: number;
@@ -141,6 +147,8 @@ export function PerAdsetAdsTable({
 }: PerAdsetAdsTableProps) {
   const router = useRouter();
   const suffix = rangeQuery ? `?range=${rangeQuery}` : "";
+  const metaAdAccountId = `act_${accountIdUrl}`;
+  const [editing, setEditing] = useState<EditableAd | null>(null);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-background">
@@ -155,7 +163,7 @@ export function PerAdsetAdsTable({
             <th className="px-4 py-2.5 text-right">CTR</th>
             <th className="px-4 py-2.5">Status</th>
             <th className="px-4 py-2.5">Last edited</th>
-            <th className="w-12 px-4 py-2.5 text-right">Preview</th>
+            <th className="w-24 px-4 py-2.5 text-right">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -239,19 +247,49 @@ export function PerAdsetAdsTable({
                 <td className="px-4 py-3 text-sm text-muted">
                   {formatRelative(a.metaUpdatedTime)}
                 </td>
-                {/* Preview button has its own onClick — stop bubbling so it
-                    doesn't double-navigate to the detail page. */}
+                {/* Action buttons have their own onClick — stop bubbling so
+                    they don't double-navigate to the detail page. */}
                 <td
                   className="px-4 py-3 text-right"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <AdPreviewButton metaAdId={a.metaAdId} adName={a.name} />
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditing({
+                          metaAdId: a.metaAdId,
+                          name: a.name,
+                          status: a.status,
+                          metaCreativeId: a.metaCreativeId,
+                          creativeThumbnailUrl: a.creativeThumbnailUrl,
+                          metaAdAccountId,
+                        })
+                      }
+                      aria-label={`Edit ${a.name}`}
+                      title="Edit ad"
+                      className="rounded-md p-1.5 text-subtle transition-colors hover:bg-surface-2 hover:text-foreground"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <DuplicateButton level="ad" metaId={a.metaAdId} name={a.name} />
+                    <DeleteButton entityType="ad" metaId={a.metaAdId} name={a.name} />
+                    <AdPreviewButton metaAdId={a.metaAdId} adName={a.name} />
+                  </div>
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      {editing && (
+        <EditAdModal
+          open={true}
+          ad={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }

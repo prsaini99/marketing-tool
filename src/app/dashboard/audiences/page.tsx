@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
+import { NewAudienceButton } from "@/components/audiences/new-audience-button";
+import { DeleteButton } from "@/components/common/delete-button";
 
 // Meta's subtype enum → human label + pill color. The most common ones get
 // distinct colors; anything new falls through to a neutral pill.
@@ -121,12 +123,27 @@ export default async function AudiencesPage({
     where: { adAccount: { selectedForSync: true } },
   });
 
-  const accountsInScope = await prisma.metaAdAccount.count({
+  // Accounts the user can create an audience under — scoped to the active
+  // client filter, de-duped by Meta id (same account can come via 2 tokens).
+  const scopeAccounts = await prisma.metaAdAccount.findMany({
     where: {
       selectedForSync: true,
       ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
     },
+    select: {
+      metaAdAccountId: true,
+      name: true,
+      business: { select: { name: true } },
+    },
+    distinct: ["metaAdAccountId"],
+    orderBy: [{ business: { name: "asc" } }, { name: "asc" }],
   });
+  const accountsInScope = scopeAccounts.length;
+  const accountOptions = scopeAccounts.map((a) => ({
+    metaAdAccountId: a.metaAdAccountId,
+    name: a.name,
+    businessName: a.business.name,
+  }));
 
   const readyCount = rows.filter((r) => statusLooksReady(r.operationStatus))
     .length;
@@ -158,6 +175,7 @@ export default async function AudiencesPage({
             accountsInScope={accountsInScope}
             businessId={selectedBusiness?.id ?? null}
           />
+          <NewAudienceButton accounts={accountOptions} />
         </div>
       </div>
 
@@ -189,6 +207,7 @@ export default async function AudiencesPage({
                 <th className="px-4 py-2.5 text-right">Approx. size</th>
                 <th className="px-4 py-2.5">Status</th>
                 <th className="px-4 py-2.5">Account</th>
+                <th className="w-12 px-4 py-2.5 text-right">Delete</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -249,6 +268,13 @@ export default async function AudiencesPage({
                         <span>{a.adAccount.business.name}</span>
                         <span className="text-subtle">{a.adAccount.name}</span>
                       </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <DeleteButton
+                        entityType="audience"
+                        metaId={a.metaAudienceId}
+                        name={a.name}
+                      />
                     </td>
                   </tr>
                 );
