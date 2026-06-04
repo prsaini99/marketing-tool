@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { pollVideoUntilReady, uploadVideoChunked } from "@/lib/upload-video";
+import { AiCopyPanel } from "./ai-copy-panel";
 
 interface ParentAdSet {
   metaAdSetId: string;
@@ -709,6 +710,15 @@ export function CreateAdModal({
                 <div className="text-xs font-semibold text-foreground">
                   Copy
                 </div>
+                <AiCopyPanel
+                  metaAdAccountId={metaAdAccountId}
+                  disabled={submitting}
+                  onApply={(v) => {
+                    setHeadline(v.headline);
+                    setMessage(v.primaryText);
+                    setDescription(v.description);
+                  }}
+                />
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-foreground">
                     Primary text <span className="text-danger">*</span>

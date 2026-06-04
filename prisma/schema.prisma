@@ -71,6 +71,7 @@ model MetaBusiness {
   selectedForSync Boolean  @default(false)
 
   adAccounts      MetaAdAccount[]
+  embeddings      Embedding[]
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -120,6 +121,7 @@ model MetaAdAccount {
   insights            InsightsSnapshot[]
   syncLogs            SyncLog[]
   schedules           SyncSchedule[]
+  embeddings          Embedding[]
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -426,4 +428,42 @@ model AuditLog {
   before      Json?
   after       Json?
   createdAt   DateTime @default(now())
+}
+
+// ─── RAG ────────────────────────────────────────────────────────────────
+//
+// Shared vector store for every RAG + LLM feature on the platform. One row =
+// one chunk of text + its embedding. We never search the whole table — every
+// query is scoped to a namespace (e.g. "ads", "brand_docs", "audit_findings")
+// AND to a businessId or adAccountId so a client never sees another's data.
+//
+// `vector` is `Unsupported("vector(1536)")` because Prisma has no native
+// pgvector type yet — read/write it via $queryRaw / $executeRaw (see
+// src/server/services/rag/). Everything else is plain Prisma.
+//
+// Re-indexing the same source overwrites: the (namespace, sourceType,
+// sourceId) tuple is unique, so an upsert handles updates idempotently.
+//
+// Embedding model used at index time is recorded in `metadata.model` so we
+// can detect when a row needs re-embedding after a model swap.
+model Embedding {
+  id           String   @id @default(cuid())
+  namespace    String   // partition: "ads" | "brand_docs" | "audit_findings" | ...
+  sourceType   String   // origin table: "Ad" | "AdCreative" | "BrandDoc" | ...
+  sourceId     String   // origin row id (or any stable string for non-DB sources)
+  content      String   // raw text that was embedded — returned with hits
+  vector       Unsupported("vector(1536)")
+  // Tenant scoping. At least one MUST be set for any tenant-specific corpus —
+  // search always filters by one of these so cross-tenant leakage is impossible.
+  businessId   String?
+  business     MetaBusiness? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  adAccountId  String?
+  adAccount    MetaAdAccount? @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([namespace, sourceType, sourceId])
+  @@index([businessId, namespace])
+  @@index([adAccountId, namespace])
 }
