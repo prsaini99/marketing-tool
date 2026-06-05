@@ -47,8 +47,9 @@ export interface CampaignFilters {
 }
 
 // One row from /act_X/insights. Phase 1.2: daily granularity, multiple
-// levels (account/campaign/adset/ad). Conversions omitted for now —
-// requires parsing the `actions` array with attribution windows (Phase 2).
+// levels (account/campaign/adset/ad). Conversions are summed across the
+// recognised conversion action_types (purchase, lead, registration, etc.)
+// so a single field is meaningful for both e-comm and lead-gen accounts.
 export interface NormalizedInsight {
   date: string; // ISO 8601 (YYYY-MM-DD)
   level: "account" | "campaign" | "adset" | "ad";
@@ -59,6 +60,13 @@ export interface NormalizedInsight {
   spendCents: number;
   ctr: number; // 0..1
   cpmCents: number;
+  // Sum of conversion events across recognised conversion action_types.
+  // Aggregates purchases + leads + registrations etc. so the same field is
+  // useful for e-comm and lead-gen accounts alike.
+  conversionsCount: number;
+  // Monetary value of conversions in account-currency cents (mostly
+  // purchases; lead-gen accounts see 0 here even when conversionsCount > 0).
+  revenueCents: number;
 }
 
 // Phase 0.5 — returned by metaClient.discoverWithToken().
@@ -93,11 +101,25 @@ export interface NormalizedAdSet {
   metaUpdatedTime: Date | null;
 }
 
+export interface AdIssueInfo {
+  level?: string;
+  error_code?: number;
+  error_message?: string;
+  error_summary?: string;
+}
+
 export interface NormalizedAd {
   id: string;
   adSetMetaId: string; // Meta's parent adset id, used to look up local FK
   name: string;
   status: string;
+  // Meta's `effective_status` — the real delivery state after policy/billing
+  // gates. DISAPPROVED / WITH_ISSUES here is the policy alert signal.
+  effectiveStatus: string | null;
+  // Meta's `issues_info` array — populated when an ad has policy issues.
+  // We pass through the structured items verbatim so the alert body can
+  // quote Meta's own wording.
+  issuesInfo: AdIssueInfo[] | null;
   format: string | null;
   // The creative this ad uses. Meta returns both inline via the
   // `creative{id,thumbnail_url}` field expansion on /act_{id}/ads, so the

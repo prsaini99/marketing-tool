@@ -122,6 +122,7 @@ model MetaAdAccount {
   syncLogs            SyncLog[]
   schedules           SyncSchedule[]
   embeddings          Embedding[]
+  alerts              Alert[]
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -219,7 +220,16 @@ model Ad {
   adSetId              String
   adSet                AdSet @relation(fields: [adSetId], references: [id], onDelete: Cascade)
   name                 String
-  status               String
+  status               String   // Meta's `status` field — ACTIVE/PAUSED user intent
+  // Meta's `effective_status` — the *real* delivery status after policy/billing
+  // gates. Common values: ACTIVE, PAUSED, DISAPPROVED, WITH_ISSUES,
+  // CAMPAIGN_PAUSED, ADSET_PAUSED, DELETED. Drives the policy alert.
+  effectiveStatus      String?
+  // Meta's `issues_info` array — populated when an ad has policy issues.
+  // Each entry: { error_code, error_message, error_summary, level }.
+  // Stored as JSON so we don't need a separate table for the few accounts
+  // that ever have non-empty entries.
+  issuesInfo           Json?
   format               String?  // "SINGLE_IMAGE" | "VIDEO" | "CAROUSEL" | "COLLECTION" | null
   metaCreativeId       String?
   creativeThumbnailUrl String?
@@ -393,6 +403,10 @@ model InsightsSnapshot {
   spendCents  Int      @default(0)
   ctr         Float    @default(0) // 0..1
   cpmCents    Int      @default(0)
+  // Conversion events (purchase + lead + registration + …) summed across
+  // recognised action_types. ROAS is derived: revenueCents / spendCents.
+  conversionsCount Int @default(0)
+  revenueCents     Int @default(0)
   syncedAt    DateTime @default(now())
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -428,6 +442,84 @@ model AuditLog {
   before      Json?
   after       Json?
   createdAt   DateTime @default(now())
+}
+
+// ─── Alerts ─────────────────────────────────────────────────────────────
+//
+// Daily anomaly digest — one row per account-per-day-where-something-shifted.
+// The cron at /api/cron/alerts/daily walks selected-for-sync accounts, diffs
+// yesterday vs the prior 7-day baseline, and (if anything's off) writes a
+// row here with an LLM-narrated explanation. The Alerts page reads from
+// here — same source whether the row came from cron or a manual "Run scan".
+//
+// `severity` lets the UI rank what matters; "info" rows are diagnostics the
+// strategist can usually ignore. Dismissed alerts stay in the DB so the
+// daily scan doesn't re-create them (unique constraint on account+date+key).
+model Alert {
+  id           String   @id @default(cuid())
+  adAccountId  String
+  adAccount    MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  forDate      DateTime @db.Date  // the day the anomaly refers to (usually yesterday)
+  severity     String   // "high" | "medium" | "low" | "info"
+  // Short slug describing what tripped — used both for de-dupe and for the
+  // sidebar grouping later (e.g. "spend_drop", "delivery_stopped",
+  // "adset_roas_drop", "ad_disapproved", "audience_overlap_high").
+  kind         String
+  // What the alert is ABOUT inside the account — lets ad-set, ad, and
+  // audience-pair alerts coexist with account-level ones on the same day.
+  // For account-level alerts, entityType="account" + entityId="".
+  // For ad-set: entityType="adset" + entityId=Meta ad-set id.
+  // For ad-pair audience overlap: entityType="audience_pair" + entityId="a|b".
+  entityType   String   @default("account")
+  entityId     String   @default("")
+  entityName   String?  // cached display string (e.g. ad-set name)
+  title        String   // headline, e.g. "Spend dropped 65% yesterday"
+  body         String   // LLM-narrated explanation, plain-English
+  metrics      Json     @default("{}") // structured numbers backing the alert
+  dismissedAt  DateTime?
+  createdAt    DateTime @default(now())
+
+  // The unique tuple now includes entityId so multiple ad-sets / pairs can
+  // have the same `kind` on the same day without colliding.
+  @@unique([adAccountId, forDate, kind, entityId])
+  @@index([dismissedAt])
+  @@index([createdAt(sort: Desc)])
+}
+
+// ─── AI Assistant chat ──────────────────────────────────────────────────
+//
+// Persistent threads for the tool-using AI Assistant (/dashboard/chat).
+// Single-user today, so no userId — when multi-user lands we'll add an
+// owner. Threads are auto-titled from the first user message (truncated).
+//
+// Why persist: refresh-safe history + the ability to revisit past Q&A
+// across sessions. Reconstruction into "turns" for the UI is done at read
+// time — we store the raw OpenAI message shape (role/content/tool_calls
+// /tool_call_id) so the chat loop can resume across turns.
+model ChatThread {
+  id        String        @id @default(cuid())
+  title     String
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([updatedAt(sort: Desc)])
+}
+
+// One row per OpenAI chat message — covers user/assistant/tool. We keep
+// the raw wire format (toolCalls JSON, toolCallId) so resuming the chat
+// loop is a straight load + map, no reconstruction.
+model ChatMessage {
+  id         String     @id @default(cuid())
+  threadId   String
+  thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  role       String     // "user" | "assistant" | "tool"
+  content    String     // "" when assistant only emitted tool_calls
+  toolCalls  Json?      // assistant's tool_calls array (when present)
+  toolCallId String?    // for tool messages — references the call id
+  createdAt  DateTime   @default(now())
+
+  @@index([threadId, createdAt])
 }
 
 // ─── RAG ────────────────────────────────────────────────────────────────

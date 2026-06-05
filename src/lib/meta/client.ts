@@ -700,6 +700,42 @@ class MetaClient {
   }
 
   /**
+   * Get the audience-size overlap between one anchor audience and a set of
+   * comparison audiences. Meta returns an `overlapping_users` count per
+   * comparison id; the caller divides that by the anchor's size to get the
+   * overlap percentage.
+   *
+   * Endpoint: GET /{audience_id}/overlapping_audiences?comparison_targets=[…]
+   *
+   * Returns a map of comparisonId → overlapping users. Meta rejects some
+   * audience types (e.g. lookalikes) — we surface that as a per-target null
+   * rather than failing the whole call.
+   */
+  async getAudienceOverlap(
+    connectionId: string,
+    anchorAudienceId: string,
+    comparisonAudienceIds: string[],
+  ): Promise<Record<string, number>> {
+    if (comparisonAudienceIds.length === 0) return {};
+    const { accessToken } = await getCredential(connectionId);
+    const targets = comparisonAudienceIds.map((id) => ({ id, type: "audience" }));
+
+    const resp = await metaGet<{
+      data?: Array<{ id?: string; overlapping_users?: number }>;
+    }>(`/${anchorAudienceId}/overlapping_audiences`, accessToken, {
+      comparison_targets: JSON.stringify(targets),
+    });
+
+    const out: Record<string, number> = {};
+    for (const r of resp.data ?? []) {
+      if (r.id && typeof r.overlapping_users === "number") {
+        out[r.id] = r.overlapping_users;
+      }
+    }
+    return out;
+  }
+
+  /**
    * Create a custom audience container on Meta. For customer-list audiences
    * this only makes the empty audience — call addUsersToCustomAudience after
    * to populate it with hashed PII. Payload is forwarded as URL-encoded
@@ -789,8 +825,10 @@ class MetaClient {
       `/${acctId}/ads`,
       accessToken,
       {
+        // effective_status + issues_info drive the policy alert. Free fields
+        // — same request count, no extra latency.
         fields:
-          "id,name,status,updated_time,adset_id,creative{id,thumbnail_url}",
+          "id,name,status,effective_status,issues_info,updated_time,adset_id,creative{id,thumbnail_url}",
         limit: "200",
       },
     );
@@ -1447,7 +1485,19 @@ class MetaClient {
       ? metaAdAccountId
       : `act_${metaAdAccountId}`;
 
-    const fields = ["impressions", "reach", "clicks", "spend", "ctr", "cpm"];
+    const fields = [
+      "impressions",
+      "reach",
+      "clicks",
+      "spend",
+      "ctr",
+      "cpm",
+      // Conversion events + their monetary value. `actions` covers any
+      // tracked event (purchase, lead, registration, …); `action_values`
+      // gives the dollar/rupee amount, used to derive ROAS = revenue / spend.
+      "actions",
+      "action_values",
+    ];
     // At sub-account levels Meta requires the entity id field too.
     if (level === "campaign") fields.push("campaign_id");
     if (level === "adset") fields.push("adset_id");
@@ -1815,10 +1865,19 @@ function normalizeAdSet(raw: RawAdSet): NormalizedAdSet {
   };
 }
 
+interface RawAdIssue {
+  level?: string;
+  error_code?: number;
+  error_message?: string;
+  error_summary?: string;
+}
+
 interface RawAd {
   id: string;
   name: string;
   status: string;
+  effective_status?: string;
+  issues_info?: RawAdIssue[];
   updated_time?: string;
   adset_id: string;
   // From the `creative{id,thumbnail_url}` field expansion. Nested object —
@@ -1836,12 +1895,28 @@ function normalizeAd(raw: RawAd): NormalizedAd {
     adSetMetaId: raw.adset_id,
     name: raw.name,
     status: raw.status,
+    effectiveStatus: raw.effective_status ?? null,
+    issuesInfo:
+      Array.isArray(raw.issues_info) && raw.issues_info.length > 0
+        ? raw.issues_info.map((i) => ({
+            level: i.level,
+            error_code: i.error_code,
+            error_message: i.error_message,
+            error_summary: i.error_summary,
+          }))
+        : null,
     // Phase 1.1 doesn't extract creative format — left null until needed.
     format: null,
     creativeId: raw.creative?.id ?? null,
     creativeThumbnailUrl: raw.creative?.thumbnail_url ?? null,
     metaUpdatedTime: raw.updated_time ? new Date(raw.updated_time) : null,
   };
+}
+
+interface RawInsightAction {
+  action_type: string;
+  // Always a stringified number in Meta's response.
+  value: string;
 }
 
 interface RawInsight {
@@ -1853,9 +1928,52 @@ interface RawInsight {
   spend?: string; // decimal in account currency, e.g. "12.50"
   ctr?: string; // percent, e.g. "0.85"
   cpm?: string; // decimal in account currency
+  actions?: RawInsightAction[]; // event counts by action_type
+  action_values?: RawInsightAction[]; // monetary value by action_type
   campaign_id?: string;
   adset_id?: string;
   ad_id?: string;
+}
+
+// Action types Meta returns that we count as "a conversion" for the totals.
+// Page views and link clicks are NOT in here — those are upper-funnel.
+// `omni_*` is Meta's de-duplicated cross-platform variant; both flavours
+// commonly show up depending on the account/event setup, so include both.
+const CONVERSION_ACTION_TYPES = new Set<string>([
+  "purchase",
+  "omni_purchase",
+  "lead",
+  "omni_lead",
+  "complete_registration",
+  "omni_complete_registration",
+  "subscribe",
+  "submit_application",
+  "start_trial",
+  "schedule",
+  "contact",
+  "app_install",
+  "omni_app_install",
+  "add_payment_info",
+  "omni_add_to_cart",
+  "add_to_cart",
+  "initiate_checkout",
+  "omni_initiated_checkout",
+]);
+
+function sumActionValues(
+  rows: RawInsightAction[] | undefined,
+  filter: (a: RawInsightAction) => boolean,
+  asCents: boolean,
+): number {
+  if (!rows || rows.length === 0) return 0;
+  let total = 0;
+  for (const r of rows) {
+    if (!filter(r)) continue;
+    const n = Number.parseFloat(r.value);
+    if (!Number.isFinite(n)) continue;
+    total += asCents ? Math.round(n * 100) : n;
+  }
+  return total;
 }
 
 function toInt(v: string | undefined): number {
@@ -1880,6 +1998,9 @@ function normalizeInsight(
   else if (level === "ad") entityId = raw.ad_id ?? "";
   else entityId = ""; // account-level — caller fills in the account id
 
+  const isConversion = (a: RawInsightAction) =>
+    CONVERSION_ACTION_TYPES.has(a.action_type);
+
   return {
     date: raw.date_start,
     level,
@@ -1891,6 +2012,12 @@ function normalizeInsight(
     // Meta returns ctr as a percent string ("0.85" = 0.85%). Normalize to 0..1.
     ctr: raw.ctr ? Number.parseFloat(raw.ctr) / 100 : 0,
     cpmCents: toCents(raw.cpm),
+    // Counts come in as plain ints (number of events).
+    conversionsCount: Math.round(
+      sumActionValues(raw.actions, isConversion, false),
+    ),
+    // Monetary value — store in cents to match spendCents.
+    revenueCents: sumActionValues(raw.action_values, isConversion, true),
   };
 }
 
