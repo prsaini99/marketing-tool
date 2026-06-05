@@ -25,6 +25,8 @@ import { completeJson } from "@/lib/llm/chat";
 import {
   formatHitsForPrompt,
   search,
+  searchCrossAccountWinners,
+  type CrossAccountWinnerHit,
   type SearchHit,
 } from "@/server/services/rag";
 
@@ -45,10 +47,25 @@ export interface AdCopyVariant {
 export interface GenerateAdCopyResult {
   variants: AdCopyVariant[];
   /**
-   * The past creatives that informed the generation — let the UI show
-   * "grounded in these" for transparency.
+   * Past creatives that informed the generation. Split by source so the UI
+   * can show "grounded in N this-account ads + M cross-account winners"
+   * for transparency — strategists trust outputs more when they can see
+   * what the model was steered by.
    */
-  groundedIn: Array<{ sourceId: string; content: string }>;
+  groundedIn: {
+    voice: Array<{ sourceId: string; content: string }>;
+    winners: Array<{
+      sourceId: string;
+      content: string;
+      perf: {
+        spendCents: number;
+        revenueCents: number;
+        conversionsCount: number;
+        ctr: number;
+        roas: number;
+      };
+    }>;
+  };
 }
 
 // JSON schema for OpenAI structured outputs. `strict: true` (set in chat.ts)
@@ -89,16 +106,24 @@ const VARIANTS_SCHEMA = {
   },
 };
 
-const SYSTEM_PROMPT = `You are a senior Meta Ads copywriter for a digital marketing agency. Your job is to write ad copy that sounds like the brand's existing voice (shown in the retrieved context, if any) and follows direct-response best practices.
+const SYSTEM_PROMPT = `You are a senior Meta Ads copywriter for a digital marketing agency. You're given two kinds of reference material:
+
+1. THIS BRAND'S PAST ADS — these set the voice (tone, vocabulary, rhythm). Your output must SOUND like these.
+2. CROSS-ACCOUNT WINNERS — high-ROAS / high-engagement ads from OTHER accounts in the same agency portfolio, semantically similar to the brief. These show which hooks, angles, and structures have actually performed for similar briefs in this agency's hands.
+
+How to combine them:
+- VOICE comes from #1 (this brand's past ads). Tone, word choice, sentence rhythm, emoji use, capitalisation — all match this brand.
+- HOOKS and OFFER STRUCTURES can be inspired by #2 (cross-account winners). Notice patterns: "limited edition", "free shipping over X", "the [N] who use this", "save your spot", etc. Don't COPY the wording — translate the winning angle into this brand's voice.
+- If a winner uses a hook that contradicts this brand's voice, skip it.
 
 Rules for every variant:
-- Match the brand's tone, vocabulary, and rhythm from the retrieved past ads. Do NOT invent a generic voice.
 - Each variant should take a distinct angle, hook, or framing — vary the lead, the emotion, or the offer angle.
 - Headlines under ~40 characters where possible; primary text 1–3 short sentences max.
 - No emojis unless the brand's past ads use them. No hashtags. No clichés ("game-changer", "revolutionary", "unlock").
 - Description is optional — emit "" if there's nothing meaningful to add.
 
-If no past brand context is provided, write neutral, well-crafted direct-response copy and note that variants may need tuning to fit the brand.`;
+If NO brand voice reference is provided, write neutral, well-crafted direct-response copy — and you can lean more on the cross-account winners since voice isn't yet anchored.
+If NO cross-account winners are provided, stay close to this brand's voice with strong direct-response fundamentals.`;
 
 export async function generateAdCopy(
   input: GenerateAdCopyInput,
@@ -119,22 +144,63 @@ export async function generateAdCopy(
     throw new Error("Ad account not found or not selected for sync");
   }
 
-  // Pull brand voice from past creatives in this account. Empty list is OK —
-  // the LLM is instructed to handle that case explicitly.
-  let hits: SearchHit[] = [];
+  // Pull brand voice (this account) AND cross-account winners in parallel.
+  // Either failing is fine — the LLM prompt explicitly handles the
+  // empty-context cases.
+  let voiceHits: SearchHit[] = [];
+  let winnerHits: CrossAccountWinnerHit[] = [];
   try {
-    hits = await search({
-      query: brief,
-      namespace: "ads",
-      adAccountId: account.id,
-      topK: 8,
-    });
+    [voiceHits, winnerHits] = await Promise.all([
+      search({
+        query: brief,
+        namespace: "ads",
+        adAccountId: account.id,
+        topK: 8,
+      }).catch((err) => {
+        console.error("ad-copy voice retrieval failed:", err);
+        return [] as SearchHit[];
+      }),
+      searchCrossAccountWinners({
+        query: brief,
+        namespace: "ads",
+        excludeAdAccountId: account.id,
+        initialK: 25,
+        finalK: 6,
+      }).catch((err) => {
+        console.error("ad-copy cross-account retrieval failed:", err);
+        return [] as CrossAccountWinnerHit[];
+      }),
+    ]);
   } catch (err) {
-    // Don't fail generation on a retrieval error — fall back to no context.
-    console.error("ad-copy RAG retrieval failed:", err);
+    console.error("ad-copy retrieval batch failed:", err);
   }
 
-  const context = hits.length > 0 ? formatHitsForPrompt(hits) : undefined;
+  // Compose the dual-section context block. Each section is labelled so the
+  // LLM (per its system prompt) treats them differently — voice for tone,
+  // winners for hook/angle inspiration.
+  const sections: string[] = [];
+  if (voiceHits.length > 0) {
+    sections.push(
+      `THIS BRAND'S PAST ADS (voice anchor):\n${formatHitsForPrompt(voiceHits)}`,
+    );
+  }
+  if (winnerHits.length > 0) {
+    const winnersBlock = winnerHits
+      .map((w, i) => {
+        const perf =
+          w.perf.roas >= 1
+            ? `ROAS ${w.perf.roas.toFixed(2)}x`
+            : w.perf.conversionsCount > 0
+              ? `${w.perf.conversionsCount} conversions`
+              : `CTR ${(w.perf.ctr * 100).toFixed(2)}%`;
+        return `[${i + 1}] (perf: ${perf}) ${w.content.trim()}`;
+      })
+      .join("\n\n");
+    sections.push(
+      `CROSS-ACCOUNT WINNERS from this agency's portfolio (hook / angle inspiration — DO NOT copy wording, translate into this brand's voice):\n${winnersBlock}`,
+    );
+  }
+  const context = sections.length > 0 ? sections.join("\n\n---\n\n") : undefined;
 
   const userPrompt = `Brief from the strategist:
 ${brief}
@@ -155,10 +221,17 @@ Generate exactly ${count} ad copy variants. Each variant must be DISTINCT from t
 
   return {
     variants: result.variants,
-    groundedIn: hits.map((h) => ({
-      sourceId: h.sourceId,
-      content: h.content,
-    })),
+    groundedIn: {
+      voice: voiceHits.map((h) => ({
+        sourceId: h.sourceId,
+        content: h.content,
+      })),
+      winners: winnerHits.map((w) => ({
+        sourceId: w.sourceId,
+        content: w.content,
+        perf: w.perf,
+      })),
+    },
   };
 }
 

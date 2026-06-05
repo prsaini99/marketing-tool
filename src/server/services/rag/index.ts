@@ -178,6 +178,142 @@ export async function search(opts: SearchOptions): Promise<SearchHit[]> {
   }));
 }
 
+// ── Cross-account winners ──────────────────────────────────────────────
+//
+// Pattern-transfer support for the AI Copy panel: when generating copy
+// for one account, also surface high-performing semantically-similar ads
+// from OTHER accounts in the same agency portfolio. The metadata stored
+// at index time (spendCents / revenueCents / conversionsCount / ctr /
+// roas) drives the ranking — semantic match × proven performance.
+//
+// This is NOT a cross-tenant lookup (which `search` correctly forbids) —
+// it's cross-ACCOUNT within a single agency. Today we're single-user, so
+// "agency" = "every selected-for-sync account". When we add real tenancy,
+// this function will need an org-scope guard.
+
+export interface CrossAccountWinnerHit extends SearchHit {
+  /**
+   * Combined score: lower is "better". Computed as distance / performance
+   * multiplier so a 2× ROAS winner outranks a slightly closer match with
+   * no performance signal.
+   */
+  combinedScore: number;
+  perf: {
+    spendCents: number;
+    revenueCents: number;
+    conversionsCount: number;
+    ctr: number;
+    roas: number;
+  };
+}
+
+export interface CrossAccountSearchOptions {
+  query: string;
+  namespace: string;
+  /** The account currently being worked on — its own ads are EXCLUDED. */
+  excludeAdAccountId: string;
+  /** How many hits to consider before performance re-ranking. */
+  initialK?: number;
+  /** How many winners to return after re-ranking. */
+  finalK?: number;
+}
+
+/**
+ * Pull the strongest cross-account performers for a query. Two-step:
+ *   1. Vector search across every other account's embeddings (top-K
+ *      semantic matches).
+ *   2. Re-rank by combined `distance / performance multiplier`, drop
+ *      anything with no real performance signal (no spend, no clicks).
+ *
+ * Performance multiplier (≥ 1.0) is a tiered scoring function:
+ *   • ROAS ≥ 1.0  →  multiplier scales with ROAS (clamped 1..5)
+ *   • Conversions present, no revenue (lead-gen) → mild boost
+ *   • CTR > 1% AND spend > floor → mild boost
+ *   • Otherwise → multiplier 1 (no boost; pure similarity)
+ *
+ * Returns ordered ascending by `combinedScore` (best first).
+ */
+export async function searchCrossAccountWinners(
+  opts: CrossAccountSearchOptions,
+): Promise<CrossAccountWinnerHit[]> {
+  const initialK = opts.initialK ?? 25;
+  const finalK = opts.finalK ?? 6;
+
+  const vec = await embedText(opts.query);
+  const vecLiteral = `[${vec.join(",")}]`;
+
+  const rows = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      sourceType: string;
+      sourceId: string;
+      content: string;
+      metadata: Record<string, unknown>;
+      distance: number;
+    }>
+  >`
+    SELECT
+      id,
+      "sourceType",
+      "sourceId",
+      content,
+      metadata,
+      ("vector" <=> ${vecLiteral}::vector) AS distance
+    FROM "Embedding"
+    WHERE namespace = ${opts.namespace}
+      AND "adAccountId" IS NOT NULL
+      AND "adAccountId" <> ${opts.excludeAdAccountId}
+    ORDER BY distance ASC
+    LIMIT ${initialK}
+  `;
+
+  const SPEND_FLOOR_CENTS = 500 * 100; // ~₹500 spend before we trust signal
+  const ranked: CrossAccountWinnerHit[] = [];
+
+  for (const r of rows) {
+    const md = (r.metadata ?? {}) as Record<string, unknown>;
+    const spendCents = Number(md.spendCents ?? 0);
+    const revenueCents = Number(md.revenueCents ?? 0);
+    const conversionsCount = Number(md.conversionsCount ?? 0);
+    const ctr = Number(md.ctr ?? 0);
+    const roas = Number(md.roas ?? 0);
+
+    // Drop creatives with zero meaningful signal — they'd be just
+    // "semantically similar copy that nobody spent money on".
+    if (spendCents < SPEND_FLOOR_CENTS && conversionsCount === 0) continue;
+
+    let multiplier = 1;
+    if (roas >= 1.0) {
+      multiplier = Math.min(5, 1 + roas);
+    } else if (conversionsCount > 0 && spendCents >= SPEND_FLOOR_CENTS) {
+      multiplier = 1.5;
+    } else if (ctr >= 0.01 && spendCents >= SPEND_FLOOR_CENTS) {
+      multiplier = 1.2;
+    }
+
+    const distance = Number(r.distance);
+    ranked.push({
+      id: r.id,
+      sourceType: r.sourceType,
+      sourceId: r.sourceId,
+      content: r.content,
+      distance,
+      metadata: md,
+      combinedScore: distance / multiplier,
+      perf: {
+        spendCents,
+        revenueCents,
+        conversionsCount,
+        ctr,
+        roas,
+      },
+    });
+  }
+
+  ranked.sort((a, b) => a.combinedScore - b.combinedScore);
+  return ranked.slice(0, finalK);
+}
+
 /**
  * Render hits as a single block of text ready to drop into an LLM `context`
  * field — saves every feature from re-writing the same stitching loop.

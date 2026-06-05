@@ -45,12 +45,19 @@ export function AiCopyPanel({
   const [error, setError] = useState<string | null>(null);
   const [variants, setVariants] = useState<AdCopyVariant[]>([]);
   const [appliedIdx, setAppliedIdx] = useState<number | null>(null);
+  // Transparency counters — surfaced as a chip so the strategist knows
+  // what the model was steered by (brand voice from this account +
+  // cross-account winners from the agency portfolio).
+  const [voiceCount, setVoiceCount] = useState(0);
+  const [winnersCount, setWinnersCount] = useState(0);
 
   async function generate() {
     if (!brief.trim() || busy) return;
     setBusy(true);
     setError(null);
     setAppliedIdx(null);
+    setVoiceCount(0);
+    setWinnersCount(0);
     try {
       const res = await fetch("/api/ai/ad-copy/generate", {
         method: "POST",
@@ -64,6 +71,16 @@ export function AiCopyPanel({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
       setVariants(Array.isArray(data.variants) ? data.variants : []);
+      // groundedIn now ships split: voice (this account) + winners
+      // (cross-account high performers). Read defensively in case an
+      // older server version is responding.
+      const groundedIn = data.groundedIn ?? {};
+      setVoiceCount(
+        Array.isArray(groundedIn.voice) ? groundedIn.voice.length : 0,
+      );
+      setWinnersCount(
+        Array.isArray(groundedIn.winners) ? groundedIn.winners.length : 0,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Generation failed");
     } finally {
@@ -158,8 +175,27 @@ export function AiCopyPanel({
 
       {variants.length > 0 && (
         <div className="space-y-1.5">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-subtle">
-            {variants.length} variants — pick one, or tweak it before applying
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-[10px] font-medium uppercase tracking-wide text-subtle">
+              {variants.length} variants — pick one, or tweak it before
+              applying
+            </div>
+            {(voiceCount > 0 || winnersCount > 0) && (
+              <div
+                className="text-[10px] text-subtle"
+                title="Voice: past ads from this account. Winners: high-ROAS / high-engagement ads from other accounts in your portfolio, used as hook/angle inspiration."
+              >
+                grounded in{" "}
+                <span className="font-medium text-foreground">
+                  {voiceCount}
+                </span>{" "}
+                voice ref{voiceCount === 1 ? "" : "s"} +{" "}
+                <span className="font-medium text-foreground">
+                  {winnersCount}
+                </span>{" "}
+                cross-account winner{winnersCount === 1 ? "" : "s"}
+              </div>
+            )}
           </div>
           <div className="max-h-72 space-y-1.5 overflow-y-auto pr-0.5">
             {variants.map((v, i) => (
