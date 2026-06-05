@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { pollVideoUntilReady, uploadVideoChunked } from "@/lib/upload-video";
 import { AiCopyPanel } from "./ai-copy-panel";
+import { AiImagePanel } from "./ai-image-panel";
 
 interface ParentAdSet {
   metaAdSetId: string;
@@ -108,7 +109,7 @@ export function CreateAdModal({
 
   // ── Media: image (upload or library) OR a library video ───────────────
   const [mediaType, setMediaType] = useState<MediaType>("image");
-  const [imageSource, setImageSource] = useState<"upload" | "library">(
+  const [imageSource, setImageSource] = useState<"upload" | "library" | "ai">(
     "upload",
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -316,8 +317,12 @@ export function CreateAdModal({
     if (mediaType === "image") {
       if (imageSource === "upload") {
         if (!imageFile) return "Pick an image to upload.";
-      } else {
+      } else if (imageSource === "library") {
         if (!selectedImage) return "Pick an image from the library.";
+      } else {
+        // ai mode — picking auto-switches to library, so reaching here
+        // means the user hasn't generated + picked anything yet.
+        if (!selectedImage) return "Generate and pick an image.";
       }
     } else {
       if (!selectedVideo) return "Pick a video from the library.";
@@ -558,7 +563,7 @@ export function CreateAdModal({
                   <div className="space-y-2">
                     {/* Upload a new image, or pick one already in the library. */}
                     <div className="inline-flex rounded-md border border-border bg-surface p-0.5 text-[11px]">
-                      {(["upload", "library"] as const).map((s) => (
+                      {(["upload", "library", "ai"] as const).map((s) => (
                         <button
                           key={s}
                           type="button"
@@ -574,7 +579,11 @@ export function CreateAdModal({
                               : "text-muted hover:text-foreground",
                           )}
                         >
-                          {s === "upload" ? "Upload new" : "From library"}
+                          {s === "upload"
+                            ? "Upload new"
+                            : s === "library"
+                              ? "From library"
+                              : "AI Generate"}
                         </button>
                       ))}
                     </div>
@@ -634,7 +643,7 @@ export function CreateAdModal({
                           </button>
                         )}
                       </>
-                    ) : (
+                    ) : imageSource === "library" ? (
                       <ImagePicker
                         images={images}
                         loading={imagesLoading}
@@ -645,6 +654,34 @@ export function CreateAdModal({
                           setError(null);
                         }}
                         disabled={submitting}
+                      />
+                    ) : (
+                      <AiImagePanel
+                        metaAdAccountId={metaAdAccountId}
+                        disabled={submitting}
+                        onPicked={({ hash, url }) => {
+                          // Push the freshly uploaded image into the library
+                          // list so the library picker shows it as the
+                          // selected one, then switch source modes. This
+                          // makes validation + submit go through the same
+                          // library path as a manually-picked image.
+                          setImages((curr) => {
+                            if (curr.some((i) => i.hash === hash)) return curr;
+                            return [
+                              {
+                                hash,
+                                url,
+                                name: "AI-generated",
+                                width: 1024,
+                                height: 1024,
+                              },
+                              ...curr,
+                            ];
+                          });
+                          setSelectedImageHash(hash);
+                          setImageSource("library");
+                          setError(null);
+                        }}
                       />
                     )}
                   </div>
@@ -859,6 +896,14 @@ export function CreateAdModal({
                       <span className="font-mono">image_hash</span> (no upload),
                       then the ad is created (
                       <span className="font-mono">POST /act_*/ads</span>).
+                    </>
+                  ) : imageSource === "ai" ? (
+                    <>
+                      AI generates the image (
+                      <span className="font-mono">gpt-image-1</span>); on{" "}
+                      <em>Use</em> it&apos;s uploaded to the account library (
+                      <span className="font-mono">POST /act_*/adimages</span>)
+                      and the ad is created referencing the returned hash.
                     </>
                   ) : (
                     <>

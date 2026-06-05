@@ -161,3 +161,110 @@ Generate exactly ${count} ad copy variants. Each variant must be DISTINCT from t
     })),
   };
 }
+
+// ── Tweak a single variant ──────────────────────────────────────────────
+//
+// "I like this variant but make it shorter / more urgent / drop the price /
+// add a discount mention." Lets the strategist iterate on a winner without
+// regenerating the whole batch and losing their pick. Still grounded in
+// brand-voice (same RAG retrieval) but the model is asked to start from the
+// chosen variant and apply ONLY the tweak — no full rewrite.
+
+export interface TweakAdCopyInput {
+  metaAdAccountId: string;
+  /** The original brief that produced the variant — keeps context. */
+  brief: string;
+  /** The variant the strategist liked and wants modified. */
+  original: AdCopyVariant;
+  /** The change request, in plain English. */
+  instruction: string;
+}
+
+const TWEAK_SYSTEM_PROMPT = `You are refining ONE ad-copy variant for an agency strategist who already picked it. They want a small change, not a full rewrite. Apply the instruction precisely and preserve everything else from the original — same hook, same length feel, same brand voice (shown in retrieved context if any).
+
+Rules:
+- Treat the instruction as a surgical edit, not a brief. Don't reframe the variant unless the instruction explicitly says to.
+- Keep word count similar to the original unless the instruction calls for shorter/longer.
+- Stay in the brand voice from the retrieved past ads. Don't drift toward a generic AI tone.
+- All three fields stay populated: headline, primaryText, description (empty string is OK only if it was empty in the original).
+- No clichés ("game-changer", "revolutionary", "unlock"). No emojis unless the brand uses them.`;
+
+const SINGLE_VARIANT_SCHEMA = {
+  name: "ad_copy_single_variant",
+  schema: {
+    type: "object",
+    properties: {
+      variant: {
+        type: "object",
+        properties: {
+          headline: { type: "string" },
+          primaryText: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["headline", "primaryText", "description"],
+        additionalProperties: false,
+      },
+    },
+    required: ["variant"],
+    additionalProperties: false,
+  },
+};
+
+export async function tweakAdCopy(
+  input: TweakAdCopyInput,
+): Promise<{ variant: AdCopyVariant }> {
+  const brief = input.brief?.trim();
+  const instruction = input.instruction?.trim();
+  if (!instruction) throw new Error("instruction is required");
+
+  const metaAdAccountId = input.metaAdAccountId.startsWith("act_")
+    ? input.metaAdAccountId
+    : `act_${input.metaAdAccountId}`;
+  const account = await prisma.metaAdAccount.findFirst({
+    where: { metaAdAccountId, selectedForSync: true },
+    select: { id: true },
+  });
+  if (!account) {
+    throw new Error("Ad account not found or not selected for sync");
+  }
+
+  let hits: SearchHit[] = [];
+  try {
+    hits = await search({
+      query: brief || input.original.primaryText,
+      namespace: "ads",
+      adAccountId: account.id,
+      topK: 5, // smaller than full-generate — the brand-voice anchor is the
+      // original variant itself, retrieval is just supporting reference.
+    });
+  } catch (err) {
+    console.error("ad-copy tweak RAG retrieval failed:", err);
+  }
+
+  const context = hits.length > 0 ? formatHitsForPrompt(hits) : undefined;
+
+  const userPrompt = `Original brief (for context):
+${brief || "(none provided)"}
+
+Variant the strategist liked:
+  Headline:     ${input.original.headline}
+  Primary text: ${input.original.primaryText}
+  Description:  ${input.original.description || "(empty)"}
+
+Apply this change and return the modified variant:
+${instruction}`;
+
+  const result = await completeJson<{ variant: AdCopyVariant }>(
+    userPrompt,
+    {
+      system: TWEAK_SYSTEM_PROMPT,
+      context,
+      // Lower than generate — we want a surgical edit, not creative drift.
+      temperature: 0.5,
+      maxTokens: 500,
+    },
+    SINGLE_VARIANT_SCHEMA,
+  );
+
+  return { variant: result.variant };
+}
