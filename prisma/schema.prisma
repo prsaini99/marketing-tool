@@ -123,6 +123,7 @@ model MetaAdAccount {
   schedules           SyncSchedule[]
   embeddings          Embedding[]
   alerts              Alert[]
+  audits              Audit[]
 
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
@@ -484,6 +485,32 @@ model Alert {
   @@unique([adAccountId, forDate, kind, entityId])
   @@index([dismissedAt])
   @@index([createdAt(sort: Desc)])
+}
+
+// ─── Account audits ─────────────────────────────────────────────────────
+//
+// Persisted runs of the on-demand account audit (see
+// src/server/services/ai/audit-account.ts). One row per Run audit click.
+//
+// Why persist: the strategist often wants to come back to "what did the
+// audit say yesterday?" without paying for a re-run, and the deep-links on
+// each finding stay useful until the underlying entity actually changes.
+// All findings (incl. their navUrl) ride along as a JSON blob — cheap,
+// self-contained, no need for normalized child tables.
+//
+// History retention is open-ended for now. If a single account ever has
+// thousands of rows, a cleanup cron can trim by `runAt`.
+model Audit {
+  id            String   @id @default(cuid())
+  adAccountId   String
+  adAccount     MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  runAt         DateTime @default(now())
+  windowDays    Int      // window used by the budget / data-driven checks
+  summary       String   // LLM-narrated executive summary
+  findings      Json     @default("[]") // array of AuditFinding (see service)
+  stats         Json     @default("{}") // { high, medium, low, info }
+
+  @@index([adAccountId, runAt(sort: Desc)])
 }
 
 // ─── AI Assistant chat ──────────────────────────────────────────────────

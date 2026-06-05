@@ -16,11 +16,28 @@ export const dynamic = "force-dynamic";
 export default async function AlertsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ all?: string }>;
+  searchParams: Promise<{ all?: string; client?: string }>;
 }) {
-  const { all } = await searchParams;
+  const { all, client } = await searchParams;
   const showDismissed = all === "1";
-  const where = showDismissed ? {} : { dismissedAt: null };
+
+  // Topbar client filter — when set, restrict alerts to accounts that
+  // belong to the chosen business. Lookup-first so a stale ?client= in
+  // the URL gracefully falls back to "all clients" instead of returning
+  // an empty page.
+  const selectedBusiness = client
+    ? await prisma.metaBusiness.findUnique({
+        where: { id: client },
+        select: { id: true, name: true },
+      })
+    : null;
+
+  const where = {
+    ...(showDismissed ? {} : { dismissedAt: null }),
+    ...(selectedBusiness
+      ? { adAccount: { businessId: selectedBusiness.id } }
+      : {}),
+  };
 
   const rows = await prisma.alert.findMany({
     where,
@@ -64,10 +81,21 @@ export default async function AlertsPage({
           <AlertsRulesInfo />
         </div>
         <p className="mt-0.5 text-sm text-muted">
-          Daily anomaly digest across every connected account — what shifted,
-          why, and what to look at first. Generated automatically every
-          morning; click <span className="font-medium">Run scan now</span> to
-          regenerate on demand.
+          {selectedBusiness ? (
+            <>
+              Daily anomaly digest for{" "}
+              <span className="text-foreground">{selectedBusiness.name}</span>
+              &apos;s ad accounts —
+            </>
+          ) : (
+            <>
+              Daily anomaly digest across every connected account —
+            </>
+          )}{" "}
+          what shifted, why, and what to look at first. Generated
+          automatically every morning; click{" "}
+          <span className="font-medium">Run scan now</span> to regenerate on
+          demand.
         </p>
       </div>
 

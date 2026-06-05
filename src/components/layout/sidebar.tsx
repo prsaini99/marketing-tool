@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { AlertTriangle, BarChart3, BookOpen, Building2, FileClock, FileText, Image as ImageIcon, Images, Layers, Megaphone, MessageSquare, Settings, Sparkles, Target, Users, Video } from "lucide-react";
+import { AlertTriangle, BarChart3, BookOpen, BookMarked, Building2, FileClock, FileText, Image as ImageIcon, Images, Layers, Megaphone, MessageSquare, Settings, Sparkles, Target, Users, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getActiveBusinessId,
@@ -23,6 +23,7 @@ const navItems = [
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
   { href: "/dashboard/alerts", label: "Alerts", icon: AlertTriangle, badgeKey: "alertCount" as const },
   { href: "/dashboard/chat", label: "AI Assistant", icon: MessageSquare },
+  { href: "/dashboard/playbook", label: "Playbook", icon: BookMarked },
   { href: "/dashboard/audit-log", label: "Audit log", icon: FileClock },
   { href: "/dashboard/setup-guide", label: "Setup guide", icon: BookOpen },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
