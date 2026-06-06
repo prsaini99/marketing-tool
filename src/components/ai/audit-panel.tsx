@@ -194,9 +194,21 @@ export function AuditPanel({
             Account audit
           </div>
           <p className="text-xs text-muted">
-            {result
-              ? `Last run ${formatRelative(result.generatedAt)} · scans budget, naming, URL/UTM, brand voice. Saved for later reference.`
-              : "Scans budget allocation, naming, URL/UTM tracking, and brand-voice drift. ~5–30 s · costs ~₹0.50–1 per run."}
+            {result ? (
+              <>
+                Last run{" "}
+                {/* Relative time depends on Date.now(), which differs between
+                    server render and client render. Suppress the warning —
+                    the client value is the one that's actually right. */}
+                <span suppressHydrationWarning>
+                  {formatRelative(result.generatedAt)}
+                </span>{" "}
+                · scans budget, naming, URL/UTM, brand voice. Saved for later
+                reference.
+              </>
+            ) : (
+              "Scans budget allocation, naming, URL/UTM tracking, and brand-voice drift. ~5–30 s · costs ~₹0.50–1 per run."
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -310,7 +322,15 @@ export function AuditPanel({
               </span>
               <span className="text-subtle">
                 · last {result.windowDays} days · generated{" "}
-                {new Date(result.generatedAt).toLocaleTimeString()}
+                {/* Lock locale + format so server and client render the same
+                    string (default toLocaleTimeString() is locale-dependent
+                    and causes a hydration mismatch on this page). */}
+                {new Date(result.generatedAt).toLocaleTimeString("en-GB", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                  hour12: false,
+                })}
               </span>
             </div>
           </article>

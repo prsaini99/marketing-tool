@@ -225,12 +225,13 @@ export async function getLatestAuditForAccount(
 // ── Deep-link resolver ─────────────────────────────────────────────────
 //
 // Turns a finding's (entityType, entityId) into a relative URL the UI can
-// link to. Walks the parent chain via Prisma so click-through lands on the
-// page where the strategist can actually fix the issue:
-//   • campaign  → /dashboard/accounts/[id]/campaigns/[campaignId]/adsets
-//   • adset     → …/adsets/[adsetId]/ads
-//   • ad        → …/ads/[adId]   (the ad detail page where Edit lives)
-//   • creative  → its parent ad's detail page (closest place to act)
+// link to. Always lands on the LIST that contains the entity — that's
+// where the edit-pencil / actions live, not on the entity's drill-down.
+// Examples:
+//   • campaign  → /dashboard/accounts/[id]               (campaigns table)
+//   • adset     → …/campaigns/[campaignId]/adsets        (ad-sets table)
+//   • ad        → …/adsets/[adsetId]/ads                 (ads table)
+//   • creative  → its parent ad's detail page (closest editable surface)
 
 async function resolveNavUrl(args: {
   accountUrlId: string;
@@ -241,7 +242,7 @@ async function resolveNavUrl(args: {
   const { accountUrlId, adAccountLocalId, entityType, entityMetaId } = args;
 
   if (entityType === "campaign") {
-    // Verify it exists locally — a stale LLM hallucinated id would give a
+    // Verify it exists locally — a stale LLM-hallucinated id would give a
     // 404 link otherwise.
     const exists = await prisma.campaign.findFirst({
       where: {
@@ -251,7 +252,8 @@ async function resolveNavUrl(args: {
       select: { metaCampaignId: true },
     });
     if (!exists) return undefined;
-    return `/dashboard/accounts/${accountUrlId}/campaigns/${entityMetaId}/adsets`;
+    // Account detail page renders the campaigns table with edit pencils.
+    return `/dashboard/accounts/${accountUrlId}`;
   }
 
   if (entityType === "adset") {
@@ -260,7 +262,9 @@ async function resolveNavUrl(args: {
       include: { campaign: { select: { metaCampaignId: true } } },
     });
     if (!adSet) return undefined;
-    return `/dashboard/accounts/${accountUrlId}/campaigns/${adSet.campaign.metaCampaignId}/adsets/${entityMetaId}/ads`;
+    // Parent campaign's ad-sets list — that's where the ad-set's edit
+    // pencil lives. (One level UP from the ad-set's own ads list.)
+    return `/dashboard/accounts/${accountUrlId}/campaigns/${adSet.campaign.metaCampaignId}/adsets`;
   }
 
   if (entityType === "ad") {
@@ -273,7 +277,8 @@ async function resolveNavUrl(args: {
       },
     });
     if (!ad) return undefined;
-    return `/dashboard/accounts/${accountUrlId}/campaigns/${ad.adSet.campaign.metaCampaignId}/adsets/${ad.adSet.metaAdSetId}/ads/${entityMetaId}`;
+    // Parent ad-set's ads list — ad-row edit pencil lives there.
+    return `/dashboard/accounts/${accountUrlId}/campaigns/${ad.adSet.campaign.metaCampaignId}/adsets/${ad.adSet.metaAdSetId}/ads`;
   }
 
   if (entityType === "creative") {
