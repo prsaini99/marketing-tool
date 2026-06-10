@@ -10,6 +10,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { metaClient } from "@/lib/meta/client";
+import { backfillAdCopyForAccount } from "@/server/services/ai/index-ad-copy";
 
 export interface SyncCreativesResult {
   adAccountId: string;
@@ -99,6 +100,18 @@ export async function syncCreativesForAccount(
     await prisma.syncLog.update({
       where: { id: syncLog.id },
       data: { status: "success", finishedAt: new Date() },
+    });
+
+    // Auto-refresh the AI Copy panel's RAG index for this account. The
+    // backfill is idempotent and surfaces new / edited creatives + fresh
+    // performance metadata immediately — so the user never has to
+    // manually "reindex" anything. Failures are swallowed: the creatives
+    // sync itself already succeeded, no reason to penalise the user.
+    backfillAdCopyForAccount(account.metaAdAccountId).catch((err) => {
+      console.error(
+        `auto-reindex after creatives sync failed for ${account.metaAdAccountId}:`,
+        err,
+      );
     });
 
     return { adAccountId: account.id, upserted, syncLogId: syncLog.id };

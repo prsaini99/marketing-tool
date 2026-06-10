@@ -1,4 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["bom1"]
+  "regions": ["bom1"],
+  "crons": [
+    {
+      "path": "/api/cron/reindex/ad-copy",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/alerts/daily",
+      "schedule": "30 2 * * *"
+    }
+  ]
 }

@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Building2,
   ChevronRight,
+  ClipboardCheck,
   Megaphone,
 } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
@@ -308,6 +309,14 @@ export default async function AccountDetailPage({
         </div>
         <div className="flex items-start gap-2">
           <DateRangeDropdown />
+          <Link
+            href={`/dashboard/accounts/${id}/audit`}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-medium text-foreground hover:bg-surface-2 transition-colors"
+            title="AI-driven housekeeping audit for this account"
+          >
+            <ClipboardCheck className="h-3.5 w-3.5" />
+            Audit
+          </Link>
           <SchedulesButton accountIdUrl={id} accountName={account.name} />
           <SyncHistoryButton logs={logsForClient} />
           <SyncNowButton

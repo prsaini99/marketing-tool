@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { pollVideoUntilReady, uploadVideoChunked } from "@/lib/upload-video";
+import { AiStudioPanel } from "./ai-studio-panel";
 
 interface ParentAdSet {
   metaAdSetId: string;
@@ -106,6 +107,9 @@ export function CreateAdModal({
   const [status, setStatus] = useState<"PAUSED" | "ACTIVE">("PAUSED");
 
   // ── Media: image (upload or library) OR a library video ───────────────
+  // "ai" used to be a third image-source mode; AI generation now lives in
+  // the top-level AiStudioPanel which auto-switches this to "library" on
+  // Apply, so the modal-internal toggle stays binary.
   const [mediaType, setMediaType] = useState<MediaType>("image");
   const [imageSource, setImageSource] = useState<"upload" | "library">(
     "upload",
@@ -524,6 +528,47 @@ export function CreateAdModal({
                 </div>
               </div>
 
+              {/* AI Studio — generate copy + image together. Apply pushes
+                  results into the Copy fields and the Media slot below in
+                  one click. Sits right above Media so the upload + copy
+                  output stay together. Optional — strategists who want to
+                  write manually never have to interact with it. */}
+              <AiStudioPanel
+                metaAdAccountId={metaAdAccountId}
+                disabled={submitting}
+                onApply={({ copy, image }) => {
+                  if (copy) {
+                    setHeadline(copy.headline);
+                    setMessage(copy.primaryText);
+                    setDescription(copy.description);
+                  }
+                  if (image) {
+                    // Mirror the old AiImagePanel behaviour — drop the
+                    // generated image into the library list (so the
+                    // library picker shows it) and switch the source mode
+                    // to "library" so validation + submit go through the
+                    // same path as a manually-picked image.
+                    setMediaType("image");
+                    setImages((curr) => {
+                      if (curr.some((i) => i.hash === image.hash)) return curr;
+                      return [
+                        {
+                          hash: image.hash,
+                          url: image.url,
+                          name: "AI-generated",
+                          width: 1024,
+                          height: 1024,
+                        },
+                        ...curr,
+                      ];
+                    });
+                    setSelectedImageHash(image.hash);
+                    setImageSource("library");
+                  }
+                  setError(null);
+                }}
+              />
+
               {/* Media */}
               <div className="space-y-2 rounded-md border border-border bg-background px-3 py-3">
                 <div className="flex items-center justify-between">
@@ -555,7 +600,10 @@ export function CreateAdModal({
 
                 {mediaType === "image" ? (
                   <div className="space-y-2">
-                    {/* Upload a new image, or pick one already in the library. */}
+                    {/* Upload a new image, or pick one already in the library.
+                        AI generation has moved up to the AI Studio panel —
+                        when the strategist applies, the result lands here
+                        as a library item with this source set to "library". */}
                     <div className="inline-flex rounded-md border border-border bg-surface p-0.5 text-[11px]">
                       {(["upload", "library"] as const).map((s) => (
                         <button

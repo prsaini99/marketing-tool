@@ -124,6 +124,8 @@ export async function syncInsightsForAccount(
           spendCents: r.spendCents,
           ctr: r.ctr,
           cpmCents: r.cpmCents,
+          conversionsCount: r.conversionsCount,
+          revenueCents: r.revenueCents,
           syncedAt: new Date(),
         },
         update: {
@@ -133,6 +135,8 @@ export async function syncInsightsForAccount(
           spendCents: r.spendCents,
           ctr: r.ctr,
           cpmCents: r.cpmCents,
+          conversionsCount: r.conversionsCount,
+          revenueCents: r.revenueCents,
           syncedAt: new Date(),
         },
       });

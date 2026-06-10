@@ -6,6 +6,7 @@
  * skipped. Idempotent: upsert by (adAccountId, metaAdId).
  */
 
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { metaClient } from "@/lib/meta/client";
 
@@ -70,6 +71,10 @@ export async function syncAdsForAccount(
           metaAdId: a.id,
           name: a.name,
           status: a.status,
+          effectiveStatus: a.effectiveStatus,
+          issuesInfo: a.issuesInfo
+            ? (a.issuesInfo as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
           format: a.format,
           metaCreativeId: a.creativeId,
           creativeThumbnailUrl: a.creativeThumbnailUrl,
@@ -80,6 +85,12 @@ export async function syncAdsForAccount(
           adSetId: localAdSetId,
           name: a.name,
           status: a.status,
+          effectiveStatus: a.effectiveStatus,
+          // Explicit JsonNull so an ad whose issues were resolved on Meta
+          // gets its row cleared (not left holding stale issues).
+          issuesInfo: a.issuesInfo
+            ? (a.issuesInfo as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
           format: a.format,
           metaCreativeId: a.creativeId,
           creativeThumbnailUrl: a.creativeThumbnailUrl,

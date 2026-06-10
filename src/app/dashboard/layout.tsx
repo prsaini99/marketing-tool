@@ -32,9 +32,16 @@ export default async function DashboardLayout({
     accountToBusiness[a.metaAdAccountId] = a.businessId;
   }
 
+  // Undismissed-alerts badge in the sidebar. Layout is force-dynamic so this
+  // re-runs on every navigation — fresh count after dismissing without
+  // needing client polling.
+  const alertCount = await prisma.alert.count({
+    where: { dismissedAt: null },
+  });
+
   return (
     <div className="flex min-h-screen">
-      <Sidebar accountToBusiness={accountToBusiness} />
+      <Sidebar accountToBusiness={accountToBusiness} alertCount={alertCount} />
       <div className="flex flex-1 flex-col">
         <Topbar
           businesses={businesses}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { BarChart3, BookOpen, Building2, FileClock, Image as ImageIcon, Images, Layers, Megaphone, Settings, Sparkles, Target, Users, Video } from "lucide-react";
+import { AlertTriangle, BarChart3, BookOpen, BookMarked, Building2, FileClock, FileText, Image as ImageIcon, Images, Layers, Megaphone, MessageSquare, Settings, Sparkles, Target, Users, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getActiveBusinessId,
@@ -20,6 +20,10 @@ const navItems = [
   { href: "/dashboard/audiences", label: "Audiences", icon: Users },
   { href: "/dashboard/conversions", label: "Conversions", icon: Target },
   { href: "/dashboard/insights", label: "Insights", icon: BarChart3 },
+  { href: "/dashboard/reports", label: "Reports", icon: FileText },
+  { href: "/dashboard/alerts", label: "Alerts", icon: AlertTriangle, badgeKey: "alertCount" as const },
+  { href: "/dashboard/chat", label: "AI Assistant", icon: MessageSquare },
+  { href: "/dashboard/playbook", label: "Playbook", icon: BookMarked },
   { href: "/dashboard/audit-log", label: "Audit log", icon: FileClock },
   { href: "/dashboard/setup-guide", label: "Setup guide", icon: BookOpen },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
@@ -27,9 +31,11 @@ const navItems = [
 
 interface SidebarProps {
   accountToBusiness: AccountBusinessMap;
+  /** Undismissed-alerts count — drives the badge on the Alerts entry. */
+  alertCount?: number;
 }
 
-export function Sidebar({ accountToBusiness }: SidebarProps) {
+export function Sidebar({ accountToBusiness, alertCount = 0 }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   // Preserve every active search param across sidebar nav (range, client, etc.).
@@ -63,6 +69,10 @@ export function Sidebar({ accountToBusiness }: SidebarProps) {
             const isActive =
               pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
+            const badge =
+              "badgeKey" in item && item.badgeKey === "alertCount"
+                ? alertCount
+                : 0;
             return (
               <li key={item.href}>
                 <Link
@@ -75,7 +85,15 @@ export function Sidebar({ accountToBusiness }: SidebarProps) {
                   )}
                 >
                   <Icon className="h-4 w-4 shrink-0" />
-                  <span>{item.label}</span>
+                  <span className="flex-1">{item.label}</span>
+                  {badge > 0 && (
+                    <span
+                      className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+                      aria-label={`${badge} unread`}
+                    >
+                      {badge > 99 ? "99+" : badge}
+                    </span>
+                  )}
                 </Link>
               </li>
             );
