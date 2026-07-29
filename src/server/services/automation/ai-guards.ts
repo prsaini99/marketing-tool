@@ -6,6 +6,12 @@
  * hard check (not prompt instructions): replies containing banned topics,
  * URLs not in the profile's link library, or prices absent from the
  * profile corpus are rejected by the caller.
+ *
+ * URL matching catches both scheme-bound URLs (https://shop.biz/sale) and
+ * bare-domain links (wa.me/919999999999, bestdealz.com); trailing punctuation
+ * is stripped before normalization. Price matching includes symbol-first ($50),
+ * number-first (50 usd), and word-first (Rs 5000, USD 49) formats. Comparison
+ * is normalized to handle formatting drift (e.g., corpus "$1,200" matches reply "$1200").
  */
 
 export interface ProfileCorpus {
@@ -46,9 +52,39 @@ export function buildSystemPrompt(
     .join("\n");
 }
 
-const URL_RE = /https?:\/\/[^\s)]+/gi;
+// Match URLs with optional scheme and bare domains:
+// - With scheme: https://example.com/path
+// - Bare domain: example.com, wa.me/number, bit.ly/code
+const URL_RE = /(?:https?:\/\/[^\s)]+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s)]*)?)/gi;
+const URL_TRAILING_PUNCT = /[.,!?;:)"']+$/;
+
+// Match prices in three forms:
+// 1. Symbol-first: $50, ₹500, €30, £20
+// 2. Number-first: 50 usd, 500 inr, 999 rs
+// 3. Word-first: Rs 500, USD 49, INR 2000 (optional . or space between word and number)
 const PRICE_RE =
-  /(?:[$₹€£]\s?\d[\d,.]*|\b\d[\d,.]*\s?(?:usd|inr|rs|dollars?|rupees)\b)/gi;
+  /(?:[$₹€£]\s?\d[\d,.]*|\b\d[\d,.]*\s?(?:usd|inr|rs|dollars?|rupees)\b|\b(?:usd|inr|rs|rupees?)\s*\.?\s*\d[\d,.]*)/gi;
+
+/**
+ * Normalize a URL for comparison: lowercase, strip scheme, strip www.,
+ * strip trailing / and trailing punctuation.
+ */
+function normalizeUrl(url: string): string {
+  return url
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/+$/, "")
+    .replace(URL_TRAILING_PUNCT, "");
+}
+
+/**
+ * Normalize a price for comparison: lowercase, strip spaces and commas
+ * to handle formatting drift (e.g., "$1,200" vs "$1200").
+ */
+function normalizePrice(price: string): string {
+  return price.toLowerCase().replace(/[\s,]/g, "");
+}
 
 export function isReplySafe(reply: string, p: ProfileCorpus): boolean {
   const lower = reply.toLowerCase();
@@ -59,21 +95,26 @@ export function isReplySafe(reply: string, p: ProfileCorpus): boolean {
   ) {
     return false;
   }
-  const urls = reply.match(URL_RE) ?? [];
-  const allowed = new Set(Object.values(p.links));
-  if (urls.some((u) => !allowed.has(u))) return false;
 
-  // Prices must come from the profile corpus. Normalize whitespace on both
-  // sides before comparing; this is a guardrail, not a parser.
+  // Check URLs: capture, strip trailing punctuation, normalize, and verify
+  const urlMatches = reply.match(URL_RE) ?? [];
+  const capturedUrls = urlMatches.map((u) => u.replace(URL_TRAILING_PUNCT, ""));
+  const normalizedAllowed = new Set(
+    Object.values(p.links).map(normalizeUrl),
+  );
+  if (capturedUrls.some((u) => !normalizedAllowed.has(normalizeUrl(u)))) {
+    return false;
+  }
+
+  // Check prices: extract, normalize, and verify against corpus.
+  // Corpus is built from description and FAQs, normalized once.
   const corpus = [
     p.businessDescription,
     ...p.faqs.map((f) => `${f.question} ${f.answer}`),
   ]
     .join(" ")
-    .replace(/\s+/g, " ")
     .toLowerCase();
+  const normalizedCorpus = normalizePrice(corpus);
   const prices = reply.match(PRICE_RE) ?? [];
-  return prices.every((price) =>
-    corpus.includes(price.replace(/\s+/g, " ").toLowerCase().trim()),
-  );
+  return prices.every((price) => normalizedCorpus.includes(normalizePrice(price)));
 }
