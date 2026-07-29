@@ -253,7 +253,6 @@ function RuleEditorModal({
   async function save() {
     setSaving(true);
     setError(null);
-    const { id: _id, ...fields } = r;
     const res = await fetch(
       isNew
         ? `/api/automation/accounts/${accountId}/rules`
@@ -261,7 +260,7 @@ function RuleEditorModal({
       {
         method: isNew ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(fields),
+        body: JSON.stringify(r),
       },
     );
     setSaving(false);
@@ -277,7 +276,6 @@ function RuleEditorModal({
   async function dryRun() {
     setTesting(true);
     setTestResult(null);
-    const { id: _id, ...fields } = r;
     const res = await fetch("/api/automation/dry-run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -286,7 +284,7 @@ function RuleEditorModal({
         eventType: testType,
         text: testText,
         mediaId: r.mediaId,
-        ruleOverride: fields,
+        ruleOverride: r,
       }),
     });
     const data = (await res.json()) as { outcomes?: DryRunOutcome[]; error?: string };
@@ -334,9 +332,10 @@ function RuleEditorModal({
               className={input}
               type="number"
               value={r.priority}
-              onChange={(e) =>
-                setR({ ...r, priority: Number.parseInt(e.target.value, 10) || 100 })
-              }
+              onChange={(e) => {
+                const parsed = Number.parseInt(e.target.value, 10);
+                setR({ ...r, priority: Number.isNaN(parsed) ? 100 : parsed });
+              }}
             />
           </div>
         </div>

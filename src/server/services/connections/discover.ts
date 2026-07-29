@@ -60,7 +60,7 @@ export async function createConnectionFromToken(
       encryptedToken: encrypted.encryptedToken,
       iv: encrypted.iv,
       authTag: encrypted.authTag,
-      scopes: [], // TODO: extract from /debug_token in Phase 1
+      scopes: [], // populated later via /debug_token — see the automation setup-status route
       lastDiscoveredAt: new Date(),
     },
     update: {
