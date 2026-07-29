@@ -35,7 +35,7 @@ export interface Sender {
 }
 
 export interface OrchestrateOptions {
-  sender?: Sender; // default: real Meta sender
+  sender?: Sender; // default: real Meta sender when persist is true, a no-op sender when persist is false
   persist?: boolean; // default true; false = dry-run
   callAi?: boolean; // default true; false = AI actions return placeholder text
   eventDbId?: string; // pre-created AutomationEvent (webhook dedupe path)
@@ -62,6 +62,18 @@ function makeMetaSender(connectionId: string, igUserId: string): Sender {
       sendDm(connectionId, igUserId, igsid, text).then(() => undefined),
   };
 }
+
+/**
+ * Dry-run guard: when persist=false and the caller injected no Sender, we
+ * must NEVER fall through to the real Meta sender. A dry run that sends a
+ * live DM is the worst possible failure mode of this module, so the safe
+ * sender is the structural default rather than a caller convention.
+ */
+const NOOP_SENDER: Sender = {
+  sendPublicReply: async () => {},
+  sendCommentDm: async () => {},
+  sendThreadDm: async () => {},
+};
 
 function readThreadMessages(
   json: Prisma.JsonValue,
@@ -157,7 +169,8 @@ export async function orchestrateEvent(
     })),
   };
   const sender =
-    opts.sender ?? makeMetaSender(ig.connectionId, ig.igUserId);
+    opts.sender ??
+    (persist ? makeMetaSender(ig.connectionId, ig.igUserId) : NOOP_SENDER);
 
   // Thread state — read before runOne is defined so its closure can use it
   // for AI history. Re-assigned later by the opt-out / inbound upserts.
