@@ -56,11 +56,11 @@ export function buildSystemPrompt(
 
 // Match URLs with optional scheme and bare domains:
 // - With scheme: https://example.com/path
-// - With path: domain.tld/path (e.g., wa.me/123, bit.ly/xyz)
+// - With path: domain.letters/path (e.g., wa.me/123, bit.ly/xyz) — final label must be letters-only to avoid matching decimals/versions (4.5/5, v1.2/beta)
 // - Bare domain with allowed TLD (e.g., bestdealz.com, shop.biz)
 // Bare domains without path require a recognized TLD to avoid false positives
 // (e.g., "Node.js", "report.pdf", "Mr.Patel" are NOT links)
-const URL_RE = /(?:https?:\/\/[^\s)]+|(?:[a-z0-9-]+\.)+[a-z0-9-]+\/[^\s)]*|(?:[a-z0-9-]+\.)+(?:com|net|org|io|co|in|me|ly|app|dev|ai|shop|store|biz)\b)/gi;
+const URL_RE = /(?:https?:\/\/[^\s)]+|(?:[a-z0-9-]+\.)+[a-z]{2,}\/[^\s)]*|(?:[a-z0-9-]+\.)+(?:com|net|org|io|co|in|me|ly|app|dev|ai|shop|store|biz)\b)/gi;
 const URL_TRAILING_PUNCT = /[.,!?;:)"']+$/;
 
 // Match prices in three forms:
