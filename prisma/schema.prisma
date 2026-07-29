@@ -52,6 +52,7 @@ model Connection {
   lastDiscoveredAt DateTime?
 
   businesses       MetaBusiness[]
+  instagramAccounts InstagramAccount[]
 
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
@@ -585,4 +586,114 @@ model Embedding {
   @@unique([namespace, sourceType, sourceId])
   @@index([businessId, namespace])
   @@index([adAccountId, namespace])
+}
+
+// ─── Instagram automation ────────────────────────────────────────────────
+
+// Discovered IG professional account. Manual discovery sync (like audiences).
+model InstagramAccount {
+  id                  String    @id @default(cuid())
+  igUserId            String    @unique          // Meta's IG user id
+  username            String
+  linkedPageId        String?
+  connectionId        String
+  connection          Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  botEnabled          Boolean   @default(false)
+  webhookSubscribedAt DateTime?
+
+  profile             BotProfile?
+  rules               BotRule[]
+  threads             BotThread[]
+  events              AutomationEvent[]
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+// 1:1 with InstagramAccount. Everything the AI is allowed to know lives here.
+model BotProfile {
+  id                  String   @id @default(cuid())
+  igAccountId         String   @unique
+  igAccount           InstagramAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
+  businessDescription String   @default("")
+  toneRules           String   @default("")
+  linksJson           Json     @default("{}")    // key → URL, referenced by {link:key} in templates
+  bannedTopics        String[] @default([])
+  languageMode        String   @default("mirror") // "mirror" | fixed ISO code (en, hi, es...)
+  aiFallbackEnabled   Boolean  @default(false)
+  optOutConfirmation  String   @default("You've been unsubscribed and won't receive more messages.")
+  faqs                BotFaq[]
+}
+
+model BotFaq {
+  id        String  @id @default(cuid())
+  profileId String
+  profile   BotProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  question  String
+  answer    String
+  sortOrder Int     @default(0)
+}
+
+model BotRule {
+  id                  String   @id @default(cuid())
+  igAccountId         String
+  igAccount           InstagramAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
+  enabled             Boolean  @default(true)
+  priority            Int      @default(100)   // lower wins; first match short-circuits
+  triggerType         String   // COMMENT_KEYWORD | COMMENT_ANY | DM_KEYWORD | DM_ANY
+  keywords            String[] @default([])     // case-insensitive substring match
+  mediaId             String?                   // null = all posts/reels/ads
+  publicReplyEnabled  Boolean  @default(false)
+  publicReplyTemplate String   @default("")
+  dmEnabled           Boolean  @default(false)
+  dmTemplate          String   @default("")
+  aiFallback          Boolean  @default(false)  // matched but template empty → ask AI
+  oncePerUser         Boolean  @default(true)   // dedupe per (rule, user)
+}
+
+// Conversation state per (account, IG-scoped user). Window checks + AI context.
+model BotThread {
+  id                 String   @id @default(cuid())
+  igAccountId        String
+  igAccount          InstagramAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
+  igsid              String              // Instagram-scoped user id of the other party
+  lastInboundAt      DateTime?           // 24h window anchor (inbound DMs only, never comments)
+  optedOut           Boolean   @default(false)
+  recentMessagesJson Json      @default("[]") // last ≤10 {role, text, at}
+
+  @@unique([igAccountId, igsid])
+}
+
+// Idempotency store — one row per webhook event. Unique eventId makes
+// duplicate Meta deliveries harmless: insert fails, we skip.
+model AutomationEvent {
+  id           String   @id @default(cuid())
+  eventId      String   @unique              // comment id / message mid — dedupe key
+  igAccountId  String
+  igAccount    InstagramAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
+  eventType    String                        // COMMENT | MESSAGE
+  fromIgsid    String?
+  fromUsername String?
+  text         String?
+  commentId    String?
+  mediaId      String?
+  rawJson      Json                          // raw webhook change payload, for forensics
+  actions      AutomationLog[]
+  createdAt    DateTime @default(now())
+}
+
+// Audit trail — one row PER ACTION ATTEMPT (one matched rule can fire both a
+// public reply and a DM; each gets its own audit-first row).
+model AutomationLog {
+  id            String   @id @default(cuid())
+  eventDbId     String
+  event         AutomationEvent @relation(fields: [eventDbId], references: [id], onDelete: Cascade)
+  matchedRuleId String?
+  action        String                        // PUBLIC_REPLY | AI_PUBLIC_REPLY | DM | DM_VIA_COMMENT | AI_DM | SKIPPED
+  renderedText  String?
+  status        String   @default("PENDING")  // PENDING → SENT | FAILED | SKIPPED
+  skipReason    String?
+  metaError     String?
+  createdAt     DateTime @default(now())
+  sentAt        DateTime?
 }

@@ -22,6 +22,13 @@ const TABLES = [
   "SyncLog",
   "SyncSchedule",
   "AuditLog",
+  "InstagramAccount",
+  "BotProfile",
+  "BotFaq",
+  "BotRule",
+  "BotThread",
+  "AutomationEvent",
+  "AutomationLog",
 ];
 
 const p = new PrismaClient();
