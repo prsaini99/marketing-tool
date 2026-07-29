@@ -261,6 +261,28 @@ export async function orchestrateEvent(
       }
     }
 
+    // Backstop: a template can render to "" (e.g. "{message_text}" on a
+    // comment event) and generateAiReply can itself return an empty reply
+    // that still passes isReplySafe trivially. Never let a blank body reach
+    // the sender — a blank DM or blank public comment in front of a real
+    // customer is a visible, embarrassing failure. decide.ts already guards
+    // the template-render paths (see plannedFromRender); this is the
+    // catch-all for the AI path and any other way `text` could end up empty.
+    if (!text || !text.trim()) {
+      if (persist && eventDbId) {
+        await prisma.automationLog.create({
+          data: {
+            eventDbId,
+            matchedRuleId: a.ruleId,
+            action: "SKIPPED",
+            status: "SKIPPED",
+            skipReason: "empty_render",
+          },
+        });
+      }
+      return { ...a, action: "SKIPPED", skipReason: "empty_render", status: "SKIPPED" };
+    }
+
     // Audit-first: PENDING row before the Meta call.
     const logRow =
       persist && eventDbId

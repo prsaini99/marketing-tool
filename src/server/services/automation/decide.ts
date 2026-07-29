@@ -12,7 +12,7 @@
  */
 
 import { renderTemplate } from "./render";
-import type { IncomingEvent, PlannedAction, RuleLike } from "./types";
+import type { ActionKind, IncomingEvent, PlannedAction, RuleLike } from "./types";
 
 export const MAX_DMS_PER_USER_PER_DAY = 5;
 export const COMMENT_DM_WINDOW_DAYS = 7;
@@ -36,6 +36,21 @@ export interface DecideContext {
 
 function skip(ruleId: string | null, reason: string): PlannedAction {
   return { action: "SKIPPED", ruleId, text: null, useAi: false, skipReason: reason };
+}
+
+/**
+ * A template can be non-empty yet render to nothing (e.g. "{message_text}"
+ * on a comment event, or "{username}" with no username). Sending that would
+ * put a blank DM or blank public comment in front of a real customer, so an
+ * empty render is treated exactly like an empty template.
+ */
+function plannedFromRender(
+  action: ActionKind,
+  ruleId: string | null,
+  rendered: string,
+): PlannedAction {
+  if (!rendered.trim()) return skip(ruleId, "empty_render");
+  return { action, ruleId, text: rendered, useAi: false, skipReason: null };
 }
 
 function templateVars(event: IncomingEvent): Record<string, string> {
@@ -64,7 +79,7 @@ function planDm(ctx: DecideContext, rule: RuleLike | null): PlannedAction {
     }
     if (rule && rule.dmTemplate.trim()) {
       const r = renderTemplate(rule.dmTemplate, templateVars(event), ctx.links);
-      return { action: "DM_VIA_COMMENT", ruleId, text: r.text, useAi: false, skipReason: null };
+      return plannedFromRender("DM_VIA_COMMENT", ruleId, r.text);
     }
     if (rule?.aiFallback || !rule) {
       return { action: "AI_DM", ruleId, text: null, useAi: true, skipReason: null };
@@ -82,7 +97,7 @@ function planDm(ctx: DecideContext, rule: RuleLike | null): PlannedAction {
 
   if (rule && rule.dmTemplate.trim()) {
     const r = renderTemplate(rule.dmTemplate, templateVars(event), ctx.links);
-    return { action: "DM", ruleId, text: r.text, useAi: false, skipReason: null };
+    return plannedFromRender("DM", ruleId, r.text);
   }
   if (rule?.aiFallback || !rule) {
     return { action: "AI_DM", ruleId, text: null, useAi: true, skipReason: null };
@@ -108,7 +123,7 @@ export function decide(ctx: DecideContext): PlannedAction[] {
   if (rule.publicReplyEnabled) {
     if (rule.publicReplyTemplate.trim()) {
       const r = renderTemplate(rule.publicReplyTemplate, templateVars(event), ctx.links);
-      actions.push({ action: "PUBLIC_REPLY", ruleId: rule.id, text: r.text, useAi: false, skipReason: null });
+      actions.push(plannedFromRender("PUBLIC_REPLY", rule.id, r.text));
     } else if (rule.aiFallback) {
       actions.push({ action: "AI_PUBLIC_REPLY", ruleId: rule.id, text: null, useAi: true, skipReason: null });
     } else {
