@@ -60,21 +60,40 @@ export function RulesManager({
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<RuleRow | null>(null);
   const [busy, setBusy] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function toggleEnabled(rule: RuleRow) {
-    await fetch(`/api/automation/rules/${rule.id}`, {
+    setListError(null);
+    const res = await fetch(`/api/automation/rules/${rule.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: !rule.enabled }),
     });
+    if (!res.ok) {
+      // Never let a failed toggle look like a success — the dangerous
+      // direction is a failed DISABLE: the operator believes a live
+      // auto-sending rule is off when Meta never got the update.
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      setListError(
+        `Couldn't ${rule.enabled ? "disable" : "enable"} this rule: ${data.error ?? "request failed"}`,
+      );
+      return;
+    }
     router.refresh();
   }
 
   async function doDelete() {
     if (!deleting) return;
     setBusy(true);
-    await fetch(`/api/automation/rules/${deleting.id}`, { method: "DELETE" });
+    setDeleteError(null);
+    const res = await fetch(`/api/automation/rules/${deleting.id}`, { method: "DELETE" });
     setBusy(false);
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      setDeleteError(data.error ?? "Delete failed");
+      return;
+    }
     setDeleting(null);
     router.refresh();
   }
@@ -87,6 +106,12 @@ export function RulesManager({
       >
         <Plus className="h-4 w-4" /> New rule
       </button>
+
+      {listError && (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-danger">
+          {listError}
+        </p>
+      )}
 
       {initialRules.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
@@ -173,7 +198,11 @@ export function RulesManager({
         confirmLabel="Delete"
         variant="danger"
         loading={busy}
-        onCancel={() => setDeleting(null)}
+        error={deleteError}
+        onCancel={() => {
+          setDeleting(null);
+          setDeleteError(null);
+        }}
         onConfirm={doDelete}
       />
     </div>
@@ -192,7 +221,15 @@ function RuleEditorModal({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const [r, setR] = useState<RuleRow>(initial);
+  // A DM rule can never carry a live publicReplyEnabled=true into this form
+  // — there's no comment to reply to on a DM trigger, so a stale true from
+  // before this trigger was switched to DM (or from before this guard
+  // existed) must be sanitized on load, not just hidden in the UI.
+  const [r, setR] = useState<RuleRow>(() =>
+    initial.triggerType.startsWith("DM")
+      ? { ...initial, publicReplyEnabled: false }
+      : initial,
+  );
   const [keywordInput, setKeywordInput] = useState("");
   const [media, setMedia] = useState<MediaOption[]>([]);
   const [saving, setSaving] = useState(false);
@@ -316,8 +353,18 @@ function RuleEditorModal({
               className={input}
               value={r.triggerType}
               onChange={(e) => {
-                setR({ ...r, triggerType: e.target.value });
-                setTestType(e.target.value.startsWith("DM") ? "MESSAGE" : "COMMENT");
+                const nextTriggerType = e.target.value;
+                const isDm = nextTriggerType.startsWith("DM");
+                setR({
+                  ...r,
+                  triggerType: nextTriggerType,
+                  // A DM trigger has no comment to reply to — a stale
+                  // publicReplyEnabled=true from a prior COMMENT trigger
+                  // must not survive the switch (see C1 fix: this used to
+                  // fire POST /null/replies on every inbound DM).
+                  publicReplyEnabled: isDm ? false : r.publicReplyEnabled,
+                });
+                setTestType(isDm ? "MESSAGE" : "COMMENT");
               }}
             >
               <option value="COMMENT_KEYWORD">Comment contains keyword</option>
@@ -395,22 +442,26 @@ function RuleEditorModal({
         )}
 
         <div className="mt-4 space-y-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={r.publicReplyEnabled}
-              onChange={(e) => setR({ ...r, publicReplyEnabled: e.target.checked })}
-            />
-            Public reply to the comment
-          </label>
-          {r.publicReplyEnabled && (
-            <textarea
-              className={input}
-              rows={2}
-              value={r.publicReplyTemplate}
-              onChange={(e) => setR({ ...r, publicReplyTemplate: e.target.value })}
-              placeholder="Thanks {username}! Check your DMs"
-            />
+          {!r.triggerType.startsWith("DM") && (
+            <>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={r.publicReplyEnabled}
+                  onChange={(e) => setR({ ...r, publicReplyEnabled: e.target.checked })}
+                />
+                Public reply to the comment
+              </label>
+              {r.publicReplyEnabled && (
+                <textarea
+                  className={input}
+                  rows={2}
+                  value={r.publicReplyTemplate}
+                  onChange={(e) => setR({ ...r, publicReplyTemplate: e.target.value })}
+                  placeholder="Thanks {username}! Check your DMs"
+                />
+              )}
+            </>
           )}
           <label className="flex items-center gap-2 text-sm">
             <input

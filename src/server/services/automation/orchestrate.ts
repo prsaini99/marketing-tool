@@ -49,6 +49,7 @@ export type ActionOutcome = PlannedAction & {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DM_ACTIONS = ["DM", "AI_DM", "DM_VIA_COMMENT"];
+const PUBLIC_REPLY_ACTIONS = ["PUBLIC_REPLY", "AI_PUBLIC_REPLY"];
 
 function makeMetaSender(connectionId: string, igUserId: string): Sender {
   return {
@@ -198,6 +199,33 @@ export async function orchestrateEvent(
       return { ...a, status: "SKIPPED" };
     }
 
+    // Runtime guard: decide() plans actions off a RuleLike + IncomingEvent
+    // without itself knowing whether the specific event carries the field a
+    // given action needs to send (a DM rule with publicReplyEnabled used to
+    // plan a PUBLIC_REPLY off a MESSAGE event, where commentId is always
+    // null — the send site's non-null assertion turned that into a real
+    // POST /null/replies against Meta on every inbound DM). Check for real
+    // and skip rather than assert; never call the sender on a missing target.
+    const needsCommentId =
+      a.action === "PUBLIC_REPLY" ||
+      a.action === "AI_PUBLIC_REPLY" ||
+      a.action === "DM_VIA_COMMENT";
+    const needsIgsid = a.action === "DM" || a.action === "AI_DM";
+    if ((needsCommentId && !event.commentId) || (needsIgsid && !event.fromIgsid)) {
+      if (persist && eventDbId) {
+        await prisma.automationLog.create({
+          data: {
+            eventDbId,
+            matchedRuleId: a.ruleId,
+            action: "SKIPPED",
+            status: "SKIPPED",
+            skipReason: "missing_target",
+          },
+        });
+      }
+      return { ...a, action: "SKIPPED", skipReason: "missing_target", status: "SKIPPED" };
+    }
+
     let text = a.text;
     if (a.useAi) {
       if (!callAi) {
@@ -298,11 +326,17 @@ export async function orchestrateEvent(
         : null;
     try {
       if (a.action === "PUBLIC_REPLY" || a.action === "AI_PUBLIC_REPLY") {
-        await sender.sendPublicReply(event.commentId!, text!);
+        // Unreachable given the missing_target guard above — kept as a real
+        // check (not an assertion) so a future refactor that removes that
+        // guard fails safe here too, instead of hitting Meta with "/null/...".
+        if (!event.commentId) throw new Error("missing_target: no commentId");
+        await sender.sendPublicReply(event.commentId, text!);
       } else if (a.action === "DM_VIA_COMMENT") {
-        await sender.sendCommentDm(event.commentId!, text!);
+        if (!event.commentId) throw new Error("missing_target: no commentId");
+        await sender.sendCommentDm(event.commentId, text!);
       } else {
-        await sender.sendThreadDm(event.fromIgsid!, text!);
+        if (!event.fromIgsid) throw new Error("missing_target: no fromIgsid");
+        await sender.sendThreadDm(event.fromIgsid, text!);
       }
       if (logRow) {
         await prisma.automationLog.update({
@@ -338,6 +372,12 @@ export async function orchestrateEvent(
   // Opt-out: any inbound DM that reads as "stop" → opt the thread out,
   // send one confirmation (allowed: it's within the 24h window), done.
   if (event.type === "MESSAGE" && event.fromIgsid && isOptOutMessage(event.text)) {
+    // Capture BEFORE the upsert: this is the only way to tell "first stop"
+    // from "the 10th stop from someone already opted out". This branch runs
+    // ahead of decide(), so without this check it bypasses both the daily
+    // cap and the already-opted-out state and would send a confirmation DM
+    // for every single "stop" message a user sends.
+    const alreadyOptedOut = thread?.optedOut ?? false;
     if (persist) {
       thread = await prisma.botThread.upsert({
         where: {
@@ -354,6 +394,16 @@ export async function orchestrateEvent(
         },
         update: { optedOut: true, lastInboundAt: new Date() },
       });
+    }
+    if (alreadyOptedOut) {
+      const out = await runOne({
+        action: "SKIPPED",
+        ruleId: null,
+        text: null,
+        useAi: false,
+        skipReason: "already_opted_out",
+      });
+      return { outcomes: [out] };
     }
     const outcomes: ActionOutcome[] = [];
     outcomes.push(
@@ -427,6 +477,27 @@ export async function orchestrateEvent(
           },
         })) > 0
       : false;
+  const publicReplyCountLast24h = event.fromIgsid
+    ? await prisma.automationLog.count({
+        where: {
+          action: { in: PUBLIC_REPLY_ACTIONS },
+          status: "SENT",
+          sentAt: { gt: since },
+          event: { igAccountId: ig.id, fromIgsid: event.fromIgsid },
+        },
+      })
+    : 0;
+  const alreadySentPublicForRuleUser =
+    matchedRule && event.fromIgsid
+      ? (await prisma.automationLog.count({
+          where: {
+            matchedRuleId: matchedRule.id,
+            action: { in: PUBLIC_REPLY_ACTIONS },
+            status: "SENT",
+            event: { igAccountId: ig.id, fromIgsid: event.fromIgsid },
+          },
+        })) > 0
+      : false;
 
   const planned = decide({
     event,
@@ -439,6 +510,8 @@ export async function orchestrateEvent(
         : (thread?.lastInboundAt ?? null),
     dmCountLast24h,
     alreadySentForRuleUser,
+    publicReplyCountLast24h,
+    alreadySentPublicForRuleUser,
     links: corpus.links,
     now: new Date(),
   });

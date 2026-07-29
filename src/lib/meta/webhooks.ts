@@ -47,6 +47,24 @@ function asStr(v: unknown): string | null {
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
+/**
+ * Meta is inconsistent about the unit of webhook timestamps: Messenger-style
+ * entries send milliseconds, but generic Graph-object webhooks (which is
+ * what Instagram comment/message entries technically are) have been
+ * observed sending seconds instead. Treat both entry.time and the messaging
+ * branch's m.timestamp as ambiguous.
+ *
+ * 1e12 ms is roughly September 2001, so any plausible real-world timestamp
+ * expressed in milliseconds is already >= 1e12 — anything smaller can only
+ * be seconds, and needs *1000. Getting this wrong is silent and severe: if
+ * a seconds value is treated as ms, occurredAt lands in 1970, the 7-day
+ * comment->DM window computes as ~55 years, and every comment->DM is
+ * skipped window_expired_comment.
+ */
+function normalizeTimestampMs(t: number): number {
+  return t < 1e12 ? t * 1000 : t;
+}
+
 export function parseInstagramWebhook(body: unknown): IncomingWebhookEvent[] {
   const events: IncomingWebhookEvent[] = [];
   const root = body as {
@@ -65,7 +83,9 @@ export function parseInstagramWebhook(body: unknown): IncomingWebhookEvent[] {
   for (const entry of root.entry) {
     const igUserId = entry.id != null ? String(entry.id) : "";
     if (!igUserId) continue;
-    const occurredAt = entry.time ? new Date(entry.time) : new Date();
+    const occurredAt = entry.time
+      ? new Date(normalizeTimestampMs(entry.time))
+      : new Date();
 
     // Comment events arrive under entry.changes with field === "comments".
     for (const change of entry.changes ?? []) {
@@ -109,7 +129,9 @@ export function parseInstagramWebhook(body: unknown): IncomingWebhookEvent[] {
         commentId: null,
         mediaId: null,
         occurredAt:
-          typeof m.timestamp === "number" ? new Date(m.timestamp) : occurredAt,
+          typeof m.timestamp === "number"
+            ? new Date(normalizeTimestampMs(m.timestamp))
+            : occurredAt,
         isEcho: msg.is_echo === true,
         raw: m,
       });

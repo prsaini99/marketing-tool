@@ -22,6 +22,16 @@ const PATCHABLE = [
   "oncePerUser",
 ] as const;
 
+const BOOLEAN_FIELDS = [
+  "enabled",
+  "publicReplyEnabled",
+  "dmEnabled",
+  "aiFallback",
+  "oncePerUser",
+] as const;
+
+const STRING_FIELDS = ["dmTemplate", "publicReplyTemplate"] as const;
+
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ ruleId: string }> },
@@ -40,6 +50,36 @@ export async function PATCH(
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
+
+  // Type-validate every whitelisted field before it ever reaches Prisma.
+  // Without this, a type mismatch (priority: "5", enabled: "true") throws
+  // inside prisma.botRule.update, lands in the bare catch below, and comes
+  // back as a misleading 404 "Rule not found" — indistinguishable from an
+  // actually-missing rule.
+  for (const key of BOOLEAN_FIELDS) {
+    if (key in data && typeof data[key] !== "boolean") {
+      return NextResponse.json({ error: `${key} must be a boolean` }, { status: 400 });
+    }
+  }
+  if (
+    "priority" in data &&
+    (typeof data.priority !== "number" || !Number.isInteger(data.priority))
+  ) {
+    return NextResponse.json({ error: "priority must be an integer" }, { status: 400 });
+  }
+  for (const key of STRING_FIELDS) {
+    if (key in data && typeof data[key] !== "string") {
+      return NextResponse.json({ error: `${key} must be a string` }, { status: 400 });
+    }
+  }
+  if (
+    "mediaId" in data &&
+    data.mediaId !== null &&
+    typeof data.mediaId !== "string"
+  ) {
+    return NextResponse.json({ error: "mediaId must be a string or null" }, { status: 400 });
+  }
+
   if (
     "triggerType" in data &&
     (typeof data.triggerType !== "string" || !TRIGGER_TYPES.includes(data.triggerType))

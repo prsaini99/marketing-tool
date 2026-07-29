@@ -15,6 +15,7 @@ import { renderTemplate } from "./render";
 import type { ActionKind, IncomingEvent, PlannedAction, RuleLike } from "./types";
 
 export const MAX_DMS_PER_USER_PER_DAY = 5;
+export const MAX_PUBLIC_REPLIES_PER_USER_PER_DAY = 3;
 export const COMMENT_DM_WINDOW_DAYS = 7;
 export const THREAD_DM_WINDOW_HOURS = 24;
 export const HUMAN_FALLBACK_TEXT =
@@ -29,7 +30,9 @@ export interface DecideContext {
   optedOut: boolean;
   lastInboundAt: Date | null;
   dmCountLast24h: number;
-  alreadySentForRuleUser: boolean; // oncePerUser pre-check by the caller
+  alreadySentForRuleUser: boolean; // oncePerUser pre-check by the caller (DM actions only)
+  publicReplyCountLast24h: number;
+  alreadySentPublicForRuleUser: boolean; // oncePerUser pre-check for the public-reply action
   links: Record<string, string>;
   now: Date;
 }
@@ -120,8 +123,17 @@ export function decide(ctx: DecideContext): PlannedAction[] {
 
   const actions: PlannedAction[] = [];
 
-  if (rule.publicReplyEnabled) {
-    if (rule.publicReplyTemplate.trim()) {
+  // A public reply is only meaningful on a COMMENT event that actually has
+  // a comment to reply to. A DM rule with publicReplyEnabled checked (or a
+  // COMMENT event missing commentId, defensively) must not plan — and must
+  // not log — a public-reply action at all: there is nothing to reply to,
+  // and a SKIPPED row on every inbound DM would spam the activity log.
+  if (rule.publicReplyEnabled && event.type === "COMMENT" && event.commentId) {
+    if (rule.oncePerUser && ctx.alreadySentPublicForRuleUser) {
+      actions.push(skip(rule.id, "once_per_user"));
+    } else if (ctx.publicReplyCountLast24h >= MAX_PUBLIC_REPLIES_PER_USER_PER_DAY) {
+      actions.push(skip(rule.id, "public_daily_cap"));
+    } else if (rule.publicReplyTemplate.trim()) {
       const r = renderTemplate(rule.publicReplyTemplate, templateVars(event), ctx.links);
       actions.push(plannedFromRender("PUBLIC_REPLY", rule.id, r.text));
     } else if (rule.aiFallback) {

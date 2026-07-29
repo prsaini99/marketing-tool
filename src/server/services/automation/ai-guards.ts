@@ -8,11 +8,18 @@
  * profile corpus are rejected by the caller.
  *
  * URL matching catches scheme-bound URLs (https://shop.biz/sale), bare-domain
- * links with paths (wa.me/919999999999, bit.ly/xyz), and bare domains ending
- * in recognized TLDs (bestdealz.com); trailing punctuation is stripped before
- * normalization. Price matching uses symbol-first ($50), number-first (50 usd),
- * and word-first (Rs 5000, USD 49) formats; prices are matched against the
- * corpus via exact set membership (not substring containment) to prevent
+ * links with paths (wa.me/919999999999, bit.ly/xyz), and ANY bare domain
+ * whose final label is 2+ letters (bestdealz.com, grabdeals.xyz, shop.online,
+ * brand.link, help.info) — deliberately not restricted to a fixed TLD
+ * allowlist, since a hallucinated domain outside any "known" TLD list still
+ * needs to be caught; allowlist membership against the profile's link
+ * library is what makes a URL "safe", not whether its TLD is well-known.
+ * Two small denylists keep non-domain "word.word" prose out of the net (see
+ * isDeniedBareDomain below for the exact rule); trailing punctuation is
+ * stripped before normalization. Price matching uses symbol-first ($50),
+ * number-first (50 usd), word-first (Rs 5000, USD 49), and percentage
+ * (30%) formats; both prices and percentages are matched against the corpus
+ * via exact set membership (not substring containment) to prevent
  * cross-sentence digit fusion exploits.
  */
 
@@ -56,19 +63,83 @@ export function buildSystemPrompt(
 
 // Match URLs with optional scheme and bare domains:
 // - With scheme: https://example.com/path
-// - With path: domain.letters/path (e.g., wa.me/123, bit.ly/xyz) — final label must be letters-only to avoid matching decimals/versions (4.5/5, v1.2/beta)
-// - Bare domain with allowed TLD (e.g., bestdealz.com, shop.biz)
-// Bare domains without path require a recognized TLD to avoid false positives
-// (e.g., "Node.js", "report.pdf", "Mr.Patel" are NOT links)
-const URL_RE = /(?:https?:\/\/[^\s)]+|(?:[a-z0-9-]+\.)+[a-z]{2,}\/[^\s)]*|(?:[a-z0-9-]+\.)+(?:com|net|org|io|co|in|me|ly|app|dev|ai|shop|store|biz)\b)/gi;
+// - Domain-like token, with or without a path: one or more
+//   "label."-separated segments ending in a final label of 2+ pure letters
+//   (no digits, so decimals/versions like "4.5/5" and "v1.2/beta" never
+//   match — the final segment there is a digit, not a letter run).
+// This is intentionally NOT restricted to a fixed TLD list (see module
+// docstring): allowlist membership is the actual safety check, so the
+// candidate-matching step should over-capture, not under-capture. Two
+// denylists in isDeniedBareDomain() below claw back the resulting false
+// positives on ordinary "word.word" prose.
+const URL_RE = /(?:https?:\/\/[^\s)]+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s)]*)?)/gi;
 const URL_TRAILING_PUNCT = /[.,!?;:)"']+$/;
 
-// Match prices in three forms:
+// Final labels that are common file/product suffixes rather than TLDs —
+// "Node.js", "Next.js", "report.pdf" must stay excluded even though "js"
+// and "pdf" are structurally indistinguishable from a short TLD.
+const FINAL_LABEL_DENYLIST = new Set([
+  "js", "pdf", "ts", "png", "jpg", "md", "txt", "css", "html", "py", "sh",
+  "exe", "zip", "doc", "csv",
+]);
+// First labels that are common English honorifics preceding a surname —
+// "Mr.Patel", "Dr.Shah" must stay excluded. IMPORTANT: this is only safe to
+// apply when the final label is NOT itself a plausible TLD — "dr.link",
+// "st.shop", "ms.store", "prof.dev" are structurally identical to any other
+// hallucinated domain (shop.online, brand.link) and MUST still be captured.
+// Treating every "honorific.word" as prose regardless of the final label
+// was the bug: it silently dropped a whole class of hallucinated URLs from
+// the allowlist check, erring in the UNSAFE direction (send a bad link)
+// instead of I4's intended over-capture-when-unsure direction (skip the
+// reply). So the honorific exclusion only fires when KNOWN_TLDS doesn't
+// already recognize the final label as a real-looking TLD.
+const FIRST_LABEL_DENYLIST = new Set([
+  "mr", "mrs", "ms", "dr", "st", "jr", "sr", "prof", "mx",
+]);
+// Common real/plausible-to-hallucinate TLDs. A final label in this set is
+// treated as "looks like a real domain" and is never excluded by the
+// honorific first-label check above, even though it may also coincidentally
+// collide with an honorific pattern (dr.link, st.shop, prof.dev, ...).
+const KNOWN_TLDS = new Set([
+  "com", "net", "org", "io", "co", "in", "me", "ly", "app", "dev", "ai",
+  "shop", "store", "biz", "xyz", "online", "link", "info", "site", "live",
+  "page", "fun", "club", "top", "pro", "tech", "email", "help",
+]);
+
+/**
+ * True when a captured bare-domain-looking token (no scheme) is actually
+ * ordinary prose rather than a link, per the two denylists above. Scheme
+ * URLs (https://...) are never filtered here — an explicit scheme is
+ * unambiguous. Only applied to the label immediately around the dot; a
+ * path after the domain doesn't change the verdict.
+ */
+function isDeniedBareDomain(candidate: string): boolean {
+  if (/^https?:\/\//i.test(candidate)) return false;
+  const host = candidate.split("/")[0];
+  const labels = host.split(".");
+  const finalLabel = labels[labels.length - 1]?.toLowerCase() ?? "";
+  if (FINAL_LABEL_DENYLIST.has(finalLabel)) return true;
+  const firstLabel = labels[0]?.toLowerCase() ?? "";
+  if (
+    labels.length === 2 &&
+    FIRST_LABEL_DENYLIST.has(firstLabel) &&
+    !KNOWN_TLDS.has(finalLabel)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+// Match prices/discounts in four forms:
 // 1. Symbol-first: $50, ₹500, €30, £20
 // 2. Number-first: 50 usd, 500 inr, 999 rs
 // 3. Word-first: Rs 500, USD 49, INR 2000 (optional . or space between word and number)
+// 4. Percentage: 30%, 12.5 % — the system prompt forbids inventing
+//    discounts, so a percentage not present in the profile corpus is just
+//    as unsafe as a fabricated price and gets the same exact-set-membership
+//    check.
 const PRICE_RE =
-  /(?:[$₹€£]\s?\d[\d,.]*|\b\d[\d,.]*\s?(?:usd|inr|rs|dollars?|rupees)\b|\b(?:usd|inr|rs|rupees?)\s*\.?\s*\d[\d,.]*)/gi;
+  /(?:[$₹€£]\s?\d[\d,.]*|\b\d[\d,.]*\s?(?:usd|inr|rs|dollars?|rupees)\b|\b(?:usd|inr|rs|rupees?)\s*\.?\s*\d[\d,.]*|\d+(?:\.\d+)?\s?%)/gi;
 
 /**
  * Normalize a URL for comparison: lowercase, strip scheme, strip www.,
@@ -101,9 +172,12 @@ export function isReplySafe(reply: string, p: ProfileCorpus): boolean {
     return false;
   }
 
-  // Check URLs: capture, strip trailing punctuation, normalize, and verify
+  // Check URLs: capture, strip trailing punctuation, drop denylisted
+  // "word.word" prose (Node.js, report.pdf, Mr.Patel), normalize, and verify
   const urlMatches = reply.match(URL_RE) ?? [];
-  const capturedUrls = urlMatches.map((u) => u.replace(URL_TRAILING_PUNCT, ""));
+  const capturedUrls = urlMatches
+    .map((u) => u.replace(URL_TRAILING_PUNCT, ""))
+    .filter((u) => !isDeniedBareDomain(u));
   const normalizedAllowed = new Set(
     Object.values(p.links).map(normalizeUrl),
   );
