@@ -1,0 +1,119 @@
+/**
+ * Meta webhook security + parsing for the Instagram object.
+ *
+ * Every POST to /api/webhooks/meta must pass X-Hub-Signature-256
+ * verification (HMAC-SHA256 of the raw body with the app secret) before we
+ * trust a single byte of the payload. Parsing is defensive: Meta has
+ * shipped payload variants (id vs comment_id, media object vs media_id),
+ * so every field read goes through a fallback.
+ */
+
+import { createHmac, timingSafeEqual } from "crypto";
+
+export function verifyWebhookSignature(
+  rawBody: string,
+  signatureHeader: string | null,
+  appSecret: string,
+): boolean {
+  if (!signatureHeader?.startsWith("sha256=")) return false;
+  const expected = createHmac("sha256", appSecret)
+    .update(rawBody, "utf8")
+    .digest("hex");
+  const got = signatureHeader.slice("sha256=".length);
+  if (got.length !== expected.length) return false;
+  return timingSafeEqual(
+    Buffer.from(got, "utf8"),
+    Buffer.from(expected, "utf8"),
+  );
+}
+
+export type WebhookEventType = "COMMENT" | "MESSAGE";
+
+export interface IncomingWebhookEvent {
+  eventId: string; // comment id or message mid — natural dedupe key
+  type: WebhookEventType;
+  igUserId: string; // OUR account (entry.id) — routes to InstagramAccount
+  fromIgsid: string | null; // sender's IG-scoped id
+  fromUsername: string | null;
+  text: string;
+  commentId: string | null;
+  mediaId: string | null;
+  occurredAt: Date;
+  isEcho: boolean; // our own sends/comments reflected back — always drop
+  raw: unknown;
+}
+
+function asStr(v: unknown): string | null {
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+export function parseInstagramWebhook(body: unknown): IncomingWebhookEvent[] {
+  const events: IncomingWebhookEvent[] = [];
+  const root = body as {
+    object?: string;
+    entry?: Array<{
+      id?: string | number;
+      time?: number;
+      changes?: Array<{ field?: string; value?: Record<string, unknown> }>;
+      messaging?: Array<Record<string, unknown>>;
+    }>;
+  };
+  if (root?.object !== "instagram" || !Array.isArray(root.entry)) {
+    return events;
+  }
+
+  for (const entry of root.entry) {
+    const igUserId = entry.id != null ? String(entry.id) : "";
+    if (!igUserId) continue;
+    const occurredAt = entry.time ? new Date(entry.time) : new Date();
+
+    // Comment events arrive under entry.changes with field === "comments".
+    for (const change of entry.changes ?? []) {
+      if (change.field !== "comments") continue;
+      const v = (change.value ?? {}) as Record<string, unknown>;
+      const commentId = asStr(v.id) ?? asStr(v.comment_id);
+      if (!commentId) continue;
+      const from = v.from as { id?: string | number; username?: string } | undefined;
+      const media = v.media as { id?: string | number } | undefined;
+      const fromId = from?.id != null ? String(from.id) : null;
+      events.push({
+        eventId: commentId,
+        type: "COMMENT",
+        igUserId,
+        fromIgsid: fromId,
+        fromUsername: asStr(from?.username),
+        text: asStr(v.text) ?? "",
+        commentId,
+        mediaId:
+          (media?.id != null ? String(media.id) : null) ?? asStr(v.media_id),
+        occurredAt,
+        isEcho: fromId === igUserId,
+        raw: v,
+      });
+    }
+
+    // DM events arrive under entry.messaging.
+    for (const m of entry.messaging ?? []) {
+      const msg = m.message as
+        | { mid?: string; text?: string; is_echo?: boolean }
+        | undefined;
+      const sender = m.sender as { id?: string | number } | undefined;
+      if (!msg?.mid) continue;
+      events.push({
+        eventId: msg.mid,
+        type: "MESSAGE",
+        igUserId,
+        fromIgsid: sender?.id != null ? String(sender.id) : null,
+        fromUsername: null,
+        text: asStr(msg.text) ?? "",
+        commentId: null,
+        mediaId: null,
+        occurredAt:
+          typeof m.timestamp === "number" ? new Date(m.timestamp) : occurredAt,
+        isEcho: msg.is_echo === true,
+        raw: m,
+      });
+    }
+  }
+  return events;
+}

@@ -63,7 +63,7 @@ interface RawMetaError {
  * `error_user_msg` while `message` stays generic — surface the most
  * specific field available.
  */
-async function readMetaError(res: Response): Promise<{
+export async function readMetaError(res: Response): Promise<{
   message: string;
   code?: number;
 }> {
@@ -130,7 +130,7 @@ interface RawAdAccount {
   account_status: number;
 }
 
-async function metaGet<T>(
+export async function metaGet<T>(
   path: string,
   accessToken: string,
   params: Record<string, string> = {},
