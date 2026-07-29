@@ -99,6 +99,15 @@ async function readMetaError(res: Response): Promise<{
   };
 }
 
+/**
+ * Flatten an unknown thrown value into a message safe to show a user.
+ * MetaApiError already carries Meta's most specific wording (see
+ * readMetaError), so this preserves it verbatim.
+ */
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 interface MetaPagedResponse<T> {
   data: T[];
   paging?: {
@@ -189,19 +198,38 @@ class MetaClient {
     const accountFields =
       "id,account_id,name,currency,timezone_name,account_status";
 
-    const [bizResp, directResp, me] = await Promise.all([
+    // `/me` is the token's identity check — any valid token can call it,
+    // regardless of scopes. If it fails the token is invalid/expired/revoked
+    // and every call below would fail too, so let it throw with Meta's real
+    // reason. Swallowing it here is what made an expired token look like a
+    // successful discovery that found "0 ad accounts under 0 businesses".
+    const me = await metaGet<{ id: string; name?: string }>("/me", rawToken, {
+      fields: "id,name",
+    });
+
+    // These two are allowed to fail INDEPENDENTLY, and that tolerance is
+    // deliberate: a system-user token often lacks `business_management` (so
+    // /me/businesses 403s) while still seeing ad accounts directly, and a
+    // BM-scoped token can be the reverse. We keep each error so we can
+    // explain ourselves below if the whole discovery comes back empty.
+    const [bizResult, directResult] = await Promise.all([
       metaGet<MetaPagedResponse<RawBusiness>>("/me/businesses", rawToken, {
         fields: "id,name",
         limit: "100",
-      }).catch(() => ({ data: [] as RawBusiness[] })),
+      }).then(
+        (r) => ({ data: r.data, error: null as string | null }),
+        (e: unknown) => ({ data: [] as RawBusiness[], error: errorText(e) }),
+      ),
       metaGet<MetaPagedResponse<RawAdAccount>>("/me/adaccounts", rawToken, {
         fields: accountFields,
         limit: "100",
-      }).catch(() => ({ data: [] as RawAdAccount[] })),
-      metaGet<{ id: string; name?: string }>("/me", rawToken, {
-        fields: "id,name",
-      }).catch(() => ({ id: "unknown", name: undefined as string | undefined })),
+      }).then(
+        (r) => ({ data: r.data, error: null as string | null }),
+        (e: unknown) => ({ data: [] as RawAdAccount[], error: errorText(e) }),
+      ),
     ]);
+    const bizResp = { data: bizResult.data };
+    const directResp = { data: directResult.data };
 
     // Path 1: BMs + their ad accounts.
     const businessesFromBMs: NormalizedDiscoveredBusiness[] = await Promise.all(
@@ -251,6 +279,28 @@ class MetaClient {
         name: me.name ? `${me.name} (direct access)` : "Direct access",
         adAccounts: orphans.map(normalizeAdAccount),
       });
+    }
+
+    // A genuinely empty result is possible (valid token, no ad accounts yet),
+    // but if we got here with nothing AND one of the lookups errored, the
+    // empty result is a symptom, not the truth. Surface the cause rather than
+    // reporting a cheerful "0 ad accounts".
+    const totalAccounts = businesses.reduce(
+      (n, b) => n + b.adAccounts.length,
+      0,
+    );
+    if (totalAccounts === 0) {
+      const reasons = [
+        bizResult.error ? `/me/businesses → ${bizResult.error}` : null,
+        directResult.error ? `/me/adaccounts → ${directResult.error}` : null,
+      ].filter(Boolean);
+      if (reasons.length > 0) {
+        throw new MetaApiError(
+          `Token for ${me.name ?? me.id} is valid, but no ad accounts could be read (${reasons.join("; ")}). ` +
+            `Check the token has ads_management, ads_read and business_management scopes.`,
+          403,
+        );
+      }
     }
 
     return {

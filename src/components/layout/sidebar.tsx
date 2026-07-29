@@ -55,7 +55,10 @@ export function Sidebar({ accountToBusiness, alertCount = 0 }: SidebarProps) {
   const querySuffix = qs ? `?${qs}` : "";
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-surface">
+    // sticky + h-screen pins the rail to the viewport while the main column
+    // scrolls. h-screen (not min-h-screen) is what bounds the nav below so it
+    // can scroll internally instead of pushing the footer off-screen.
+    <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r border-border bg-surface">
       <div className="flex h-14 items-center gap-2 border-b border-border px-4">
         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-accent-foreground text-sm font-semibold">
           M
@@ -63,7 +66,10 @@ export function Sidebar({ accountToBusiness, alertCount = 0 }: SidebarProps) {
         <span className="text-sm font-semibold tracking-tight">Meta Tool</span>
       </div>
 
-      <nav className="flex-1 px-2 py-3">
+      {/* min-h-0 is required: a flex child defaults to min-height:auto, which
+          refuses to shrink below its content and would let 17 nav items push
+          past the viewport instead of scrolling here. */}
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
         <ul className="space-y-0.5">
           {navItems.map((item) => {
             const isActive =

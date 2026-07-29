@@ -35,6 +35,17 @@ export async function createConnectionFromToken(
 
   // 1. Validate token by calling Meta. If it's bad, this throws before we persist.
   const discovery = await metaClient.discoverWithToken(input.token);
+
+  // The upsert below is keyed on tokenOwnerFbId. A placeholder id would key a
+  // brand-new row instead of rotating the existing connection's ciphertext,
+  // silently orphaning every business/account already hanging off it. Never
+  // persist a connection we can't identify.
+  if (!discovery.tokenOwner.id || discovery.tokenOwner.id === "unknown") {
+    throw new Error(
+      "Could not identify the token owner from Meta — refusing to store this connection.",
+    );
+  }
+
   const encrypted = encryptToken(input.token);
 
   // 2. Upsert the Connection keyed on the token owner's FB id.
