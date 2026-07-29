@@ -7,11 +7,13 @@
  * URLs not in the profile's link library, or prices absent from the
  * profile corpus are rejected by the caller.
  *
- * URL matching catches both scheme-bound URLs (https://shop.biz/sale) and
- * bare-domain links (wa.me/919999999999, bestdealz.com); trailing punctuation
- * is stripped before normalization. Price matching includes symbol-first ($50),
- * number-first (50 usd), and word-first (Rs 5000, USD 49) formats. Comparison
- * is normalized to handle formatting drift (e.g., corpus "$1,200" matches reply "$1200").
+ * URL matching catches scheme-bound URLs (https://shop.biz/sale), bare-domain
+ * links with paths (wa.me/919999999999, bit.ly/xyz), and bare domains ending
+ * in recognized TLDs (bestdealz.com); trailing punctuation is stripped before
+ * normalization. Price matching uses symbol-first ($50), number-first (50 usd),
+ * and word-first (Rs 5000, USD 49) formats; prices are matched against the
+ * corpus via exact set membership (not substring containment) to prevent
+ * cross-sentence digit fusion exploits.
  */
 
 export interface ProfileCorpus {
@@ -54,8 +56,11 @@ export function buildSystemPrompt(
 
 // Match URLs with optional scheme and bare domains:
 // - With scheme: https://example.com/path
-// - Bare domain: example.com, wa.me/number, bit.ly/code
-const URL_RE = /(?:https?:\/\/[^\s)]+|(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s)]*)?)/gi;
+// - With path: domain.tld/path (e.g., wa.me/123, bit.ly/xyz)
+// - Bare domain with allowed TLD (e.g., bestdealz.com, shop.biz)
+// Bare domains without path require a recognized TLD to avoid false positives
+// (e.g., "Node.js", "report.pdf", "Mr.Patel" are NOT links)
+const URL_RE = /(?:https?:\/\/[^\s)]+|(?:[a-z0-9-]+\.)+[a-z0-9-]+\/[^\s)]*|(?:[a-z0-9-]+\.)+(?:com|net|org|io|co|in|me|ly|app|dev|ai|shop|store|biz)\b)/gi;
 const URL_TRAILING_PUNCT = /[.,!?;:)"']+$/;
 
 // Match prices in three forms:
@@ -106,15 +111,22 @@ export function isReplySafe(reply: string, p: ProfileCorpus): boolean {
     return false;
   }
 
-  // Check prices: extract, normalize, and verify against corpus.
-  // Corpus is built from description and FAQs, normalized once.
+  // Check prices: extract allowed prices from corpus via PRICE_RE, build Set,
+  // verify reply prices are in that Set (exact membership, not substring).
+  // This prevents cross-sentence digit fusion exploits (e.g., "Rs 500 1 day"
+  // becoming "rs5001" after raw delimiter stripping).
   const corpus = [
     p.businessDescription,
     ...p.faqs.map((f) => `${f.question} ${f.answer}`),
-  ]
-    .join(" ")
-    .toLowerCase();
-  const normalizedCorpus = normalizePrice(corpus);
-  const prices = reply.match(PRICE_RE) ?? [];
-  return prices.every((price) => normalizedCorpus.includes(normalizePrice(price)));
+  ].join(" ");
+
+  const allowedPriceMatches = corpus.match(PRICE_RE) ?? [];
+  const allowedPrices = new Set(
+    allowedPriceMatches.map(normalizePrice),
+  );
+
+  const replyPriceMatches = reply.match(PRICE_RE) ?? [];
+  return replyPriceMatches.every((price) =>
+    allowedPrices.has(normalizePrice(price)),
+  );
 }
