@@ -89,6 +89,70 @@ async function metaPostParams<T>(
 }
 
 /**
+ * Page access token cache, keyed `connectionId:pageId`.
+ *
+ * Why this exists: with the Facebook-Login flow (Business Manager system
+ * user + a Page that has an IG professional account linked), the webhook
+ * subscription and the messaging endpoints are **Page-scoped**, and Meta
+ * rejects the system-user token on them with `#190 Invalid OAuth 2.0
+ * Access Token`. The Page token is derived from the system-user token via
+ * /me/accounts.
+ *
+ * Verified against the live Graph API (v23.0) on this app:
+ *   GET  /{page-id}/subscribed_apps  + page token   -> 200
+ *   GET  /{page-id}/subscribed_apps  + system token -> #190
+ *   GET  /{ig-id}/subscribed_apps    + either       -> #100 nonexisting field
+ *   POST /{page-id}/messages         + page token   -> reaches recipient validation
+ *   POST /{ig-id}/messages           + either       -> #3 no capability
+ *
+ * Cached in memory (not persisted) so a rotated system-user token or a
+ * permissions change is picked up on the next cold start rather than
+ * needing an invalidation path. Page tokens derived from a never-expiring
+ * system-user token do not themselves expire.
+ */
+const pageTokenCache = new Map<string, string>();
+
+/**
+ * Webhook fields to subscribe on the PAGE object.
+ *
+ * The Page object's field vocabulary differs from the Instagram object's:
+ * `comments` is not valid here (Meta answers #100 with its full field list
+ * and "got \"comments\""). Comment activity arrives under `feed`, and DMs
+ * under `messages`. Confirmed against v23.0:
+ *   POST /{page-id}/subscribed_apps?subscribed_fields=feed,messages -> {"success":true}
+ *
+ * Note this is the SUBSCRIPTION vocabulary only. Delivered payloads for an
+ * IG-linked Page still arrive with `object: "instagram"` and the
+ * `comments` / `messages` change fields that webhooks.ts parses — the two
+ * naming schemes are independent.
+ */
+const PAGE_SUBSCRIBED_FIELDS = ["feed", "messages"] as const;
+
+async function getPageAccessToken(
+  connectionId: string,
+  pageId: string,
+): Promise<string> {
+  const cacheKey = `${connectionId}:${pageId}`;
+  const cached = pageTokenCache.get(cacheKey);
+  if (cached) return cached;
+
+  const { accessToken } = await getCredential(connectionId);
+  const resp = await metaGet<{
+    data?: Array<{ id: string; access_token?: string }>;
+  }>("/me/accounts", accessToken, { fields: "id,access_token", limit: "100" });
+
+  const page = (resp.data ?? []).find((p) => p.id === pageId);
+  if (!page?.access_token) {
+    throw new MetaApiError(
+      `No Page access token available for Page ${pageId}. Assign the Page to this system user in Business Manager with full control, then regenerate the token.`,
+      403,
+    );
+  }
+  pageTokenCache.set(cacheKey, page.access_token);
+  return page.access_token;
+}
+
+/**
  * List IG professional accounts reachable via the Pages this token can see
  * (system-user tokens: Pages assigned to the system user in BM). Pages
  * without a linked instagram_business_account are dropped.
@@ -143,59 +207,79 @@ export async function listRecentMedia(
   }));
 }
 
-/** Subscribe this app to the account's comment + message webhooks. */
+/**
+ * Subscribe this app to the linked Page's comment + message webhooks.
+ *
+ * Page-scoped, with a Page token: `/{ig-id}/subscribed_apps` does not exist
+ * (#100) and the system-user token is rejected here (#190). `pageId` is the
+ * `linkedPageId` captured during discovery.
+ */
 export async function subscribeWebhooks(
   connectionId: string,
-  igUserId: string,
+  pageId: string,
 ): Promise<void> {
-  const { accessToken } = await getCredential(connectionId);
-  await metaPostParams(`/${igUserId}/subscribed_apps`, accessToken, {
-    subscribed_fields: "comments,messages",
+  const pageToken = await getPageAccessToken(connectionId, pageId);
+  await metaPostParams(`/${pageId}/subscribed_apps`, pageToken, {
+    subscribed_fields: PAGE_SUBSCRIBED_FIELDS.join(","),
   });
 }
 
 /** Read back the current webhook subscription (setup checklist). */
 export async function getSubscriptionStatus(
   connectionId: string,
-  igUserId: string,
+  pageId: string,
 ): Promise<IgSubscriptionStatus> {
-  const { accessToken } = await getCredential(connectionId);
+  const pageToken = await getPageAccessToken(connectionId, pageId);
   const resp = await metaGet<{
-    data?: Array<{ subscribed_fields?: string }>;
-  }>(`/${igUserId}/subscribed_apps`, accessToken);
-  const fields = (resp.data?.[0]?.subscribed_fields ?? "")
-    .split(",")
-    .map((s) => s.trim())
+    data?: Array<{ subscribed_fields?: string | string[] }>;
+  }>(`/${pageId}/subscribed_apps`, pageToken);
+  // Meta returns subscribed_fields as a comma-joined string on some
+  // responses and an array on others — normalize both.
+  const raw = resp.data?.[0]?.subscribed_fields ?? [];
+  const fields = (Array.isArray(raw) ? raw : raw.split(","))
+    .map((s) => String(s).trim())
     .filter(Boolean);
   return {
-    subscribed: fields.includes("comments") && fields.includes("messages"),
+    // Checked against the Page vocabulary we actually subscribe with
+    // (feed + messages), not the Instagram-object names.
+    subscribed: PAGE_SUBSCRIBED_FIELDS.every((f) => fields.includes(f)),
     fields,
   };
 }
 
-/** Public reply to a comment. No time window. Returns the new comment id. */
+/**
+ * Public reply to a comment. No time window. Returns the new comment id.
+ * Comment-scoped, but written with the Page token like every other write
+ * on this surface.
+ */
 export async function replyToComment(
   connectionId: string,
+  pageId: string,
   commentId: string,
   text: string,
 ): Promise<{ id: string }> {
-  const { accessToken } = await getCredential(connectionId);
-  return metaPostParams<{ id: string }>(`/${commentId}/replies`, accessToken, {
+  const pageToken = await getPageAccessToken(connectionId, pageId);
+  return metaPostParams<{ id: string }>(`/${commentId}/replies`, pageToken, {
     message: text,
   });
 }
 
+/**
+ * Send an IG message via the linked Page. Page-scoped with a Page token:
+ * `/{ig-id}/messages` returns #3 "Application does not have the capability
+ * to make this API call" for both token types on the Facebook-Login flow.
+ */
 async function sendMessage(
   connectionId: string,
-  igUserId: string,
+  pageId: string,
   recipient: Record<string, string>,
   text: string,
 ): Promise<IgSendResult> {
-  const { accessToken } = await getCredential(connectionId);
+  const pageToken = await getPageAccessToken(connectionId, pageId);
   const resp = await metaPostJson<{
     recipient_id?: string;
     message_id?: string;
-  }>(`/${igUserId}/messages`, accessToken, {
+  }>(`/${pageId}/messages`, pageToken, {
     recipient,
     message: { text },
   });
@@ -208,21 +292,21 @@ async function sendMessage(
 /** ONE-shot private reply to a commenter (7-day window). */
 export function sendDmToCommenter(
   connectionId: string,
-  igUserId: string,
+  pageId: string,
   commentId: string,
   text: string,
 ): Promise<IgSendResult> {
-  return sendMessage(connectionId, igUserId, { comment_id: commentId }, text);
+  return sendMessage(connectionId, pageId, { comment_id: commentId }, text);
 }
 
 /** DM to an existing thread (24h window from their last inbound message). */
 export function sendDm(
   connectionId: string,
-  igUserId: string,
+  pageId: string,
   igsid: string,
   text: string,
 ): Promise<IgSendResult> {
-  return sendMessage(connectionId, igUserId, { id: igsid }, text);
+  return sendMessage(connectionId, pageId, { id: igsid }, text);
 }
 
 /**

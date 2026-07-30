@@ -60,7 +60,14 @@ export async function GET(
   let webhook = { subscribed: false, fields: [] as string[] };
   let webhookError: string | null = null;
   try {
-    webhook = await getSubscriptionStatus(ig.connectionId, ig.igUserId);
+    // Page-scoped: the IG-user-id edge does not exist (#100) and the
+    // system-user token is rejected on Page edges (#190).
+    if (!ig.linkedPageId) {
+      throw new Error(
+        "No linked Facebook Page recorded — re-run Discover to capture the Page linkage.",
+      );
+    }
+    webhook = await getSubscriptionStatus(ig.connectionId, ig.linkedPageId);
   } catch (e) {
     webhookError = msg(e);
   }

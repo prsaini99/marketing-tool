@@ -15,13 +15,23 @@ export async function POST(
   const { id } = await params;
   const ig = await prisma.instagramAccount.findUnique({
     where: { id },
-    select: { igUserId: true, connectionId: true },
+    select: { igUserId: true, connectionId: true, linkedPageId: true },
   });
   if (!ig) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  // Webhook subscription is Page-scoped on the Facebook-Login flow.
+  if (!ig.linkedPageId) {
+    return NextResponse.json(
+      {
+        error:
+          "No linked Facebook Page recorded for this account — re-run Discover to capture the Page linkage.",
+      },
+      { status: 400 },
+    );
+  }
   try {
-    await subscribeWebhooks(ig.connectionId, ig.igUserId);
+    await subscribeWebhooks(ig.connectionId, ig.linkedPageId);
     await prisma.instagramAccount.update({
       where: { id },
       data: { webhookSubscribedAt: new Date() },

@@ -51,16 +51,36 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DM_ACTIONS = ["DM", "AI_DM", "DM_VIA_COMMENT"];
 const PUBLIC_REPLY_ACTIONS = ["PUBLIC_REPLY", "AI_PUBLIC_REPLY"];
 
-function makeMetaSender(connectionId: string, igUserId: string): Sender {
+/**
+ * All three sends are Page-scoped on the Facebook-Login flow: Meta rejects
+ * the IG-user-id endpoints (#3 / #100) and the system-user token (#190).
+ * `pageId` is InstagramAccount.linkedPageId, captured at discovery; a null
+ * value means the Page linkage was never recorded, so sends cannot work —
+ * fail loudly rather than calling Meta with "null" in the path.
+ */
+function makeMetaSender(
+  connectionId: string,
+  pageId: string | null,
+): Sender {
+  function requirePageId(): string {
+    if (!pageId) {
+      throw new Error(
+        "No linked Facebook Page for this Instagram account — re-run Discover so the Page linkage is recorded.",
+      );
+    }
+    return pageId;
+  }
   return {
     sendPublicReply: (commentId, text) =>
-      replyToComment(connectionId, commentId, text).then(() => undefined),
+      replyToComment(connectionId, requirePageId(), commentId, text).then(
+        () => undefined,
+      ),
     sendCommentDm: (commentId, text) =>
-      sendDmToCommenter(connectionId, igUserId, commentId, text).then(
+      sendDmToCommenter(connectionId, requirePageId(), commentId, text).then(
         () => undefined,
       ),
     sendThreadDm: (igsid, text) =>
-      sendDm(connectionId, igUserId, igsid, text).then(() => undefined),
+      sendDm(connectionId, requirePageId(), igsid, text).then(() => undefined),
   };
 }
 
@@ -171,7 +191,9 @@ export async function orchestrateEvent(
   };
   const sender =
     opts.sender ??
-    (persist ? makeMetaSender(ig.connectionId, ig.igUserId) : NOOP_SENDER);
+    (persist
+      ? makeMetaSender(ig.connectionId, ig.linkedPageId)
+      : NOOP_SENDER);
 
   // Thread state — read before runOne is defined so its closure can use it
   // for AI history. Re-assigned later by the opt-out / inbound upserts.
