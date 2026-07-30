@@ -240,6 +240,7 @@ function RuleEditorModal({
   );
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<DryRunOutcome[] | null>(null);
+  const [testBotOff, setTestBotOff] = useState(false);
 
   useEffect(() => {
     fetch(`/api/automation/accounts/${accountId}/media`)
@@ -324,12 +325,19 @@ function RuleEditorModal({
         ruleOverride: r,
       }),
     });
-    const data = (await res.json()) as { outcomes?: DryRunOutcome[]; error?: string };
+    const data = (await res.json()) as {
+      outcomes?: DryRunOutcome[];
+      error?: string;
+      botEnabled?: boolean;
+    };
     setTestResult(
       data.outcomes ?? [
         { action: "ERROR", text: null, skipReason: data.error ?? "failed", status: "FAILED" },
       ],
     );
+    // A dry run evaluates rules even when the bot is off; say so, otherwise
+    // a good preview implies live traffic is already being answered.
+    setTestBotOff(data.botEnabled === false);
     setTesting(false);
   }
 
@@ -541,6 +549,14 @@ function RuleEditorModal({
                   {o.metaError ? ` — ${o.metaError}` : ""}
                 </div>
               ))}
+              {testBotOff && (
+                <div className="rounded bg-amber-50 p-2 text-amber-800">
+                  This is a preview only — the bot is currently{" "}
+                  <b>OFF</b>, so real comments and DMs are not being answered
+                  yet. Turn it on from the Automation page when you&apos;re
+                  ready.
+                </div>
+              )}
             </div>
           )}
         </div>

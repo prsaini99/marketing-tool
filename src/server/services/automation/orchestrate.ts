@@ -380,7 +380,13 @@ export async function orchestrateEvent(
   };
 
   // Bot disabled → one visible SKIPPED row, no further work.
-  if (!ig.botEnabled) {
+  // The bot toggle gates LIVE traffic only. A dry run must still evaluate
+  // rules with the bot off — that is the whole point of testing a rule
+  // before arming it, and persist=false already guarantees no send and no
+  // write (NOOP_SENDER + every write gated on `persist`). Gating the dry
+  // run here made the test panel answer "bot_disabled" to every input,
+  // which told the user nothing about their rule.
+  if (!ig.botEnabled && persist) {
     const out = await runOne({
       action: "SKIPPED",
       ruleId: null,

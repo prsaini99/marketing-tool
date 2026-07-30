@@ -54,7 +54,7 @@ export async function POST(req: Request) {
 
   const account = await prisma.instagramAccount.findUnique({
     where: { id: body.igAccountId },
-    select: { igUserId: true },
+    select: { igUserId: true, botEnabled: true },
   });
   if (!account) {
     return NextResponse.json(
@@ -122,6 +122,12 @@ export async function POST(req: Request) {
     ok: true,
     outcomes: result.outcomes,
     sent,
-    note: "persist=false — nothing was sent or written.",
+    // A dry run deliberately evaluates rules even with the bot off, so tell
+    // the caller when what it just previewed would NOT happen on live
+    // traffic yet. Without this the panel would imply the bot is armed.
+    botEnabled: account.botEnabled,
+    note: account.botEnabled
+      ? "persist=false — nothing was sent or written."
+      : "persist=false — nothing was sent or written. The bot is currently OFF, so live comments and DMs are not being answered yet.",
   });
 }
