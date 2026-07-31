@@ -52,21 +52,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "text is required" }, { status: 400 });
   }
 
-  const account = await prisma.instagramAccount.findUnique({
+  const account = await prisma.socialAccount.findUnique({
     where: { id: body.igAccountId },
-    select: { igUserId: true, botEnabled: true },
+    select: { accountId: true, platform: true, botEnabled: true },
   });
   if (!account) {
     return NextResponse.json(
-      { error: "Instagram account not found" },
+      { error: "Account not found" },
       { status: 404 },
     );
   }
 
   const event: IncomingEvent = {
     eventId: `dryrun-${Date.now()}`,
+    platform: account.platform === "FACEBOOK" ? "FACEBOOK" : "INSTAGRAM",
     type: body.eventType,
-    igUserId: account.igUserId,
+    igUserId: account.accountId,
     fromIgsid: typeof body.fromIgsid === "string" ? body.fromIgsid : "dryrun-user",
     fromUsername: "dryrun_user",
     text: body.text,
@@ -99,6 +100,13 @@ export async function POST(req: Request) {
         priority: 0,
         triggerType: r.triggerType ?? "COMMENT_KEYWORD",
         keywords: Array.isArray(r.keywords) ? r.keywords : [],
+        negativeKeywords: Array.isArray(r.negativeKeywords)
+          ? r.negativeKeywords
+          : [],
+        skipNoIntent: r.skipNoIntent === true,
+        aiIntentGuard: r.aiIntentGuard === true,
+        mediaScope:
+          typeof r.mediaScope === "string" ? r.mediaScope : "ALL",
         mediaId: typeof r.mediaId === "string" ? r.mediaId : null,
         publicReplyEnabled: r.publicReplyEnabled === true,
         publicReplyTemplate:
@@ -106,6 +114,8 @@ export async function POST(req: Request) {
         dmEnabled: r.dmEnabled === true,
         dmTemplate: typeof r.dmTemplate === "string" ? r.dmTemplate : "",
         aiFallback: r.aiFallback === true,
+        aiInstructions:
+          typeof r.aiInstructions === "string" ? r.aiInstructions : "",
         oncePerUser: r.oncePerUser !== false,
       },
     ];

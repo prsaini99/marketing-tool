@@ -7,6 +7,7 @@ import { CheckCircle2, XCircle, Loader2, Copy } from "lucide-react";
 interface SetupStatus {
   professional: boolean;
   pageLinked: boolean;
+  platform?: string;
   tokenValid: boolean;
   scopes: { present: string[]; missing: string[] };
   webhook: { subscribed: boolean; fields: string[]; subscribedAt: string | null };
@@ -81,8 +82,17 @@ export function SetupChecklist({ accountId }: { accountId: string }) {
   return (
     <div className="space-y-4">
       <div className="space-y-2 rounded-lg border border-border bg-surface p-4">
-        <Row ok={status.professional} label="Professional Instagram account" />
-        <Row ok={status.pageLinked} label="Linked Facebook Page" />
+        <Row
+          ok={status.professional}
+          label={
+            status.platform === "FACEBOOK"
+              ? "Facebook Page access"
+              : "Professional Instagram account"
+          }
+        />
+        {status.platform !== "FACEBOOK" && (
+          <Row ok={status.pageLinked} label="Linked Facebook Page" />
+        )}
         <Row
           ok={status.tokenValid}
           label="Token valid"
@@ -103,7 +113,16 @@ export function SetupChecklist({ accountId }: { accountId: string }) {
         />
         <Row
           ok={status.webhook.subscribed}
-          label="Webhook subscribed (comments, messages)"
+          // The field names differ per platform — a Page subscribes feed +
+          // messages, an Instagram object subscribes comments + messages.
+          // Naming the wrong pair here contradicts the setup instructions
+          // rendered a few lines below and sends the operator looking for a
+          // field that doesn't exist on their object.
+          label={
+            status.platform === "FACEBOOK"
+              ? "Webhook subscribed (feed, messages)"
+              : "Webhook subscribed (comments, messages)"
+          }
           detail={status.errors.webhookError ?? undefined}
         />
       </div>
@@ -111,7 +130,10 @@ export function SetupChecklist({ accountId }: { accountId: string }) {
       <div className="space-y-2 rounded-lg border border-border bg-surface p-4 text-sm">
         <div className="font-medium">Meta App Dashboard — one-time setup</div>
         <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
-          <li>Add the <b>Webhooks</b> product → Instagram object.</li>
+          <li>
+            Add the <b>Webhooks</b> product →{" "}
+            {status.platform === "FACEBOOK" ? "Page object." : "Instagram object."}
+          </li>
           <li>
             Callback URL:{" "}
             <code className="rounded bg-background px-1">{status.env.callbackUrl}</code>{" "}
@@ -126,7 +148,12 @@ export function SetupChecklist({ accountId }: { accountId: string }) {
               {status.env.verifyToken ?? "(set META_WEBHOOK_VERIFY_TOKEN in .env first)"}
             </code>
           </li>
-          <li>Subscribe to fields <b>comments</b> and <b>messages</b>.</li>
+          <li>
+            Subscribe to fields{" "}
+            {status.platform === "FACEBOOK"
+              ? "feed and messages."
+              : "comments and messages."}
+          </li>
           <li>Switch the app to <b>Live mode</b> — webhooks are not delivered in Dev mode.</li>
         </ol>
       </div>

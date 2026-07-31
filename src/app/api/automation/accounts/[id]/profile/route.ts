@@ -32,7 +32,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const account = await prisma.instagramAccount.findUnique({
+  const account = await prisma.socialAccount.findUnique({
     where: { id },
     select: { id: true },
   });

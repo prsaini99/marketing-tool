@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 
 const TRIGGER_TYPES = ["COMMENT_KEYWORD", "COMMENT_ANY", "DM_KEYWORD", "DM_ANY"];
+const MEDIA_SCOPES = ["ALL", "ORGANIC", "ADS", "SPECIFIC"];
 
 function parseRuleFields(body: Record<string, unknown>) {
   const triggerType =
@@ -28,10 +29,22 @@ function parseRuleFields(body: Record<string, unknown>) {
     fields: {
       triggerType,
       keywords,
+      negativeKeywords: Array.isArray(body.negativeKeywords)
+        ? (body.negativeKeywords as unknown[]).filter(
+            (k): k is string => typeof k === "string" && k.trim().length > 0,
+          )
+        : [],
+      skipNoIntent: body.skipNoIntent === true,
+      aiIntentGuard: body.aiIntentGuard === true,
       priority:
         typeof body.priority === "number" && Number.isInteger(body.priority)
           ? body.priority
           : 100,
+      mediaScope:
+        typeof body.mediaScope === "string" &&
+        MEDIA_SCOPES.includes(body.mediaScope)
+          ? body.mediaScope
+          : "ALL",
       mediaId: typeof body.mediaId === "string" && body.mediaId ? body.mediaId : null,
       publicReplyEnabled: body.publicReplyEnabled === true,
       publicReplyTemplate:
@@ -39,6 +52,8 @@ function parseRuleFields(body: Record<string, unknown>) {
       dmEnabled: body.dmEnabled === true,
       dmTemplate: typeof body.dmTemplate === "string" ? body.dmTemplate : "",
       aiFallback: body.aiFallback === true,
+      aiInstructions:
+        typeof body.aiInstructions === "string" ? body.aiInstructions : "",
       oncePerUser: body.oncePerUser !== false,
     },
   } as const;
@@ -49,7 +64,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const account = await prisma.instagramAccount.findUnique({
+  const account = await prisma.socialAccount.findUnique({
     where: { id },
     select: { id: true },
   });

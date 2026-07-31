@@ -10,9 +10,9 @@ export default async function SetupPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const account = await prisma.instagramAccount.findUnique({
+  const account = await prisma.socialAccount.findUnique({
     where: { id },
-    select: { id: true, username: true },
+    select: { id: true, displayName: true, platform: true },
   });
   if (!account) notFound();
 
@@ -20,7 +20,10 @@ export default async function SetupPage({
     <div className="space-y-4 p-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">
-          Setup — @{account.username}
+          Setup —{" "}
+          {account.platform === "FACEBOOK"
+            ? account.displayName
+            : `@${account.displayName}`}
         </h1>
         <p className="text-sm text-muted-foreground">
           Everything Meta needs before the bot can listen and reply. Green =

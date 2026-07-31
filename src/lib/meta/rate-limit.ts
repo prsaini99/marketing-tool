@@ -9,6 +9,10 @@
  * real implementation later is a one-file change, not a refactor across the app.
  */
 
-export async function checkRateLimit(_credentialId: string): Promise<void> {
+// The parameter is deliberately unused: it stays in the signature so callers
+// already pass what the real implementation will need, making the swap a
+// one-file change. eslint-disable rather than deleting the arg.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function checkRateLimit(credentialId: string): Promise<void> {
   return;
 }

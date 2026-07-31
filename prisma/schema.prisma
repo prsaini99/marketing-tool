@@ -52,7 +52,7 @@ model Connection {
   lastDiscoveredAt DateTime?
 
   businesses       MetaBusiness[]
-  instagramAccounts InstagramAccount[]
+  socialAccounts   SocialAccount[]
 
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
@@ -590,15 +590,26 @@ model Embedding {
 
 // ─── Instagram automation ────────────────────────────────────────────────
 
-// Discovered IG professional account. Manual discovery sync (like audiences).
-model InstagramAccount {
-  id                  String    @id @default(cuid())
-  igUserId            String    @unique          // Meta's IG user id
-  username            String
+// One automated surface: an Instagram professional account, or a Facebook
+// Page. Both are driven by the same engine — the rules, bot profile,
+// threads and audit log hanging off this row are platform-agnostic, and
+// sends for both go through a Page token.
+model SocialAccount {
+  id                  String   @id @default(cuid())
+  // INSTAGRAM | FACEBOOK
+  platform            String   @default("INSTAGRAM")
+  // IG user id, or Facebook Page id. Unique per platform rather than
+  // globally: an IG account and its linked Page are separate surfaces and
+  // may both be automated.
+  accountId           String
+  // @handle for Instagram, Page name for Facebook.
+  displayName         String
+  // INSTAGRAM: the Page the IG account is linked to (sends are Page-scoped).
+  // FACEBOOK: the same value as accountId.
   linkedPageId        String?
   connectionId        String
   connection          Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  botEnabled          Boolean   @default(false)
+  botEnabled          Boolean  @default(false)
   webhookSubscribedAt DateTime?
 
   profile             BotProfile?
@@ -606,15 +617,17 @@ model InstagramAccount {
   threads             BotThread[]
   events              AutomationEvent[]
 
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([platform, accountId])
 }
 
-// 1:1 with InstagramAccount. Everything the AI is allowed to know lives here.
+// 1:1 with SocialAccount. Everything the AI is allowed to know lives here.
 model BotProfile {
   id                  String   @id @default(cuid())
   igAccountId         String   @unique
-  igAccount           InstagramAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
+  igAccount           SocialAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
   businessDescription String   @default("")
   toneRules           String   @default("")
   linksJson           Json     @default("{}")    // key → URL, referenced by {link:key} in templates
@@ -637,17 +650,42 @@ model BotFaq {
 model BotRule {
   id                  String   @id @default(cuid())
   igAccountId         String
-  igAccount           InstagramAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
+  igAccount           SocialAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
   enabled             Boolean  @default(true)
   priority            Int      @default(100)   // lower wins; first match short-circuits
   triggerType         String   // COMMENT_KEYWORD | COMMENT_ANY | DM_KEYWORD | DM_ANY
   keywords            String[] @default([])     // case-insensitive substring match
-  mediaId             String?                   // null = all posts/reels/ads
+  // Words that VETO this rule. Checked during matching, so a rule can answer
+  // "price" while ignoring "your price is a ripoff". Whole-word and
+  // case-insensitive, same matcher as `keywords` — a veto that matched
+  // substrings would silently kill the rule ("scam" vetoing "scamper").
+  negativeKeywords    String[] @default([])
+  // Skip emoji-only / single filler-word messages ("🔥🔥🔥", "nice", "first").
+  // Defaults true because an _ANY rule otherwise answers pure noise; a
+  // KEYWORD rule already implies intent, so the UI defaults it off there.
+  skipNoIntent        Boolean  @default(true)
+  // Run a gpt-4o-mini classifier before replying and stay silent on
+  // complaints, spam and praise-only. Off by default: it costs a call.
+  aiIntentGuard       Boolean  @default(false)
+  // Which posts this rule covers:
+  //   ALL      — every post, organic or ad (default; back-compatible)
+  //   ORGANIC  — only posts in the IG feed (excludes dark-post ads)
+  //   ADS      — only posts that are running as ads (incl. dark posts)
+  //   SPECIFIC — only the single post named by mediaId
+  // ADS/ORGANIC resolve at match time against a synced media list, so new
+  // ads are covered automatically without editing the rule.
+  mediaScope          String   @default("ALL")
+  mediaId             String?                   // used when mediaScope = SPECIFIC
   publicReplyEnabled  Boolean  @default(false)
   publicReplyTemplate String   @default("")
   dmEnabled           Boolean  @default(false)
   dmTemplate          String   @default("")
   aiFallback          Boolean  @default(false)  // matched but template empty → ask AI
+  // Per-rule steer for the AI, appended to the profile-level system prompt.
+  // The profile says WHO the business is; this says what THIS rule's replies
+  // should do — e.g. "they asked for pricing: never quote, push the call" vs
+  // "they want the demo link: give it, one line". Empty = profile only.
+  aiInstructions      String   @default("")
   oncePerUser         Boolean  @default(true)   // dedupe per (rule, user)
 }
 
@@ -655,7 +693,7 @@ model BotRule {
 model BotThread {
   id                 String   @id @default(cuid())
   igAccountId        String
-  igAccount          InstagramAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
+  igAccount          SocialAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
   igsid              String              // Instagram-scoped user id of the other party
   lastInboundAt      DateTime?           // 24h window anchor (inbound DMs only, never comments)
   optedOut           Boolean   @default(false)
@@ -670,7 +708,7 @@ model AutomationEvent {
   id           String   @id @default(cuid())
   eventId      String   @unique              // comment id / message mid — dedupe key
   igAccountId  String
-  igAccount    InstagramAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
+  igAccount    SocialAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
   eventType    String                        // COMMENT | MESSAGE
   fromIgsid    String?
   fromUsername String?

@@ -1,6 +1,9 @@
 /**
- * Instagram Graph + Messaging API — the organic IG surface (comments, DMs,
- * webhook subscriptions). Repo rule: only src/lib/meta/ calls Meta.
+ * Instagram + Facebook Page Graph/Messaging API — comments and DMs on both
+ * platforms. Repo rule: only src/lib/meta/ calls Meta. Both platforms are
+ * Page-scoped: IG automation rides the Page linked to the IG professional
+ * account, and Facebook automation rides the Page directly, so the same
+ * Page-token machinery (getPageAccessToken) and send helpers serve both.
  *
  * Conventions match client.ts: getCredential per call, readMetaError
  * verbatim, MetaApiError on failure. The Messaging API takes nested JSON
@@ -33,6 +36,13 @@ export interface IgMediaSummary {
   caption: string | null;
   mediaType: string;
   timestamp: string;
+  /** True when this media is an ad post rather than an organic feed post. */
+  isAd?: boolean;
+  /** Ad delivery status (ACTIVE, CAMPAIGN_PAUSED, ...) — ads only. */
+  adStatus?: string | null;
+  /** Ad name from Ads Manager — ads only, helps the operator recognise it. */
+  adName?: string | null;
+  permalink?: string | null;
 }
 
 export interface IgSubscriptionStatus {
@@ -121,10 +131,13 @@ const pageTokenCache = new Map<string, string>();
  * under `messages`. Confirmed against v23.0:
  *   POST /{page-id}/subscribed_apps?subscribed_fields=feed,messages -> {"success":true}
  *
- * Note this is the SUBSCRIPTION vocabulary only. Delivered payloads for an
- * IG-linked Page still arrive with `object: "instagram"` and the
- * `comments` / `messages` change fields that webhooks.ts parses — the two
- * naming schemes are independent.
+ * Note this is the SUBSCRIPTION vocabulary only, and it is per-platform:
+ * a Facebook Page subscribes `feed` + `messages` (this constant), while an
+ * Instagram professional account subscribes `comments` + `messages` on the
+ * `instagram` object. Delivered payloads follow the same split — Page
+ * webhooks arrive as `object: "page"` with `feed`/`messages` change fields,
+ * Instagram webhooks arrive as `object: "instagram"` with `comments`/
+ * `messages` change fields — and webhooks.ts's parser handles both.
  */
 const PAGE_SUBSCRIBED_FIELDS = ["feed", "messages"] as const;
 
@@ -181,6 +194,103 @@ export async function discoverInstagramAccounts(
     }));
 }
 
+export interface FbDiscoveredPage {
+  pageId: string;
+  name: string;
+}
+
+/**
+ * Facebook Pages this token can manage.
+ *
+ * Same /me/accounts call Instagram discovery uses — every Page is a
+ * candidate for automation whether or not it has an IG account linked.
+ */
+export async function discoverFacebookPages(
+  connectionId: string,
+): Promise<FbDiscoveredPage[]> {
+  const { accessToken } = await getCredential(connectionId);
+  const resp = await metaGet<{
+    data?: Array<{ id: string; name?: string }>;
+  }>("/me/accounts", accessToken, { fields: "id,name", limit: "100" });
+  return (resp.data ?? []).map((p) => ({
+    pageId: p.id,
+    name: p.name ?? p.id,
+  }));
+}
+
+/**
+ * Caption cache for single media lookups, keyed `${platform}:${mediaId}`.
+ * The platform prefix keeps the two id spaces from colliding — an Instagram
+ * media id and a Facebook Page post id are drawn from different namespaces
+ * but nothing stops them coinciding.
+ *
+ * Comment events carry a media id but no caption, and the AI needs to know
+ * which post someone is replying to ("how much for this?" is unanswerable
+ * without it). Captions are immutable in practice — an edit is rare and a
+ * stale caption is harmless — so a successful lookup is cached for the
+ * process lifetime to keep one Graph call off the hot path of every comment.
+ * A genuinely absent caption is cached as `""` (not `null`) so it still
+ * counts as a cache hit above.
+ *
+ * Failures are deliberately NOT cached (see the catch below) — a transient
+ * Graph error must not poison the entry for the rest of the process
+ * lifetime; the next comment on the same media just retries the fetch.
+ */
+const captionCache = new Map<string, string>();
+
+/**
+ * Fetch a single media's (or Page post's) caption for AI context. Returns
+ * null when the media is unreadable — callers treat that as "no context
+ * available" rather than an error, because a missing caption must never
+ * block a reply.
+ *
+ * Platform-aware because the two surfaces are shaped differently: an
+ * Instagram media id reads its text from the `caption` field with the
+ * system-user token; a Facebook Page post id (form `{page-id}_{post-id}`)
+ * reads it from `message` and requires the Page token, not the system-user
+ * token (same #190 rejection as every other Page-scoped call in this file).
+ */
+export async function getMediaCaption(
+  connectionId: string,
+  mediaId: string,
+  platform: "INSTAGRAM" | "FACEBOOK" = "INSTAGRAM",
+  pageId?: string | null,
+): Promise<string | null> {
+  const cacheKey = `${platform}:${mediaId}`;
+  const cached = captionCache.get(cacheKey);
+  if (cached !== undefined) return cached || null;
+  try {
+    let text: string | undefined;
+    if (platform === "FACEBOOK") {
+      if (!pageId) return null;
+      const pageToken = await getPageAccessToken(connectionId, pageId);
+      const resp = await metaGet<{ id: string; message?: string }>(
+        `/${mediaId}`,
+        pageToken,
+        { fields: "id,message" },
+      );
+      text = resp.message;
+    } else {
+      const { accessToken } = await getCredential(connectionId);
+      const resp = await metaGet<{ id: string; caption?: string }>(
+        `/${mediaId}`,
+        accessToken,
+        { fields: "id,caption" },
+      );
+      text = resp.caption;
+    }
+    const caption = text ?? "";
+    captionCache.set(cacheKey, caption);
+    return caption || null;
+  } catch {
+    // Deleted media, revoked permission, transient failure — reply without
+    // post context this time, but do NOT cache the miss: unlike a genuinely
+    // absent caption, a transient error deserves a retry on the next comment
+    // rather than being poisoned for the process lifetime.
+    return null;
+  }
+}
+
 /** Recent media for the rule editor's media-targeting dropdown. */
 export async function listRecentMedia(
   connectionId: string,
@@ -205,6 +315,137 @@ export async function listRecentMedia(
     mediaType: m.media_type ?? "UNKNOWN",
     timestamp: m.timestamp ?? "",
   }));
+}
+
+/**
+ * Instagram media ids that belong to ADS on this ad account.
+ *
+ * Why this exists: ad creatives are usually "dark posts" — they never appear
+ * in /{ig-user-id}/media, so the organic media list cannot see them and a
+ * rule cannot target them. Comments on ads DO arrive on the same comments
+ * webhook, carrying `effective_instagram_media_id`, which is exactly the id
+ * returned here. Matching that id is what lets a rule act on ad comments.
+ *
+ * Returns delivery status and ad name alongside the media id so the UI can
+ * show which ads are live and rules can restrict to delivering ads.
+ */
+export async function listAdInstagramMedia(
+  connectionId: string,
+  metaAdAccountId: string,
+  limit = 200,
+): Promise<IgMediaSummary[]> {
+  const { accessToken } = await getCredential(connectionId);
+  const acctId = metaAdAccountId.startsWith("act_")
+    ? metaAdAccountId
+    : `act_${metaAdAccountId}`;
+  const resp = await metaGet<{
+    data?: Array<{
+      id: string;
+      name?: string;
+      effective_status?: string;
+      creative?: {
+        effective_instagram_media_id?: string;
+        instagram_permalink_url?: string;
+        body?: string;
+        title?: string;
+      };
+    }>;
+  }>(`/${acctId}/ads`, accessToken, {
+    fields:
+      "id,name,effective_status,creative{effective_instagram_media_id,instagram_permalink_url,body,title}",
+    limit: String(limit),
+  });
+
+  // Several ads can share one creative, and therefore one IG media id.
+  // Dedupe on media id, preferring an ACTIVE ad so the status shown reflects
+  // the most permissive ad currently delivering that post.
+  const byMedia = new Map<string, IgMediaSummary>();
+  for (const ad of resp.data ?? []) {
+    const mediaId = ad.creative?.effective_instagram_media_id;
+    if (!mediaId) continue;
+    const existing = byMedia.get(mediaId);
+    if (existing && existing.adStatus === "ACTIVE") continue;
+    byMedia.set(mediaId, {
+      id: mediaId,
+      caption: ad.creative?.body ?? ad.creative?.title ?? null,
+      mediaType: "AD",
+      timestamp: "",
+      isAd: true,
+      adStatus: ad.effective_status ?? null,
+      adName: ad.name ?? null,
+      permalink: ad.creative?.instagram_permalink_url ?? null,
+    });
+  }
+  return [...byMedia.values()];
+}
+
+/** Organic posts on a Facebook Page, for rule targeting. */
+export async function listPagePosts(
+  connectionId: string,
+  pageId: string,
+  limit = 25,
+): Promise<IgMediaSummary[]> {
+  const pageToken = await getPageAccessToken(connectionId, pageId);
+  const resp = await metaGet<{
+    data?: Array<{ id: string; message?: string; created_time?: string }>;
+  }>(`/${pageId}/posts`, pageToken, {
+    fields: "id,message,created_time",
+    limit: String(limit),
+  });
+  return (resp.data ?? []).map((p) => ({
+    id: p.id,
+    caption: p.message ?? null,
+    mediaType: "POST",
+    timestamp: p.created_time ?? "",
+  }));
+}
+
+/**
+ * Facebook post ids that belong to ADS on this ad account.
+ *
+ * The Facebook analogue of listAdInstagramMedia: ad creatives expose
+ * `effective_object_story_id` (form "{page-id}_{post-id}"), which is
+ * exactly the `post_id` a `feed` comment webhook carries.
+ */
+export async function listAdFacebookPosts(
+  connectionId: string,
+  metaAdAccountId: string,
+  limit = 200,
+): Promise<IgMediaSummary[]> {
+  const { accessToken } = await getCredential(connectionId);
+  const acctId = metaAdAccountId.startsWith("act_")
+    ? metaAdAccountId
+    : `act_${metaAdAccountId}`;
+  const resp = await metaGet<{
+    data?: Array<{
+      id: string;
+      name?: string;
+      effective_status?: string;
+      creative?: { effective_object_story_id?: string; body?: string; title?: string };
+    }>;
+  }>(`/${acctId}/ads`, accessToken, {
+    fields:
+      "id,name,effective_status,creative{effective_object_story_id,body,title}",
+    limit: String(limit),
+  });
+
+  const byPost = new Map<string, IgMediaSummary>();
+  for (const ad of resp.data ?? []) {
+    const postId = ad.creative?.effective_object_story_id;
+    if (!postId) continue;
+    const existing = byPost.get(postId);
+    if (existing && existing.adStatus === "ACTIVE") continue;
+    byPost.set(postId, {
+      id: postId,
+      caption: ad.creative?.body ?? ad.creative?.title ?? null,
+      mediaType: "AD",
+      timestamp: "",
+      isAd: true,
+      adStatus: ad.effective_status ?? null,
+      adName: ad.name ?? null,
+    });
+  }
+  return [...byPost.values()];
 }
 
 /**

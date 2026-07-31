@@ -38,3 +38,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Superpowers SDD scratch (ledgers, task briefs, review diffs) — build
+# scaffolding, not project source.
+.superpowers/
+
+# Superpowers design docs (specs + plans) — kept locally, not in the repo.
+docs/superpowers/

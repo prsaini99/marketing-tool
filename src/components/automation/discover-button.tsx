@@ -45,7 +45,7 @@ export function DiscoverButton({ connectionIds }: { connectionIds: string[] }) {
         className="inline-flex items-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-foreground disabled:opacity-50"
       >
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-        Discover Instagram accounts
+        Discover accounts
       </button>
       {result && <span className="text-sm text-muted-foreground">{result}</span>}
     </div>

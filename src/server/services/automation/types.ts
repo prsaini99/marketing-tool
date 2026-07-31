@@ -9,6 +9,8 @@ export type AutomationEventType = "COMMENT" | "MESSAGE";
 
 export interface IncomingEvent {
   eventId: string; // comment id or message mid
+  /** Which surface this event came from — routes the account lookup. */
+  platform: "INSTAGRAM" | "FACEBOOK";
   type: AutomationEventType;
   igUserId: string; // our account
   fromIgsid: string | null;
@@ -26,6 +28,7 @@ export type ActionKind =
   | "DM"
   | "DM_VIA_COMMENT"
   | "AI_DM"
+  | "AI_DM_VIA_COMMENT"
   | "SKIPPED";
 
 export interface PlannedAction {
@@ -43,11 +46,21 @@ export interface RuleLike {
   priority: number;
   triggerType: string; // COMMENT_KEYWORD | COMMENT_ANY | DM_KEYWORD | DM_ANY
   keywords: string[];
+  /** Words that veto this rule entirely — see match.ts. */
+  negativeKeywords: string[];
+  /** Skip emoji-only / single filler-word messages. */
+  skipNoIntent: boolean;
+  /** Run the AI intent+sentiment classifier before replying. */
+  aiIntentGuard: boolean;
+  /** ALL | ORGANIC | ADS | SPECIFIC — see BotRule.mediaScope. */
+  mediaScope: string;
   mediaId: string | null;
   publicReplyEnabled: boolean;
   publicReplyTemplate: string;
   dmEnabled: boolean;
   dmTemplate: string;
   aiFallback: boolean;
+  /** Per-rule steer appended to the profile system prompt. "" = profile only. */
+  aiInstructions: string;
   oncePerUser: boolean;
 }

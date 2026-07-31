@@ -8,15 +8,21 @@ export function BotToggle({
   accountId,
   username,
   botEnabled,
+  platform,
 }: {
   accountId: string;
   username: string;
   botEnabled: boolean;
+  platform?: string;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Facebook Page names are shown as-is elsewhere in the dashboard; only
+  // Instagram handles get the "@" prefix. This dialog arms a bot that
+  // messages real people, so it must name the account the same way.
+  const displayName = platform === "FACEBOOK" ? username : `@${username}`;
 
   async function apply() {
     setLoading(true);
@@ -51,7 +57,7 @@ export function BotToggle({
       </button>
       <ConfirmModal
         open={confirming}
-        title={botEnabled ? `Disable bot for @${username}?` : `Enable bot for @${username}?`}
+        title={botEnabled ? `Disable bot for ${displayName}?` : `Enable bot for ${displayName}?`}
         body={
           botEnabled
             ? "The bot will stop replying to new comments and DMs immediately. Existing rules are kept."

@@ -24,14 +24,14 @@ export async function PATCH(
     );
   }
   try {
-    await prisma.instagramAccount.update({
+    await prisma.socialAccount.update({
       where: { id },
       data: { botEnabled: body.botEnabled },
     });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json(
-      { error: "Instagram account not found" },
+      { error: "Account not found" },
       { status: 404 },
     );
   }

@@ -7,16 +7,25 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { debugToken, getSubscriptionStatus } from "@/lib/meta/instagram";
+import { debugToken, getSubscriptionStatus } from "@/lib/meta/messaging";
 
 // Module-private: Next route files may only export HTTP handlers + config.
-const REQUIRED_SCOPES = [
+const IG_SCOPES = [
   "instagram_basic",
   "instagram_manage_comments",
   "instagram_manage_messages",
   "pages_show_list",
   "pages_manage_metadata",
   "pages_read_engagement",
+  "business_management",
+];
+const FB_SCOPES = [
+  "pages_show_list",
+  "pages_manage_metadata",
+  "pages_read_engagement",
+  "pages_manage_engagement",
+  "pages_read_user_content",
+  "pages_messaging",
   "business_management",
 ];
 
@@ -29,13 +38,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const ig = await prisma.instagramAccount.findUnique({
+  const ig = await prisma.socialAccount.findUnique({
     where: { id },
     select: {
-      igUserId: true,
+      accountId: true,
       linkedPageId: true,
       connectionId: true,
       webhookSubscribedAt: true,
+      platform: true,
     },
   });
   if (!ig) {
@@ -73,15 +83,17 @@ export async function GET(
   }
 
   const origin = new URL(req.url).origin;
+  const requiredScopes = ig.platform === "FACEBOOK" ? FB_SCOPES : IG_SCOPES;
   return NextResponse.json({
     // Discovery via instagram_business_account implies a professional
     // account linked to a Page; pageLinked confirms the linkage is stored.
     professional: true,
     pageLinked: Boolean(ig.linkedPageId),
+    platform: ig.platform,
     tokenValid,
     scopes: {
       present: scopes,
-      missing: REQUIRED_SCOPES.filter((s) => !scopes.includes(s)),
+      missing: requiredScopes.filter((s) => !scopes.includes(s)),
     },
     webhook: { ...webhook, subscribedAt: ig.webhookSubscribedAt },
     env: {

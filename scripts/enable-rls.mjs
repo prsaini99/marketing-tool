@@ -22,7 +22,7 @@ const TABLES = [
   "SyncLog",
   "SyncSchedule",
   "AuditLog",
-  "InstagramAccount",
+  "SocialAccount",
   "BotProfile",
   "BotFaq",
   "BotRule",

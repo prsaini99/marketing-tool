@@ -6,16 +6,16 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { subscribeWebhooks } from "@/lib/meta/instagram";
+import { subscribeWebhooks } from "@/lib/meta/messaging";
 
 export async function POST(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const ig = await prisma.instagramAccount.findUnique({
+  const ig = await prisma.socialAccount.findUnique({
     where: { id },
-    select: { igUserId: true, connectionId: true, linkedPageId: true },
+    select: { accountId: true, connectionId: true, linkedPageId: true },
   });
   if (!ig) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -32,7 +32,7 @@ export async function POST(
   }
   try {
     await subscribeWebhooks(ig.connectionId, ig.linkedPageId);
-    await prisma.instagramAccount.update({
+    await prisma.socialAccount.update({
       where: { id },
       data: { webhookSubscribedAt: new Date() },
     });

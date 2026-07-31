@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import Link from "next/link";
+import { Activity, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 
 export interface RuleRow {
@@ -11,12 +12,17 @@ export interface RuleRow {
   priority: number;
   triggerType: string;
   keywords: string[];
+  negativeKeywords: string[];
+  skipNoIntent: boolean;
+  aiIntentGuard: boolean;
+  mediaScope: string;
   mediaId: string | null;
   publicReplyEnabled: boolean;
   publicReplyTemplate: string;
   dmEnabled: boolean;
   dmTemplate: string;
   aiFallback: boolean;
+  aiInstructions: string;
   oncePerUser: boolean;
 }
 
@@ -25,12 +31,17 @@ const EMPTY_RULE: Omit<RuleRow, "id"> = {
   priority: 100,
   triggerType: "COMMENT_KEYWORD",
   keywords: [],
+  negativeKeywords: [],
+  skipNoIntent: false,
+  aiIntentGuard: false,
+  mediaScope: "ALL",
   mediaId: null,
   publicReplyEnabled: false,
   publicReplyTemplate: "",
   dmEnabled: true,
   dmTemplate: "",
   aiFallback: false,
+  aiInstructions: "",
   oncePerUser: true,
 };
 
@@ -38,6 +49,9 @@ interface MediaOption {
   id: string;
   caption: string | null;
   mediaType: string;
+  isAd?: boolean;
+  adStatus?: string | null;
+  adName?: string | null;
 }
 
 interface DryRunOutcome {
@@ -51,9 +65,11 @@ interface DryRunOutcome {
 export function RulesManager({
   accountId,
   initialRules,
+  platform,
 }: {
   accountId: string;
   initialRules: RuleRow[];
+  platform?: string;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState<RuleRow | null>(null);
@@ -152,6 +168,9 @@ export function RulesManager({
                     r.publicReplyEnabled ? "reply" : null,
                     r.dmEnabled ? "DM" : null,
                     r.aiFallback ? "+AI" : null,
+                    r.negativeKeywords.length > 0 ? "−words" : null,
+                    r.skipNoIntent ? "−noise" : null,
+                    r.aiIntentGuard ? "−AI guard" : null,
                   ]
                     .filter(Boolean)
                     .join(" · ") || "—"}
@@ -164,11 +183,18 @@ export function RulesManager({
                   />
                 </td>
                 <td className="py-2">
-                  <div className="flex gap-2">
-                    <button onClick={() => setEditing(r)}>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/dashboard/automation/${accountId}/rules/${r.id}/activity`}
+                      title="Activity for this rule"
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <Activity className="h-4 w-4" />
+                    </Link>
+                    <button onClick={() => setEditing(r)} title="Edit rule">
                       <Pencil className="h-4 w-4" />
                     </button>
-                    <button onClick={() => setDeleting(r)}>
+                    <button onClick={() => setDeleting(r)} title="Delete rule">
                       <Trash2 className="h-4 w-4 text-red-500" />
                     </button>
                   </div>
@@ -184,6 +210,7 @@ export function RulesManager({
           accountId={accountId}
           initial={editing ?? ({ id: "", ...EMPTY_RULE } as RuleRow)}
           isNew={creating}
+          platform={platform}
           onClose={() => {
             setEditing(null);
             setCreating(false);
@@ -213,11 +240,13 @@ function RuleEditorModal({
   accountId,
   initial,
   isNew,
+  platform,
   onClose,
 }: {
   accountId: string;
   initial: RuleRow;
   isNew: boolean;
+  platform?: string;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -231,7 +260,9 @@ function RuleEditorModal({
       : initial,
   );
   const [keywordInput, setKeywordInput] = useState("");
+  const [negKeywordInput, setNegKeywordInput] = useState("");
   const [media, setMedia] = useState<MediaOption[]>([]);
+  const [mediaError, setMediaError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testText, setTestText] = useState("");
@@ -245,14 +276,28 @@ function RuleEditorModal({
   useEffect(() => {
     fetch(`/api/automation/accounts/${accountId}/media`)
       .then((res) => (res.ok ? res.json() : { media: [] }))
-      .then((data: { media?: MediaOption[] }) => setMedia(data.media ?? []))
-      .catch(() => setMedia([]));
+      .then((data: { media?: MediaOption[]; error?: string }) => {
+        setMedia(data.media ?? []);
+        setMediaError(data.error ?? null);
+      })
+      .catch(() => {
+        setMedia([]);
+        setMediaError("Couldn't load posts from Meta.");
+      });
   }, [accountId]);
 
   function addKeyword() {
     const k = keywordInput.trim();
     if (k && !r.keywords.includes(k)) setR({ ...r, keywords: [...r.keywords, k] });
     setKeywordInput("");
+  }
+
+  function addNegKeyword() {
+    const k = negKeywordInput.trim();
+    if (k && !r.negativeKeywords.includes(k)) {
+      setR({ ...r, negativeKeywords: [...r.negativeKeywords, k] });
+    }
+    setNegKeywordInput("");
   }
 
   // Live Meta payload preview (repo convention for create forms).
@@ -323,6 +368,11 @@ function RuleEditorModal({
         text: testText,
         mediaId: r.mediaId,
         ruleOverride: r,
+        // Exercise whichever AI path this rule actually uses, or the test
+        // panel silently skips the classifier/AI-fallback call the dry-run
+        // route defaults to false — making "Use AI to skip complaints" look
+        // broken when the operator turns it on.
+        callAi: r.aiFallback || r.aiIntentGuard,
       }),
     });
     const data = (await res.json()) as {
@@ -349,9 +399,20 @@ function RuleEditorModal({
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg bg-background p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{isNew ? "New rule" : "Edit rule"}</h2>
-          <button onClick={onClose}>
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-3">
+            {!isNew && (
+              <Link
+                href={`/dashboard/automation/${accountId}/rules/${r.id}/activity`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <Activity className="h-3.5 w-3.5" />
+                Activity
+              </Link>
+            )}
+            <button onClick={onClose}>
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -371,6 +432,10 @@ function RuleEditorModal({
                   // must not survive the switch (see C1 fix: this used to
                   // fire POST /null/replies on every inbound DM).
                   publicReplyEnabled: isDm ? false : r.publicReplyEnabled,
+                  // An _ANY rule answers everything, so the noise filter is
+                  // the sensible default there; a KEYWORD rule already
+                  // implies intent.
+                  skipNoIntent: nextTriggerType.endsWith("_ANY"),
                 });
                 setTestType(isDm ? "MESSAGE" : "COMMENT");
               }}
@@ -397,7 +462,16 @@ function RuleEditorModal({
 
         {r.triggerType.endsWith("KEYWORD") && (
           <div className="mt-4">
-            <label className={label}>Keywords (Enter to add)</label>
+            <label className={label}>
+              Keywords (Enter to add) &mdash; whole word, case-insensitive
+            </label>
+            <p className="mb-1 text-xs text-muted-foreground">
+              Matches only when the commenter says the whole word, so
+              &quot;AI&quot; will not fire on &quot;said&quot; or
+              &quot;again&quot;. Punctuation and emoji next to the word are
+              fine; plurals are not (&quot;price&quot; won&apos;t match
+              &quot;prices&quot; &mdash; add both if you want them).
+            </p>
             <div className="flex gap-2">
               <input
                 className={input}
@@ -433,19 +507,77 @@ function RuleEditorModal({
 
         {testType === "COMMENT" && (
           <div className="mt-4">
-            <label className={label}>Only on specific media (optional)</label>
+            <label className={label}>Which posts?</label>
             <select
               className={input}
-              value={r.mediaId ?? ""}
-              onChange={(e) => setR({ ...r, mediaId: e.target.value || null })}
+              value={r.mediaScope}
+              onChange={(e) =>
+                setR({
+                  ...r,
+                  mediaScope: e.target.value,
+                  // Leaving SPECIFIC clears the pinned post so a stale id
+                  // can't linger and silently narrow a broader scope.
+                  mediaId: e.target.value === "SPECIFIC" ? r.mediaId : null,
+                })
+              }
             >
-              <option value="">All posts, reels &amp; ads</option>
-              {media.map((m) => (
-                <option key={m.id} value={m.id}>
-                  [{m.mediaType}] {(m.caption ?? m.id).slice(0, 60)}
-                </option>
-              ))}
+              <option value="ALL">
+                {platform === "FACEBOOK"
+                  ? "All Page posts & ads"
+                  : "All posts, reels & ads"}
+              </option>
+              <option value="ORGANIC">Organic posts only (not ads)</option>
+              <option value="ADS">
+                Ad posts only (incl. dark posts, auto-covers new ads)
+              </option>
+              <option value="SPECIFIC">One specific post…</option>
             </select>
+            {r.mediaScope === "ADS" && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Matches any post currently running as an ad, so new ads are
+                covered without editing this rule. Ad posts are usually dark
+                posts that never appear in your feed.
+              </p>
+            )}
+            {r.mediaScope === "SPECIFIC" && (
+              <div className="mt-2">
+                <select
+                  className={input}
+                  value={r.mediaId ?? ""}
+                  onChange={(e) =>
+                    setR({ ...r, mediaId: e.target.value || null })
+                  }
+                >
+                  <option value="">Select a post…</option>
+                  {media.filter((m) => m.isAd).length > 0 && (
+                    <optgroup label="Ad posts">
+                      {media
+                        .filter((m) => m.isAd)
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            [{m.adStatus ?? "AD"}]{" "}
+                            {(m.adName || m.caption || m.id).slice(0, 60)}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                  {media.filter((m) => !m.isAd).length > 0 && (
+                    <optgroup label="Organic posts">
+                      {media
+                        .filter((m) => !m.isAd)
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            [{m.mediaType}] {(m.caption ?? m.id).slice(0, 60)}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                </select>
+                {mediaError && (
+                  <p className="mt-1 text-xs text-danger">{mediaError}</p>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -513,6 +645,110 @@ function RuleEditorModal({
               AI writes it if template is empty
             </label>
           </div>
+          {r.aiFallback && (
+            <div className="mt-3 rounded-md border border-border bg-surface p-3">
+              <label className={label}>
+                How should the AI reply to THIS rule? (optional)
+              </label>
+              <textarea
+                className={input}
+                rows={3}
+                value={r.aiInstructions}
+                onChange={(e) =>
+                  setR({ ...r, aiInstructions: e.target.value })
+                }
+                placeholder={
+                  "e.g. They asked about pricing. Never quote a number - say it depends on scope and invite them to book the free 30-min call. One or two sentences, warm."
+                }
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Added on top of the Bot profile for this rule only, and it wins
+                on wording. It cannot override the safety guardrails: banned
+                topics, the link allowlist, and the no-invented-prices rule
+                still apply to whatever the AI writes.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-md border border-border p-3">
+          <div className="mb-2 text-sm font-medium">When NOT to reply</div>
+
+          <label className={label}>
+            Never reply if the message contains (Enter to add)
+          </label>
+          <div className="flex gap-2">
+            <input
+              className={input}
+              value={negKeywordInput}
+              onChange={(e) => setNegKeywordInput(e.target.value)}
+              onKeyDown={(e) =>
+                e.key === "Enter" && (e.preventDefault(), addNegKeyword())
+              }
+              placeholder="ripoff"
+            />
+            <button
+              onClick={addNegKeyword}
+              className="rounded-md border border-border px-3 text-sm"
+            >
+              Add
+            </button>
+          </div>
+          <div className="mt-2">
+            {r.negativeKeywords.map((k) => (
+              <span
+                key={k}
+                className="mr-1 inline-flex items-center gap-1 rounded bg-surface px-2 py-0.5 text-xs border border-border"
+              >
+                {k}
+                <button
+                  onClick={() =>
+                    setR({
+                      ...r,
+                      negativeKeywords: r.negativeKeywords.filter(
+                        (x) => x !== k,
+                      ),
+                    })
+                  }
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Whole-word, case-insensitive. This rule is skipped entirely when
+            one of these appears &mdash; lower-priority rules still get their
+            chance.
+          </p>
+
+          <label className="mt-3 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={r.skipNoIntent}
+              onChange={(e) => setR({ ...r, skipNoIntent: e.target.checked })}
+            />
+            Skip emoji-only and one-word messages
+          </label>
+          <p className="ml-6 text-xs text-muted-foreground">
+            Ignores &quot;🔥🔥🔥&quot;, &quot;nice&quot;, &quot;wow&quot;,
+            &quot;first&quot; and similar &mdash; anything with no question
+            and nothing asked for. Multi-word messages always get through.
+          </p>
+
+          <label className="mt-3 flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={r.aiIntentGuard}
+              onChange={(e) => setR({ ...r, aiIntentGuard: e.target.checked })}
+            />
+            Use AI to skip complaints, spam and praise-only
+          </label>
+          <p className="ml-6 text-xs text-muted-foreground">
+            Costs one extra AI call per message. If the AI isn&apos;t
+            confident, or the call fails, the reply is sent anyway &mdash; a
+            real question must never be swallowed by an unsure classifier.
+          </p>
         </div>
 
         <div className="mt-4">

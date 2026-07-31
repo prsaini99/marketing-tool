@@ -10,7 +10,7 @@ export default async function ProfilePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const account = await prisma.instagramAccount.findUnique({
+  const account = await prisma.socialAccount.findUnique({
     where: { id },
     include: { profile: { include: { faqs: { orderBy: { sortOrder: "asc" } } } } },
   });
@@ -21,7 +21,10 @@ export default async function ProfilePage({
     <div className="space-y-4 p-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">
-          Bot profile — @{account.username}
+          Bot profile —{" "}
+          {account.platform === "FACEBOOK"
+            ? account.displayName
+            : `@${account.displayName}`}
         </h1>
         <p className="text-sm text-muted-foreground">
           This is everything the AI is allowed to know. Facts, links, and

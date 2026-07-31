@@ -15,7 +15,7 @@
 import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import {
-  parseInstagramWebhook,
+  parseMetaWebhook,
   verifyWebhookSignature,
   type IncomingWebhookEvent,
 } from "@/lib/meta/webhooks";
@@ -47,6 +47,7 @@ export async function GET(req: Request) {
 function toIncomingEvent(e: IncomingWebhookEvent): IncomingEvent {
   return {
     eventId: e.eventId,
+    platform: e.platform,
     type: e.type,
     igUserId: e.igUserId,
     fromIgsid: e.fromIgsid,
@@ -78,21 +79,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true }); // not ours to parse — still ack
   }
 
-  const parsed = parseInstagramWebhook(body).filter((e) => !e.isEcho);
-  const igIds = [...new Set(parsed.map((e) => e.igUserId))];
-  const accounts = igIds.length
-    ? await prisma.instagramAccount.findMany({
-        where: { igUserId: { in: igIds } },
-        select: { id: true, igUserId: true },
+  const parsed = parseMetaWebhook(body).filter((e) => !e.isEcho);
+  const keys = [...new Set(parsed.map((e) => `${e.platform}:${e.igUserId}`))];
+  const accounts = keys.length
+    ? await prisma.socialAccount.findMany({
+        where: {
+          OR: keys.map((k) => {
+            const [platform, accountId] = k.split(":");
+            return { platform, accountId };
+          }),
+        },
+        select: { id: true, platform: true, accountId: true },
       })
     : [];
-  const byIg = new Map(accounts.map((a) => [a.igUserId, a.id]));
+  const byKey = new Map(
+    accounts.map((a) => [`${a.platform}:${a.accountId}`, a.id]),
+  );
 
   const fresh: Array<{ e: IncomingWebhookEvent; eventDbId: string }> = [];
   for (const e of parsed) {
-    const igAccountId = byIg.get(e.igUserId);
+    const igAccountId = byKey.get(`${e.platform}:${e.igUserId}`);
     if (!igAccountId) {
-      console.warn("[webhook] event for unknown IG account", e.igUserId);
+      console.warn("[webhook] event for unknown account", e.platform, e.igUserId);
       continue;
     }
     try {

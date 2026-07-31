@@ -13,12 +13,17 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import {
+  getMediaCaption,
+  listAdFacebookPosts,
+  listAdInstagramMedia,
   replyToComment,
   sendDm,
   sendDmToCommenter,
-} from "@/lib/meta/instagram";
+} from "@/lib/meta/messaging";
 import { decide, HUMAN_FALLBACK_TEXT } from "./decide";
-import { matchRule } from "./match";
+import { hasIntent } from "./intent";
+import { classifyIntent, type IntentVerdict } from "./intent-guard";
+import { matchRuleWithReason } from "./match";
 import { isOptOutMessage } from "./opt-out";
 import { generateAiReply } from "./ai";
 import type { ProfileCorpus } from "./ai-guards";
@@ -48,13 +53,13 @@ export type ActionOutcome = PlannedAction & {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DM_ACTIONS = ["DM", "AI_DM", "DM_VIA_COMMENT"];
+const DM_ACTIONS = ["DM", "AI_DM", "DM_VIA_COMMENT", "AI_DM_VIA_COMMENT"];
 const PUBLIC_REPLY_ACTIONS = ["PUBLIC_REPLY", "AI_PUBLIC_REPLY"];
 
 /**
  * All three sends are Page-scoped on the Facebook-Login flow: Meta rejects
  * the IG-user-id endpoints (#3 / #100) and the system-user token (#190).
- * `pageId` is InstagramAccount.linkedPageId, captured at discovery; a null
+ * `pageId` is SocialAccount.linkedPageId, captured at discovery; a null
  * value means the Page linkage was never recorded, so sends cannot work —
  * fail loudly rather than calling Meta with "null" in the path.
  */
@@ -65,7 +70,7 @@ function makeMetaSender(
   function requirePageId(): string {
     if (!pageId) {
       throw new Error(
-        "No linked Facebook Page for this Instagram account — re-run Discover so the Page linkage is recorded.",
+        "No linked Facebook Page for this account — re-run Discover so the Page linkage is recorded.",
       );
     }
     return pageId;
@@ -122,6 +127,48 @@ function appendThreadMessages(
   return next.slice(-10) as unknown as Prisma.InputJsonValue;
 }
 
+
+/**
+ * IG media ids currently attached to ads, across every ad account this
+ * connection can see.
+ *
+ * Cached briefly (not for the process lifetime like captions): ads are
+ * paused, created and rotated constantly, so a long cache would leave an
+ * "ads only" rule acting on stale information. Failures return an empty set
+ * — never throw — because an ad-list problem must not stop the engine from
+ * handling the comment.
+ */
+const AD_MEDIA_TTL_MS = 5 * 60 * 1000;
+const adMediaCache = new Map<string, { at: number; ids: Set<string> }>();
+
+async function getAdMediaIds(
+  connectionId: string,
+  platform: string,
+): Promise<Set<string>> {
+  const cacheKey = `${connectionId}:${platform}`;
+  const hit = adMediaCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < AD_MEDIA_TTL_MS) return hit.ids;
+  const ids = new Set<string>();
+  try {
+    const accounts = await prisma.metaAdAccount.findMany({
+      where: { business: { connectionId } },
+      select: { metaAdAccountId: true },
+    });
+    for (const acct of accounts) {
+      const media =
+        platform === "FACEBOOK"
+          ? await listAdFacebookPosts(connectionId, acct.metaAdAccountId)
+          : await listAdInstagramMedia(connectionId, acct.metaAdAccountId);
+      for (const m of media) ids.add(m.id);
+    }
+    adMediaCache.set(cacheKey, { at: Date.now(), ids });
+  } catch {
+    // Leave the cache alone so a transient failure doesn't poison it.
+    return hit?.ids ?? new Set<string>();
+  }
+  return ids;
+}
+
 export async function orchestrateEvent(
   event: IncomingEvent,
   opts: OrchestrateOptions = {},
@@ -129,8 +176,13 @@ export async function orchestrateEvent(
   const persist = opts.persist ?? true;
   const callAi = opts.callAi ?? true;
 
-  const ig = await prisma.instagramAccount.findUnique({
-    where: { igUserId: event.igUserId },
+  const ig = await prisma.socialAccount.findUnique({
+    where: {
+      platform_accountId: {
+        platform: event.platform,
+        accountId: event.igUserId,
+      },
+    },
     include: {
       profile: { include: { faqs: { orderBy: { sortOrder: "asc" } } } },
       rules: { orderBy: { priority: "asc" } },
@@ -205,6 +257,28 @@ export async function orchestrateEvent(
       })
     : null;
 
+  // Post context for the AI and the {post_caption} variable. Comment events
+  // carry a media id but no caption, so "how much for this?" is
+  // unanswerable without it. Fetched once per event and cached in lib/meta.
+  //
+  // Deliberately NOT gated on `persist`: this is a read-only GET with no
+  // side effects, and a dry run that skipped it would preview a different
+  // reply than production would send — which defeats the point of the test
+  // panel. Dry-run purity is about not writing and not SENDING, not about
+  // never reading. Failures inside getMediaCaption resolve to null, so a
+  // caption problem can never block a reply.
+  //
+  // Declared above runOne so its closure can read it for the AI prompt.
+  const postCaption =
+    event.type === "COMMENT" && event.mediaId
+      ? await getMediaCaption(
+          ig.connectionId,
+          event.mediaId,
+          event.platform,
+          ig.linkedPageId,
+        )
+      : null;
+
   const runOne = async (a: PlannedAction): Promise<ActionOutcome> => {
     if (a.action === "SKIPPED") {
       if (persist && eventDbId) {
@@ -228,10 +302,13 @@ export async function orchestrateEvent(
     // null — the send site's non-null assertion turned that into a real
     // POST /null/replies against Meta on every inbound DM). Check for real
     // and skip rather than assert; never call the sender on a missing target.
+    // AI_DM_VIA_COMMENT rides the comment channel, so it needs a commentId,
+    // not an igsid — same as DM_VIA_COMMENT.
     const needsCommentId =
       a.action === "PUBLIC_REPLY" ||
       a.action === "AI_PUBLIC_REPLY" ||
-      a.action === "DM_VIA_COMMENT";
+      a.action === "DM_VIA_COMMENT" ||
+      a.action === "AI_DM_VIA_COMMENT";
     const needsIgsid = a.action === "DM" || a.action === "AI_DM";
     if ((needsCommentId && !event.commentId) || (needsIgsid && !event.fromIgsid)) {
       if (persist && eventDbId) {
@@ -262,9 +339,32 @@ export async function orchestrateEvent(
             languageMode: profile?.languageMode ?? "mirror",
             history: threadMsgs,
             userText: event.text,
+            postCaption,
+            // The rule that produced this action steers the wording. a.ruleId
+            // is null for the profile-level fallback (no rule matched), which
+            // correctly falls back to profile-only instructions.
+            channel:
+              a.action === "AI_PUBLIC_REPLY" ? "PUBLIC_REPLY" : "DM",
+            // Does this same comment also get a DM? If so the public reply
+            // must point at the DM instead of answering, or the two come out
+            // near-identical. `planned` is the full action list for this
+            // event, so this is known before either AI call is made.
+            companionDm:
+              a.action === "AI_PUBLIC_REPLY" &&
+              planned.some(
+                (other) =>
+                  other.action === "DM" ||
+                  other.action === "AI_DM" ||
+                  other.action === "DM_VIA_COMMENT" ||
+                  other.action === "AI_DM_VIA_COMMENT",
+              ),
+            ruleInstructions: a.ruleId
+              ? rules.find((r) => r.id === a.ruleId)?.aiInstructions
+              : undefined,
+            platform: event.platform,
           });
           if (!ai.safe || ai.confidence < 0.6 || ai.escalate) {
-            if (a.action === "AI_DM") {
+            if (a.action === "AI_DM" || a.action === "AI_DM_VIA_COMMENT") {
               text = HUMAN_FALLBACK_TEXT;
             } else {
               // Public contexts never post an unvetted fallback.
@@ -291,7 +391,7 @@ export async function orchestrateEvent(
             text = ai.reply;
           }
         } catch {
-          if (a.action === "AI_DM") {
+          if (a.action === "AI_DM" || a.action === "AI_DM_VIA_COMMENT") {
             text = HUMAN_FALLBACK_TEXT;
           } else {
             if (persist && eventDbId) {
@@ -353,7 +453,10 @@ export async function orchestrateEvent(
         // guard fails safe here too, instead of hitting Meta with "/null/...".
         if (!event.commentId) throw new Error("missing_target: no commentId");
         await sender.sendPublicReply(event.commentId, text!);
-      } else if (a.action === "DM_VIA_COMMENT") {
+      } else if (
+        a.action === "DM_VIA_COMMENT" ||
+        a.action === "AI_DM_VIA_COMMENT"
+      ) {
         if (!event.commentId) throw new Error("missing_target: no commentId");
         await sender.sendCommentDm(event.commentId, text!);
       } else {
@@ -482,7 +585,21 @@ export async function orchestrateEvent(
   }
 
   // Guardrail inputs for decide().
-  const matchedRule = matchRule(event, rules);
+  // Which IG media are currently ads? Needed for mediaScope ADS/ORGANIC —
+  // ad creatives are usually dark posts, invisible to the organic media
+  // list, so this is the only way a rule can tell them apart. Only fetched
+  // when some rule actually asks for it, so the common case (ALL/SPECIFIC)
+  // costs nothing. A failure resolves to an empty set: ADS rules then match
+  // nothing rather than misfiring on organic posts.
+  const needsAdMedia =
+    event.type === "COMMENT" &&
+    rules.some((r) => r.mediaScope === "ADS" || r.mediaScope === "ORGANIC");
+  const adMediaIds = needsAdMedia
+    ? await getAdMediaIds(ig.connectionId, ig.platform)
+    : new Set<string>();
+
+  const { rule: matchedRule, vetoed: vetoedByNegativeKeyword } =
+    matchRuleWithReason(event, rules, adMediaIds);
   const since = new Date(Date.now() - DAY_MS);
   const dmCountLast24h = event.fromIgsid
     ? await prisma.automationLog.count({
@@ -527,9 +644,45 @@ export async function orchestrateEvent(
         })) > 0
       : false;
 
+  // Layer 3 runs here, not in decide(), because decide() is pure and this
+  // is a network call. Only when the matched rule asks for it — and the
+  // whole thing is best-effort: any failure yields null, which decide()
+  // treats as "no opinion" and replies anyway.
+  //
+  // Gated on `!(matchedRule.skipNoIntent && !hasIntent(event.text))` as a
+  // cost decision, not a correctness one: the free no-intent filter (Layer
+  // 2) lives inside decide() and would suppress the same message anyway, so
+  // paying for a gpt-4o-mini call before decide() gets to run is pure waste
+  // — with both toggles on, "🔥🔥🔥" used to burn an AI call and then get
+  // skipped regardless. Free checks must decide before the paid one runs.
+  let intentVerdict: IntentVerdict | null = null;
+  if (
+    matchedRule?.aiIntentGuard &&
+    callAi &&
+    !(matchedRule.skipNoIntent && !hasIntent(event.text)) &&
+    !thread?.optedOut
+  ) {
+    try {
+      intentVerdict = await classifyIntent({
+        text: event.text,
+        postCaption,
+      });
+    } catch (e) {
+      // Fail OPEN (reply anyway) is correct — but invisibly is not. If the
+      // OpenAI key is revoked, this guard silently stops working and
+      // nothing in the activity feed explains why complaints are being
+      // answered again. Not an AutomationLog SKIPPED row: the message is
+      // NOT being skipped here, decide() still proceeds to reply.
+      intentVerdict = null;
+      console.warn("[automation] intent guard unavailable, replying anyway", e);
+    }
+  }
+
   const planned = decide({
     event,
     matchedRule,
+    vetoedByNegativeKeyword,
+    intentVerdict,
     aiFallbackEnabled: profile?.aiFallbackEnabled ?? false,
     optedOut: thread?.optedOut ?? false,
     lastInboundAt:
@@ -541,6 +694,7 @@ export async function orchestrateEvent(
     publicReplyCountLast24h,
     alreadySentPublicForRuleUser,
     links: corpus.links,
+    postCaption,
     now: new Date(),
   });
 

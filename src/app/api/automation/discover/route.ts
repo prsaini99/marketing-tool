@@ -1,13 +1,14 @@
 /**
  * POST /api/automation/discover
  * Body: { connectionId: string }
- * Runs IG account discovery for one connection. Manual trigger (like the
- * audiences sync) — discovery is cheap and user-initiated.
+ * Runs Instagram + Facebook Page account discovery for one connection.
+ * Manual trigger (like the audiences sync) — discovery is cheap and
+ * user-initiated.
  */
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { discoverIgAccountsForConnection } from "@/server/services/automation/discover-accounts";
+import { discoverAccountsForConnection } from "@/server/services/automation/discover-accounts";
 
 interface Body {
   connectionId?: unknown;
@@ -34,8 +35,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Connection not found" }, { status: 404 });
   }
   try {
-    const result = await discoverIgAccountsForConnection(body.connectionId);
-    return NextResponse.json(result);
+    const { instagram, facebook } = await discoverAccountsForConnection(
+      body.connectionId,
+    );
+    return NextResponse.json({
+      found: instagram + facebook,
+      instagram,
+      facebook,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: message }, { status: 502 });

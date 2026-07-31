@@ -34,6 +34,26 @@ export interface ProfileCorpus {
 export function buildSystemPrompt(
   p: ProfileCorpus,
   languageMode: string,
+  /**
+   * Per-rule instruction, appended AFTER the profile blocks so it takes
+   * precedence on wording/intent — a rule that says "one line, just the
+   * link" should override the profile's general chattiness. It cannot
+   * override the hard guardrails: the banned-topic list, the link
+   * allowlist, and the never-invent-prices rule are all re-stated below it,
+   * and isReplySafe enforces them on the output regardless of any prompt.
+   */
+  ruleInstructions?: string,
+  /** Which surface this reply appears on — public comment vs private DM. */
+  channel?: "PUBLIC_REPLY" | "DM",
+  /** True when a DM is also going out for this same comment. */
+  companionDm?: boolean,
+  /**
+   * Which Meta surface this reply is being sent on. Matters because the
+   * model will otherwise default to "Instagram" in its self-description —
+   * on a Facebook Page reply that means it can tell a real Facebook
+   * commenter to "DM us on Instagram", pointing them at the wrong surface.
+   */
+  platform?: "INSTAGRAM" | "FACEBOOK",
 ): string {
   const faqBlock = p.faqs
     .map((f, i) => `${i + 1}. Q: ${f.question}\n   A: ${f.answer}`)
@@ -42,7 +62,7 @@ export function buildSystemPrompt(
     .map(([k, v]) => `- ${k}: ${v}`)
     .join("\n");
   return [
-    "You are the Instagram assistant for the business described below. Answer the user's message or comment helpfully and briefly (max ~60 words), like a real social media manager.",
+    `You are the ${platform === "FACEBOOK" ? "Facebook Page" : "Instagram"} assistant for the business described below. Answer the user's message or comment helpfully and briefly (max ~60 words), like a real social media manager.`,
     `\nBusiness:\n${p.businessDescription || "(not provided)"}`,
     p.toneRules ? `\nTone rules:\n${p.toneRules}` : "",
     faqBlock ? `\nFAQs:\n${faqBlock}` : "",
@@ -55,6 +75,26 @@ export function buildSystemPrompt(
     languageMode === "mirror"
       ? "\nReply in the same language the user used."
       : `\nReply in ${languageMode}.`,
+    // Per-rule steer goes AFTER the profile blocks so it wins on wording and
+    // intent, but BEFORE the hard rules below so it can never talk its way
+    // past them.
+    // Channel framing sits before the per-rule steer, so a rule instruction
+    // can still override this default wording when it wants to.
+    //
+    // The companionDm case is the important one: without it the public reply
+    // and the DM are generated independently from the same question and come
+    // out near-identical — the public reply answers in full, so the DM adds
+    // nothing and the pair reads like a glitch to the person who commented.
+    channel === "PUBLIC_REPLY" && companionDm
+      ? "\nThis is a PUBLIC comment reply, AND a DM with the full answer is being sent to this same person right now. Do NOT answer their question here and do NOT preview what the DM says. Write ONE short warm line that acknowledges them and points them to their DMs (like \"Just sent you a DM!\"). Under 12 words. No links."
+      : channel === "PUBLIC_REPLY"
+        ? "\nThis is a PUBLIC comment reply that everyone can read. Keep it to one or two short lines and invite them to DM you or book a call for the detail."
+        : channel === "DM"
+          ? "\nThis is a PRIVATE DM to one person. You can be more specific and detailed than a public reply, but stay under ~60 words."
+          : "",
+    ruleInstructions?.trim()
+      ? `\nFor THIS specific reply:\n${ruleInstructions.trim()}`
+      : "",
     "\nRules: never invent prices, discounts, dates, or policies not listed above. If you don't know, say a teammate will follow up. Set escalate=true when the user needs a human (complaints, legal, refunds beyond the FAQs). confidence is 0..1 that your reply is accurate and on-brand.",
   ]
     .filter(Boolean)

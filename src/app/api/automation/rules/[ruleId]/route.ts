@@ -13,12 +13,17 @@ const PATCHABLE = [
   "priority",
   "triggerType",
   "keywords",
+  "negativeKeywords",
+  "skipNoIntent",
+  "aiIntentGuard",
+  "mediaScope",
   "mediaId",
   "publicReplyEnabled",
   "publicReplyTemplate",
   "dmEnabled",
   "dmTemplate",
   "aiFallback",
+  "aiInstructions",
   "oncePerUser",
 ] as const;
 
@@ -28,9 +33,16 @@ const BOOLEAN_FIELDS = [
   "dmEnabled",
   "aiFallback",
   "oncePerUser",
+  "skipNoIntent",
+  "aiIntentGuard",
 ] as const;
 
-const STRING_FIELDS = ["dmTemplate", "publicReplyTemplate"] as const;
+const STRING_FIELDS = [
+  "mediaScope",
+  "dmTemplate",
+  "publicReplyTemplate",
+  "aiInstructions",
+] as const;
 
 export async function PATCH(
   req: Request,
@@ -91,6 +103,17 @@ export async function PATCH(
       return NextResponse.json({ error: "keywords must be an array" }, { status: 400 });
     }
     data.keywords = (data.keywords as unknown[]).filter(
+      (k): k is string => typeof k === "string" && k.trim().length > 0,
+    );
+  }
+  if ("negativeKeywords" in data) {
+    if (!Array.isArray(data.negativeKeywords)) {
+      return NextResponse.json(
+        { error: "negativeKeywords must be an array" },
+        { status: 400 },
+      );
+    }
+    data.negativeKeywords = (data.negativeKeywords as unknown[]).filter(
       (k): k is string => typeof k === "string" && k.trim().length > 0,
     );
   }

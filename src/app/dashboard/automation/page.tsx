@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export default async function AutomationHome() {
-  const accounts = await prisma.instagramAccount.findMany({
+  const accounts = await prisma.socialAccount.findMany({
     orderBy: { createdAt: "asc" },
     include: {
       connection: { select: { id: true, label: true, tokenOwnerName: true } },
@@ -49,7 +49,9 @@ export default async function AutomationHome() {
     };
     if (log.status === "FAILED") c.failed += 1;
     else if (log.status === "SKIPPED" || log.action === "SKIPPED") c.skipped += 1;
-    else if (["DM", "AI_DM", "DM_VIA_COMMENT"].includes(log.action)) c.dms += 1;
+    else if (["DM", "AI_DM", "DM_VIA_COMMENT", "AI_DM_VIA_COMMENT"].includes(
+        log.action,
+      )) c.dms += 1;
     else c.replies += 1;
     countsByAccount.set(key, c);
   }
@@ -89,15 +91,23 @@ export default async function AutomationHome() {
               >
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="font-semibold">@{a.username}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">
+                        {a.platform === "FACEBOOK" ? a.displayName : `@${a.displayName}`}
+                      </span>
+                      <span className="rounded-full border border-border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {a.platform === "FACEBOOK" ? "Facebook" : "Instagram"}
+                      </span>
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {a.connection.label ?? a.connection.tokenOwnerName ?? "connection"}
                     </div>
                   </div>
                   <BotToggle
                     accountId={a.id}
-                    username={a.username}
+                    username={a.displayName}
                     botEnabled={a.botEnabled}
+                    platform={a.platform}
                   />
                 </div>
                 <div className="flex items-center gap-2 text-xs">
