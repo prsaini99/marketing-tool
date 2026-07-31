@@ -36,11 +36,12 @@ export async function middleware(req: NextRequest) {
 }
 
 // Run on dashboard pages + every API route except the auth ones (login/logout
-// must be reachable without a session) and the public cron tick (called by
-// the worker which doesn't carry a browser cookie).
+// must be reachable without a session) and the public cron tick + Meta
+// webhook (neither carries a browser cookie; the webhook is authenticated by
+// HMAC signature).
 export const config = {
   matcher: [
     "/dashboard/:path*",
-    "/api/((?!auth/|cron/).+)",
+    "/api/((?!auth/|cron/|webhooks/).+)",
   ],
 };

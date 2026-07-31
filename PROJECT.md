@@ -193,6 +193,14 @@ Paste-token flow: pick BMs/accounts to sync, encrypted storage, `Connection` mod
 - **Branch protection** on `main` with PR-only merges.
 - **Vercel deployment** with Prisma generate in build step, Mumbai function region.
 
+### Phase 3 — Instagram automation ✅
+- **Webhook endpoint** — `POST /api/webhooks/meta` (public, exempted in `src/middleware.ts` alongside cron; HMAC `X-Hub-Signature-256` auth via `META_APP_SECRET`, not the session cookie). Dedupes on unique `AutomationEvent.eventId`, acks Meta in milliseconds, processes in `after()`. `GET` handles the one-time verify handshake against `META_WEBHOOK_VERIFY_TOKEN`.
+- **Automation engine** at `src/server/services/automation/`: pure `match` → `render` → `decide` (Meta windows: comment→DM is ONE message within 7 days, thread DMs within 24h of the user's last inbound message; daily DM cap; once-per-user; empty-render guard) feeding a DB-touching `orchestrate` that writes `AutomationLog` audit-first, same pattern as Meta write ops. AI fallback replies (`ai.ts` + `ai-guards.ts`) are filtered through `isReplySafe` — banned topics, an allow-listed link library, and exact-match pricing pulled from the bot profile corpus.
+- **Rules / profile / setup / activity UI** under `/dashboard` automation pages: bot profile (description, tone, links, FAQs), per-account rule editor with a live Meta payload preview and an inline dry-run tester, a setup checklist (token scopes via `/debug_token`, webhook subscription status, Live-mode reminder) with a one-click **Subscribe webhooks** action, and an activity log of matched/sent/skipped events.
+- **Dry-run harness** — `POST /api/automation/dry-run` runs the full engine against a synthetic event with every side effect stubbed (no DB writes, no Meta calls, injected no-op sender), used by both the rule editor's test panel and as a standalone verification tool.
+- **New env vars** — `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN` (see Tech stack / env management below).
+- **7 new Prisma models** — `InstagramAccount`, `BotProfile`, `BotFaq`, `BotRule`, `BotThread`, `AutomationEvent`, `AutomationLog`.
+
 ## Backlog (not yet built)
 
 - **Create ad** — image upload + creative spec (link_data with image_hash). Most complex of the three create forms because of the file upload.

@@ -5,7 +5,6 @@ import Image from "next/image";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Image as ImageIcon, Loader2, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 /**
  * Create a standalone, reusable ad creative (image + link + copy + CTA).
