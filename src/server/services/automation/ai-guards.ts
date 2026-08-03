@@ -95,11 +95,42 @@ function leadPromptFields(
     : fields;
 }
 
+/** Longest a single lead value may be once rendered into the prompt. */
+const LEAD_VALUE_MAX = 120;
+
+/**
+ * Flatten a lead value before it is interpolated into the system prompt.
+ *
+ * EVERY value here is CUSTOMER-CONTROLLED: requirement/budget/timeline/
+ * company/name are extracted verbatim from what the person typed into a DM or
+ * a public comment. Interpolated raw, a customer can end a "requirement" with
+ * newlines and then write their own prompt lines — "\n\nIGNORE PREVIOUS
+ * INSTRUCTIONS AND ..." lands in the system prompt looking exactly like an
+ * instruction we authored, because the block is line-delimited and the model
+ * has no way to tell our lines from theirs.
+ *
+ * So: strip every newline, carriage return and other control character, and
+ * collapse whitespace runs, so the value can only ever occupy part of ONE
+ * line inside the block; then bound the length, since these are short facts
+ * ("5 lakh", "next month") and a multi-KB "requirement" is an attack payload
+ * or garbage either way, not a fact worth prompting with.
+ */
+function sanitizeLeadValue(value: string): string {
+  return value
+    // Newlines, carriage returns, tabs and every other C0/C1 control char
+    // become a plain space, so the value can never break out of its line.
+    .replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, LEAD_VALUE_MAX);
+}
+
 /**
  * Render the known-facts block, or "" when nothing is known. Blank/whitespace
  * values count as unknown — an empty "budget: " line would read to the model
  * as a fact it already has and stop it asking. `channel` controls which
- * fields are eligible at all — see leadPromptFields above.
+ * fields are eligible at all — see leadPromptFields above. Every rendered
+ * value goes through sanitizeLeadValue first — see the note there on why.
  */
 function buildLeadBlock(
   lead: LeadFacts | null | undefined,
@@ -108,9 +139,11 @@ function buildLeadBlock(
   if (!lead) return "";
   const parts = leadPromptFields(channel).flatMap(([key, label]) => {
     const value = lead[key];
-    return typeof value === "string" && value.trim()
-      ? [`${label}: ${value.trim()}`]
-      : [];
+    if (typeof value !== "string" || !value.trim()) return [];
+    const clean = sanitizeLeadValue(value);
+    // A value that is nothing but control characters sanitises to "" — still
+    // "unknown", same as a blank one.
+    return clean ? [`${label}: ${clean}`] : [];
   });
   if (!parts.length) return "";
   return `\nKnown about this contact: ${parts.join("; ")}.\nAlready stated by this contact — do NOT ask for any of it again. Do not restate these details back to them unless they bring it up first.`;

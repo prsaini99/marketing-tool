@@ -125,7 +125,18 @@ export default async function ActivityPage({
                   className="rounded-md border border-border p-3 text-sm"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{t.igsid}</span>
+                    {/* Mirrors the inbox's presentation: @handle as the
+                        primary identifier with the raw igsid as secondary
+                        text, falling back to the bare id when no username was
+                        ever captured (DM webhooks don't carry one). */}
+                    <span className="font-medium">
+                      {t.username ? `@${t.username}` : t.igsid}
+                    </span>
+                    {t.username && (
+                      <span className="text-xs text-muted-foreground">
+                        {t.igsid}
+                      </span>
+                    )}
                     {t.flagReason && (
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-medium ${

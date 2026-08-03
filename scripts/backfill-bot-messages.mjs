@@ -15,6 +15,22 @@
  *
  * Run: npx dotenv -e .env -- node scripts/backfill-bot-messages.mjs
  */
+// Hard stop BEFORE any DB access. Without it the script connects, queries, and
+// dies on a Prisma error about an unknown column, which reads like a broken
+// schema rather than "this script already did its job and cannot run again".
+console.error(
+  [
+    "backfill-bot-messages.mjs is SPENT and cannot run.",
+    "",
+    "Its source column, BotThread.recentMessagesJson, was dropped on 2026-08-01",
+    "(migration 20260801130000_drop_recent_messages_json). The backfill it",
+    "performed is already applied; BotMessage rows are the live store now.",
+    "",
+    "The code below is kept only as a record of how the migration was done.",
+  ].join("\n"),
+);
+process.exit(1);
+
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();

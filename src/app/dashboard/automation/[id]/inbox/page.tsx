@@ -59,35 +59,59 @@ export default async function InboxPage({
   });
   if (!account) notFound();
 
-  const threads = await prisma.botThread.findMany({
-    where: { igAccountId: account.id },
-    include: { lead: true, _count: { select: { messages: true } } },
+  // Filter in the DATABASE, not after the fact. `take: 100` caps the fetch,
+  // so filtering the fetched array meant the filters silently operated on a
+  // truncated set — past 100 threads, "Needs attention" could hide the very
+  // rows it exists to surface. Same reason the pill counts below are real
+  // COUNT(*)s rather than `.length` of a capped array.
+  const ATTENTION_WHERE = { flagReason: { not: null }, resolvedAt: null };
+  const HUMAN_WHERE = { ownership: "HUMAN" as const };
+
+  const filterWhere =
+    filter === "attention"
+      ? ATTENTION_WHERE
+      : filter === "human"
+        ? HUMAN_WHERE
+        : {};
+
+  const orderBy = [
     // Postgres sorts DESC as NULLS FIRST, so without `nulls: "last"` every
     // unflagged thread would outrank flagged ones and the rows an operator
     // most needs to see would sink below the fold. Same fix as the leads &
     // flags section on the activity page.
-    orderBy: [
-      { flaggedAt: { sort: "desc", nulls: "last" } },
-      { lastInboundAt: { sort: "desc", nulls: "last" } },
-      { id: "desc" },
-    ],
-    take: 100,
-  });
+    { flaggedAt: { sort: "desc" as const, nulls: "last" as const } },
+    { lastInboundAt: { sort: "desc" as const, nulls: "last" as const } },
+    { id: "desc" as const },
+  ];
 
-  const isAttention = (t: (typeof threads)[number]) =>
-    Boolean(t.flagReason) && !t.resolvedAt;
-  const isHumanOwned = (t: (typeof threads)[number]) => t.ownership === "HUMAN";
+  const [filteredThreads, totalCount, attentionCount, humanCount] =
+    await Promise.all([
+      prisma.botThread.findMany({
+        where: { igAccountId: account.id, ...filterWhere },
+        include: { lead: true, _count: { select: { messages: true } } },
+        orderBy,
+        take: 100,
+      }),
+      prisma.botThread.count({ where: { igAccountId: account.id } }),
+      prisma.botThread.count({
+        where: { igAccountId: account.id, ...ATTENTION_WHERE },
+      }),
+      prisma.botThread.count({
+        where: { igAccountId: account.id, ...HUMAN_WHERE },
+      }),
+    ]);
 
-  const filteredThreads =
-    filter === "attention"
-      ? threads.filter(isAttention)
-      : filter === "human"
-        ? threads.filter(isHumanOwned)
-        : threads;
-
-  const selected = threadParam
-    ? threads.find((t) => t.id === threadParam)
-    : filteredThreads[0];
+  // A `?thread=` that matches nothing — a stale bookmark, a thread from
+  // another account, a deleted row — used to leave `selected` undefined and
+  // render a blank pane with no explanation. Fall back to the first thread in
+  // the current filter, exactly as the no-param case does.
+  const selected =
+    (threadParam
+      ? await prisma.botThread.findFirst({
+          where: { id: threadParam, igAccountId: account.id },
+          include: { lead: true, _count: { select: { messages: true } } },
+        })
+      : null) ?? filteredThreads[0];
   const lead = selected?.lead ?? null;
 
   const messages = selected
@@ -152,7 +176,7 @@ export default async function InboxPage({
         </Link>
       </div>
 
-      {threads.length === 0 ? (
+      {totalCount === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           No conversations yet. Threads appear here once the bot exchanges
           DMs or comment replies with a contact.
@@ -162,17 +186,9 @@ export default async function InboxPage({
           {/* Left pane: thread list */}
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
-              {filterPill(
-                "Needs attention",
-                "attention",
-                threads.filter(isAttention).length,
-              )}
-              {filterPill(
-                "Human-owned",
-                "human",
-                threads.filter(isHumanOwned).length,
-              )}
-              {filterPill("All", undefined, threads.length)}
+              {filterPill("Needs attention", "attention", attentionCount)}
+              {filterPill("Human-owned", "human", humanCount)}
+              {filterPill("All", undefined, totalCount)}
             </div>
 
             {filteredThreads.length === 0 ? (

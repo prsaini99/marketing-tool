@@ -22,11 +22,20 @@ async function postAction(
   action: Action,
   text?: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const res = await fetch(`/api/automation/threads/${threadId}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, text }),
-  });
+  // The fetch itself must be INSIDE the try. Offline/DNS/aborted requests
+  // reject rather than resolve, and a rejection escaping this function leaves
+  // every caller's `pending` state set forever — the buttons stay disabled and
+  // the inbox looks frozen with no error shown.
+  let res: Response;
+  try {
+    res = await fetch(`/api/automation/threads/${threadId}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, text }),
+    });
+  } catch {
+    return { ok: false, error: "Request failed. Check your connection." };
+  }
   try {
     return (await res.json()) as { ok: true } | { ok: false; error: string };
   } catch {

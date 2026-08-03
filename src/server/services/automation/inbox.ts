@@ -31,13 +31,31 @@ export function withinReplyWindow(
   return now.getTime() - lastInboundAt.getTime() <= WINDOW_MS;
 }
 
+/**
+ * Run a botThread.update, turning "no such row" into the same
+ * `{ ok: false, error: "Thread not found." }` sendHumanMessage already
+ * returns. Prisma raises P2025 on an update whose WHERE matches nothing —
+ * a stale threadId (deleted row, a link from another account) otherwise
+ * escapes the route handler as a 500 for what is really a 404.
+ */
+async function updateThread(
+  threadId: string,
+  data: Parameters<typeof prisma.botThread.update>[0]["data"],
+): Promise<ActionResult> {
+  try {
+    await prisma.botThread.update({ where: { id: threadId }, data });
+  } catch (e) {
+    if ((e as { code?: string }).code === "P2025") {
+      return { ok: false, error: "Thread not found." };
+    }
+    throw e;
+  }
+  return { ok: true };
+}
+
 /** Claim a thread without sending anything yet. */
 export async function takeOver(threadId: string): Promise<ActionResult> {
-  await prisma.botThread.update({
-    where: { id: threadId },
-    data: { ownership: "HUMAN" },
-  });
-  return { ok: true };
+  return updateThread(threadId, { ownership: "HUMAN" });
 }
 
 /**
@@ -49,16 +67,12 @@ export async function takeOver(threadId: string): Promise<ActionResult> {
  * was once "qualified" would be dropped forever.
  */
 export async function returnToBot(threadId: string): Promise<ActionResult> {
-  await prisma.botThread.update({
-    where: { id: threadId },
-    data: {
-      ownership: "BOT",
-      flagReason: null,
-      flaggedAt: null,
-      resolvedAt: null,
-    },
+  return updateThread(threadId, {
+    ownership: "BOT",
+    flagReason: null,
+    flaggedAt: null,
+    resolvedAt: null,
   });
-  return { ok: true };
 }
 
 /**
@@ -66,11 +80,11 @@ export async function returnToBot(threadId: string): Promise<ActionResult> {
  * queue — and clears flagReason for the same reason returnToBot does.
  */
 export async function resolveThread(threadId: string): Promise<ActionResult> {
-  await prisma.botThread.update({
-    where: { id: threadId },
-    data: { resolvedAt: new Date(), flagReason: null, flaggedAt: null },
+  return updateThread(threadId, {
+    resolvedAt: new Date(),
+    flagReason: null,
+    flaggedAt: null,
   });
-  return { ok: true };
 }
 
 /**

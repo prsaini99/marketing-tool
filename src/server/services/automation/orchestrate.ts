@@ -514,6 +514,30 @@ export async function orchestrateEvent(
         });
       }
 
+      // A DM send that succeeds but returns no message_id is a real problem
+      // with a delayed, confusing symptom: the BotMessage row below gets
+      // metaMid=null, so when Meta echoes this very message back, echo.ts
+      // finds no matching row, reads its own send as an outside human reply
+      // and flips the thread to HUMAN — permanently muting the bot there.
+      // Warn loudly so it's diagnosable at the moment it happens.
+      //
+      // Deliberately NOT thrown and NOT stamped FAILED: the message WAS
+      // delivered. Reporting FAILED would misstate reality in the audit log
+      // and invite an operator (or a retry) to send the same DM twice, which
+      // is worse for the customer than a mis-attributed echo.
+      // PUBLIC_REPLY / AI_PUBLIC_REPLY are excluded because makeMetaSender
+      // returns null for them on purpose (a comment id is not a message mid).
+      if (
+        persist &&
+        !metaMid &&
+        a.action !== "PUBLIC_REPLY" &&
+        a.action !== "AI_PUBLIC_REPLY"
+      ) {
+        console.warn(
+          `[automation] send succeeded but Meta returned no message_id (action=${a.action}, thread=${thread?.id ?? "none"}); echo reconciliation will misfire and may flip this thread to HUMAN`,
+        );
+      }
+
       // Record THIS bot reply NOW, per-send — deliberately NOT batched into
       // one createMany after the action loop. Do not "tidy" this back.
       //
@@ -618,7 +642,15 @@ export async function orchestrateEvent(
       // create branch only, so a repeat opt-out from an existing thread was
       // never recorded at all.
       await appendMessages(thread.id, [
-        { role: "USER", text: event.text, channel: "DM" },
+        {
+          role: "USER",
+          text: event.text,
+          channel: "DM",
+          // Same dedupe key the normal inbound path sets below. Without it a
+          // redelivered "stop" webhook appends a second identical USER row —
+          // appendMessages dedupes on metaMid, and a null can't match.
+          metaMid: event.eventId ?? null,
+        },
       ]);
     }
     if (alreadyOptedOut) {

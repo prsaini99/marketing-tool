@@ -14,6 +14,9 @@ export const dynamic = "force-dynamic";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Per-Page ceiling on the live webhook-status Graph call — see its use below. */
+const SUBSCRIPTION_LOOKUP_TIMEOUT_MS = 5_000;
+
 export default async function AutomationHome() {
   const accounts = await prisma.socialAccount.findMany({
     orderBy: { createdAt: "asc" },
@@ -45,7 +48,22 @@ export default async function AutomationHome() {
       const owner = accounts.find((a) => a.linkedPageId === pageId);
       if (!owner) return;
       try {
-        const status = await getSubscriptionStatus(owner.connectionId, pageId);
+        // Bounded wait. This runs on every render of the dashboard's landing
+        // page and there is no timeout inside the Meta client, so one slow or
+        // hung Graph call would hold the whole page hostage indefinitely. On
+        // timeout we reject into the existing catch, which leaves the entry
+        // unset and lets the render fall back to the stored
+        // webhookSubscribedAt column — a slightly stale badge beats a page
+        // that never paints.
+        const status = await Promise.race([
+          getSubscriptionStatus(owner.connectionId, pageId),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("getSubscriptionStatus timed out")),
+              SUBSCRIPTION_LOOKUP_TIMEOUT_MS,
+            ),
+          ),
+        ]);
         subscribedPages.set(pageId, status.subscribed);
       } catch {
         // Leave unset — the render falls back to webhookSubscribedAt.

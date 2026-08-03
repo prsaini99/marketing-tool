@@ -60,13 +60,22 @@ const SYSTEM = [
 export async function extractLead(
   args: ExtractLeadArgs,
 ): Promise<Partial<LeadFields>> {
-  const convo = [
-    ...args.history.map(
+  // `history` ALREADY ends with this turn's inbound message: orchestrate
+  // appends the USER row before extraction runs, so re-appending
+  // `args.userText` here showed the newest message to the model twice — which
+  // over-weights it and can read as the customer repeating themselves.
+  //
+  // ASYMMETRY, ON PURPOSE: generateAiReply in ./ai.ts still has the same
+  // duplication. It is left alone because it shapes live customer-facing
+  // replies; changing it deserves its own verification pass rather than
+  // riding along with an extraction fix. `userText` stays on ExtractLeadArgs
+  // so the two call sites keep a matching shape.
+  const convo = args.history
+    .map(
       (h) =>
         `${h.role === "BOT" || h.role === "HUMAN" || h.role === "assistant" ? "Assistant" : "Customer"}: ${h.text}`,
-    ),
-    `Customer: ${args.userText}`,
-  ].join("\n");
+    )
+    .join("\n");
 
   const out = await completeJson<Partial<LeadFields>>(
     convo,

@@ -78,18 +78,23 @@ export function UserMenu({ email }: UserMenuProps) {
         {name[0]}
       </button>
 
+      {/*
+        No role="menu"/"menuitem" on the dropdown below, deliberately. Those
+        roles promise the full ARIA menu keyboard contract — arrow-key roving
+        focus, Home/End, type-ahead — which this component does not implement,
+        so declaring them tells a screen-reader user to expect navigation that
+        silently does nothing. A plain container of plain buttons is honest and
+        works with native Tab order. Add the roles back only alongside the
+        keyboard handling they promise.
+      */}
       {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-md border border-border bg-background shadow-md"
-        >
+        <div className="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-md border border-border bg-background shadow-md">
           <div className="border-b border-border px-3 py-2">
             <p className="text-sm font-medium">{name}</p>
             <p className="text-xs text-muted">{email}</p>
           </div>
           <button
             type="button"
-            role="menuitem"
             onClick={signOut}
             disabled={signingOut}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-muted hover:bg-surface-2 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
