@@ -93,6 +93,10 @@ const PUBLIC_REPLY_ACTIONS = ["PUBLIC_REPLY", "AI_PUBLIC_REPLY"];
 function makeMetaSender(
   connectionId: string,
   pageId: string | null,
+  // Needed because the public-reply edge is platform-specific — see
+  // replyToComment. Everything else on this surface is Page-scoped and
+  // identical for both platforms, which is why only this one call takes it.
+  platform: "INSTAGRAM" | "FACEBOOK",
 ): Sender {
   function requirePageId(): string {
     if (!pageId) {
@@ -113,7 +117,13 @@ function makeMetaSender(
     // real message mid on that shared unique column. Deliberately discard
     // it and return null.
     sendPublicReply: async (commentId, text) => {
-      await replyToComment(connectionId, requirePageId(), commentId, text);
+      await replyToComment(
+        connectionId,
+        requirePageId(),
+        commentId,
+        text,
+        platform,
+      );
       return null;
     },
     sendCommentDm: async (commentId, text) => {
@@ -260,7 +270,14 @@ export async function orchestrateEvent(
   const sender =
     opts.sender ??
     (persist
-      ? makeMetaSender(ig.connectionId, ig.linkedPageId)
+      ? makeMetaSender(
+          ig.connectionId,
+          ig.linkedPageId,
+          // `platform` is a plain String column, so narrow it rather than
+          // casting: only FACEBOOK changes the reply edge, and anything
+          // unexpected falls back to today's Instagram behaviour.
+          ig.platform === "FACEBOOK" ? "FACEBOOK" : "INSTAGRAM",
+        )
       : NOOP_SENDER);
 
   // Thread state — read before runOne is defined so its closure can use it
