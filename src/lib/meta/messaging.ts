@@ -536,15 +536,27 @@ export async function getSubscriptionStatus(
  * Public reply to a comment. No time window. Returns the new comment id.
  * Comment-scoped, but written with the Page token like every other write
  * on this surface.
+ *
+ * THE EDGE DIFFERS BY PLATFORM — do not "simplify" this back to one path:
+ *   Instagram: POST /{ig-comment-id}/replies
+ *   Facebook:  POST /{comment-id}/comments   ("comment replies" in Meta's
+ *              reference; Facebook comment objects have no /replies edge)
+ * Using /replies on a Facebook comment fails with error 100 subcode 33
+ * ("Object with ID ... does not exist, cannot be loaded due to missing
+ * permissions, or does not support this operation") — which reads like a
+ * permissions problem and is really a wrong-endpoint problem. That cost a
+ * silently failed reply to a real customer.
  */
 export async function replyToComment(
   connectionId: string,
   pageId: string,
   commentId: string,
   text: string,
+  platform: "INSTAGRAM" | "FACEBOOK",
 ): Promise<{ id: string }> {
   const pageToken = await getPageAccessToken(connectionId, pageId);
-  return metaPostParams<{ id: string }>(`/${commentId}/replies`, pageToken, {
+  const edge = platform === "FACEBOOK" ? "comments" : "replies";
+  return metaPostParams<{ id: string }>(`/${commentId}/${edge}`, pageToken, {
     message: text,
   });
 }
