@@ -43,6 +43,12 @@ export interface DecideContext {
   vetoedByNegativeKeyword?: boolean;
   aiFallbackEnabled: boolean;
   optedOut: boolean;
+  /**
+   * A human has taken this conversation over. Suppresses every automated
+   * action, like optedOut — but for the opposite reason: not "they asked us
+   * to stop" but "a colleague is handling this now".
+   */
+  humanOwned: boolean;
   lastInboundAt: Date | null;
   dmCountLast24h: number;
   alreadySentForRuleUser: boolean; // oncePerUser pre-check by the caller (DM actions only)
@@ -153,6 +159,7 @@ function planDm(ctx: DecideContext, rule: RuleLike | null): PlannedAction {
 export function decide(ctx: DecideContext): PlannedAction[] {
   const { event } = ctx;
   if (ctx.optedOut) return [skip(null, "opted_out")];
+  if (ctx.humanOwned) return [skip(null, "human_owned")];
 
   const rule = ctx.matchedRule;
   if (!rule) {

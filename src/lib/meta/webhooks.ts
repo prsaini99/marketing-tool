@@ -37,12 +37,22 @@ export interface IncomingWebhookEvent {
   type: WebhookEventType;
   igUserId: string; // OUR account: IG user id, or Facebook Page id
   fromIgsid: string | null; // sender's platform-scoped id
+  /**
+   * Recipient's platform-scoped id. Load-bearing for echoes: on an echo the
+   * SENDER is our own Page, so `fromIgsid` cannot identify the customer —
+   * only this can. Null for comment events, which have no recipient.
+   */
+  toIgsid: string | null;
   fromUsername: string | null;
   text: string;
   commentId: string | null;
   mediaId: string | null;
   occurredAt: Date;
-  isEcho: boolean; // our own sends/comments reflected back — always drop
+  // An outbound message reflected back at us. NOT simply dropped: comment
+  // echoes are, but MESSAGE echoes are routed to echo.ts, because one we
+  // did not send means a human replied from Business Suite or the Instagram
+  // app — which is what hands the thread over. See route.ts's echo split.
+  isEcho: boolean;
   raw: unknown;
 }
 
@@ -122,6 +132,7 @@ export function parseMetaWebhook(body: unknown): IncomingWebhookEvent[] {
           type: "COMMENT",
           igUserId: accountId,
           fromIgsid: fromId,
+          toIgsid: null,
           fromUsername: asStr(from?.username),
           text: asStr(v.text) ?? "",
           commentId,
@@ -151,6 +162,7 @@ export function parseMetaWebhook(body: unknown): IncomingWebhookEvent[] {
         type: "COMMENT",
         igUserId: accountId,
         fromIgsid: fromId,
+        toIgsid: null,
         fromUsername: asStr(from?.name),
         text: asStr(v.message) ?? "",
         commentId,
@@ -172,12 +184,15 @@ export function parseMetaWebhook(body: unknown): IncomingWebhookEvent[] {
       const sender = m.sender as { id?: string | number } | undefined;
       if (!msg?.mid) continue;
       const senderId = sender?.id != null ? String(sender.id) : null;
+      const recipient = m.recipient as { id?: string | number } | undefined;
+      const recipientId = recipient?.id != null ? String(recipient.id) : null;
       events.push({
         eventId: msg.mid,
         platform,
         type: "MESSAGE",
         igUserId: accountId,
         fromIgsid: senderId,
+        toIgsid: recipientId,
         fromUsername: null,
         text: asStr(msg.text) ?? "",
         commentId: null,

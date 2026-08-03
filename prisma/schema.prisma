@@ -695,11 +695,63 @@ model BotThread {
   igAccountId        String
   igAccount          SocialAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
   igsid              String              // Instagram-scoped user id of the other party
+  // Best-effort display name for the inbox. Comment webhooks carry a
+  // username; DM webhooks do not (see src/lib/meta/webhooks.ts), so a
+  // thread that has only ever exchanged DMs stays null and the UI falls
+  // back to `igsid`. Once known, never overwritten with null.
+  username           String?
   lastInboundAt      DateTime?           // 24h window anchor (inbound DMs only, never comments)
   optedOut           Boolean   @default(false)
-  recentMessagesJson Json      @default("[]") // last ≤10 {role, text, at}
+  messages           BotMessage[]
+  lead               BotLead?
+  // Inbox queue state. flagReason is ai_stuck | complaint | qualified.
+  flagReason         String?
+  flaggedAt          DateTime?
+  resolvedAt         DateTime?
+  // BOT | HUMAN. Flips to HUMAN when a person replies (from the inbox, or
+  // from Meta's own apps — see echo.ts). A HUMAN thread never gets another
+  // automated reply until an operator explicitly hands it back, so no timer
+  // can make the bot cut into a live human conversation mid-sentence.
+  ownership   String    @default("BOT")
 
   @@unique([igAccountId, igsid])
+}
+
+// One row per message in a bot conversation. Replaces BotThread.recentMessagesJson,
+// which kept only the last 10 turns and so lost the opening of every conversation —
+// exactly where budget, requirement and timeline are usually stated.
+model BotMessage {
+  id        String    @id @default(cuid())
+  threadId  String
+  thread    BotThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  role      String    // USER | BOT | HUMAN
+  text      String
+  channel   String    // DM | COMMENT | UNKNOWN (UNKNOWN = backfilled rows only)
+  metaMid   String?   @unique // Meta message id; dedupes redelivered webhooks
+  createdAt DateTime  @default(now())
+
+  @@index([threadId, createdAt])
+}
+
+// Lead facts extracted from a bot conversation, one row per thread.
+//
+// This doubles as the conversation's durable summary: a budget stated in the
+// first message survives the 30-message history window because it was promoted
+// into a column here. That is why no separate summarizer exists.
+model BotLead {
+  id          String    @id @default(cuid())
+  threadId    String    @unique
+  thread      BotThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  name        String?
+  email       String?
+  phone       String?
+  company     String?
+  requirement String?
+  budget      String?
+  timeline    String?
+  stage       String    @default("NEW") // NEW | ENGAGED | QUALIFIED | UNQUALIFIED
+  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime  @default(now())
 }
 
 // Idempotency store — one row per webhook event. Unique eventId makes

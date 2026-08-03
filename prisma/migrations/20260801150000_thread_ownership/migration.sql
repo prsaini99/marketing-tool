@@ -1,0 +1,1 @@
+ALTER TABLE "BotThread" ADD COLUMN "ownership" TEXT NOT NULL DEFAULT 'BOT';

@@ -23,6 +23,25 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// flagReason is ai_stuck | complaint | qualified. The first two are problems
+// needing attention (warning treatment); qualified is a positive outcome
+// (green), matching the webhookOn pill on the automation home page.
+const FLAG_STYLES: Record<string, string> = {
+  ai_stuck: "bg-amber-100 text-amber-800",
+  complaint: "bg-amber-100 text-amber-800",
+  qualified: "bg-green-100 text-green-800",
+};
+
+const LEAD_FIELD_LABELS = [
+  ["requirement", "Requirement"],
+  ["budget", "Budget"],
+  ["timeline", "Timeline"],
+  ["name", "Name"],
+  ["email", "Email"],
+  ["phone", "Phone"],
+  ["company", "Company"],
+] as const;
+
 export default async function ActivityPage({
   params,
   searchParams,
@@ -46,6 +65,23 @@ export default async function ActivityPage({
     include: { actions: { orderBy: { createdAt: "asc" } } },
   });
 
+  const leadThreads = await prisma.botThread.findMany({
+    where: {
+      igAccountId: account.id,
+      OR: [{ lead: { isNot: null } }, { flagReason: { not: null } }],
+    },
+    include: { lead: true },
+    // NULLS LAST is load-bearing, not cosmetic. Postgres sorts NULLs FIRST on
+    // DESC, and the engine creates a BotLead row for every intent-bearing
+    // thread — including an all-null one at stage NEW. Plain
+    // `{ flaggedAt: "desc" }` therefore ranked every unflagged, empty thread
+    // ABOVE the flagged ones, and past 50 threads the flagged ones — the only
+    // rows an operator actually needs to see — fell off the page entirely.
+    // Secondary id sort keeps the order stable among the unflagged tail.
+    orderBy: [{ flaggedAt: { sort: "desc", nulls: "last" } }, { id: "desc" }],
+    take: 50,
+  });
+
   return (
     <div className="space-y-4 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -67,6 +103,73 @@ export default async function ActivityPage({
         >
           Rules
         </Link>
+      </div>
+
+      <div className="rounded-lg border border-border bg-surface p-4 space-y-3">
+        <h2 className="text-sm font-semibold">Leads &amp; flags</h2>
+        {leadThreads.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            No leads or flagged threads yet. Qualification runs
+            automatically as the bot chats with contacts.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {leadThreads.map((t) => {
+              const lead = t.lead;
+              const fields = lead
+                ? LEAD_FIELD_LABELS.filter(([key]) => lead[key])
+                : [];
+              return (
+                <div
+                  key={t.id}
+                  className="rounded-md border border-border p-3 text-sm"
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Mirrors the inbox's presentation: @handle as the
+                        primary identifier with the raw igsid as secondary
+                        text, falling back to the bare id when no username was
+                        ever captured (DM webhooks don't carry one). */}
+                    <span className="font-medium">
+                      {t.username ? `@${t.username}` : t.igsid}
+                    </span>
+                    {t.username && (
+                      <span className="text-xs text-muted-foreground">
+                        {t.igsid}
+                      </span>
+                    )}
+                    {t.flagReason && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          FLAG_STYLES[t.flagReason] ??
+                          "bg-surface text-muted-foreground border border-border"
+                        }`}
+                      >
+                        {t.flagReason}
+                      </span>
+                    )}
+                    {lead && (
+                      <span className="rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                        {lead.stage}
+                      </span>
+                    )}
+                  </div>
+                  {fields.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      {fields.map(([key, label]) => (
+                        <span key={key}>
+                          <span className="font-medium text-foreground">
+                            {label}:
+                          </span>{" "}
+                          {lead![key]}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border border-border bg-surface p-3">

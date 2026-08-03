@@ -78,15 +78,23 @@ export async function POST(req: Request) {
   };
 
   const sent: RecordedSend[] = [];
+  // Recording sender for the dry-run panel — records what WOULD be sent but
+  // never calls Meta. Returns null for the (now) metaMid-returning Sender
+  // interface: persist is always false here, so orchestrateEvent never
+  // writes a BotMessage row for these outcomes anyway (that write is gated
+  // on `persist`), and there is no real Meta message id to report.
   const sender: Sender = {
     sendPublicReply: async (commentId, text) => {
       sent.push({ kind: "PUBLIC_REPLY", to: commentId, text });
+      return null;
     },
     sendCommentDm: async (commentId, text) => {
       sent.push({ kind: "DM_VIA_COMMENT", to: commentId, text });
+      return null;
     },
     sendThreadDm: async (igsid, text) => {
       sent.push({ kind: "DM", to: igsid, text });
+      return null;
     },
   };
 
