@@ -1,11 +1,12 @@
 /**
- * Automation home — one card per discovered IG account: bot toggle, setup
+ * Automation home — one card per discovered account: bot toggle, setup
  * badge, last-24h activity counts, links to rules/profile/activity/setup.
  * Server component; reads come straight from prisma (repo convention).
  */
 
 import Link from "next/link";
 import { prisma } from "@/lib/db/prisma";
+import { getSubscriptionStatus } from "@/lib/meta/messaging";
 import { DiscoverButton } from "@/components/automation/discover-button";
 import { BotToggle } from "@/components/automation/bot-toggle";
 
@@ -23,6 +24,34 @@ export default async function AutomationHome() {
   const connections = await prisma.connection.findMany({
     select: { id: true },
   });
+
+  // Webhook state is asked of Meta, not read from SocialAccount's stored
+  // webhookSubscribedAt. That column is per-account, but a subscription is
+  // per-PAGE: an Instagram account and its linked Page are two rows sharing
+  // one Page, so subscribing via one leaves the other's column null and its
+  // badge saying "Setup needed" about a Page that is fully subscribed. Worse,
+  // the Setup panel hides its Subscribe button when Meta reports subscribed,
+  // so there was no way to clear the false badge from the UI at all.
+  //
+  // Deduped by Page id so one Graph call serves both rows, and each lookup is
+  // isolated: a failure falls back to the stored column rather than blanking
+  // every badge on the page.
+  const pageIds = [
+    ...new Set(accounts.map((a) => a.linkedPageId).filter((p): p is string => Boolean(p))),
+  ];
+  const subscribedPages = new Map<string, boolean>();
+  await Promise.all(
+    pageIds.map(async (pageId) => {
+      const owner = accounts.find((a) => a.linkedPageId === pageId);
+      if (!owner) return;
+      try {
+        const status = await getSubscriptionStatus(owner.connectionId, pageId);
+        subscribedPages.set(pageId, status.subscribed);
+      } catch {
+        // Leave unset — the render falls back to webhookSubscribedAt.
+      }
+    }),
+  );
 
   const since = new Date(Date.now() - DAY_MS);
   const recentLogs = await prisma.automationLog.findMany({
@@ -84,6 +113,13 @@ export default async function AutomationHome() {
               skipped: 0,
               failed: 0,
             };
+            // Live Meta state when we could get it; the stored column only as
+            // a fallback for when the Graph call failed.
+            const live = a.linkedPageId
+              ? subscribedPages.get(a.linkedPageId)
+              : undefined;
+            const webhookOn =
+              live !== undefined ? live : Boolean(a.webhookSubscribedAt);
             return (
               <div
                 key={a.id}
@@ -113,12 +149,12 @@ export default async function AutomationHome() {
                 <div className="flex items-center gap-2 text-xs">
                   <span
                     className={`rounded-full px-2 py-0.5 font-medium ${
-                      a.webhookSubscribedAt
+                      webhookOn
                         ? "bg-green-100 text-green-800"
                         : "bg-amber-100 text-amber-800"
                     }`}
                   >
-                    {a.webhookSubscribedAt ? "Webhooks on" : "Setup needed"}
+                    {webhookOn ? "Webhooks on" : "Setup needed"}
                   </span>
                   <span className="text-muted-foreground">
                     24h: {c.dms} DMs · {c.replies} replies · {c.skipped} skipped
@@ -129,6 +165,7 @@ export default async function AutomationHome() {
                   <Link href={`/dashboard/automation/${a.id}/rules`} className="rounded-md border border-border px-2 py-1">Rules</Link>
                   <Link href={`/dashboard/automation/${a.id}/profile`} className="rounded-md border border-border px-2 py-1">Bot profile</Link>
                   <Link href={`/dashboard/automation/${a.id}/activity`} className="rounded-md border border-border px-2 py-1">Activity</Link>
+                  <Link href={`/dashboard/automation/${a.id}/inbox`} className="rounded-md border border-border px-2 py-1">Inbox</Link>
                   <Link href={`/dashboard/automation/${a.id}/setup`} className="rounded-md border border-border px-2 py-1">Setup</Link>
                 </div>
               </div>

@@ -128,18 +128,52 @@ const pageTokenCache = new Map<string, string>();
  * The Page object's field vocabulary differs from the Instagram object's:
  * `comments` is not valid here (Meta answers #100 with its full field list
  * and "got \"comments\""). Comment activity arrives under `feed`, and DMs
- * under `messages`. Confirmed against v23.0:
+ * under `messages`. Confirmed live against v23.0:
  *   POST /{page-id}/subscribed_apps?subscribed_fields=feed,messages -> {"success":true}
  *
+ * `message_echoes` (added later, for echo reconciliation) is now verified
+ * live the same way, against Page 932368496624251 on v23.0:
+ *   POST /{page-id}/subscribed_apps
+ *        ?subscribed_fields=feed,messages,message_echoes -> {"success":true}
+ *   GET  /{page-id}/subscribed_apps
+ *        -> subscribed_fields: ["feed","messages","message_echoes"]
+ * Meta accepts it on the Page object; it is NOT rejected with #100.
+ *
+ * Blast radius if that ever changes: this constant feeds the ONE
+ * `/{page-id}/subscribed_apps` POST that subscribeWebhooks makes, and that
+ * call is Page-scoped for BOTH platforms — an Instagram professional
+ * account and its linked Facebook Page are two SocialAccount rows sharing a
+ * single `linkedPageId`, so they subscribe through the same request with
+ * the same field list. A future Meta rejection of any field here therefore
+ * breaks Subscribe for Instagram accounts too, not just Facebook Pages.
+ * Diagnose a #100 "(#100) ... got \"...\"" from Subscribe by dropping the
+ * offending field from this list, never by adding a second call.
+ *
  * Note this is the SUBSCRIPTION vocabulary only, and it is per-platform:
- * a Facebook Page subscribes `feed` + `messages` (this constant), while an
- * Instagram professional account subscribes `comments` + `messages` on the
- * `instagram` object. Delivered payloads follow the same split — Page
- * webhooks arrive as `object: "page"` with `feed`/`messages` change fields,
- * Instagram webhooks arrive as `object: "instagram"` with `comments`/
- * `messages` change fields — and webhooks.ts's parser handles both.
+ * a Facebook Page subscribes `feed` + `messages` + `message_echoes` (this
+ * constant), while an Instagram professional account subscribes `comments`
+ * + `messages` on the `instagram` object. Delivered payloads follow the
+ * same split — Page webhooks arrive as `object: "page"` with
+ * `feed`/`messages` change fields, Instagram webhooks arrive as
+ * `object: "instagram"` with `comments`/`messages` change fields — and
+ * webhooks.ts's parser handles both.
+ *
+ * `message_echoes` is REQUIRED here and is not implied by `messages`: per
+ * Meta's Messenger Platform docs, for Page/Messenger conversations "a
+ * notification is sent when your business has sent a message" only under
+ * the separate `message_echoes` field — `messages` alone covers inbound
+ * customer messages only. (Instagram Messaging is the opposite: IG echo
+ * notifications are already included in the `messages` field subscription,
+ * no separate field exists or is needed there.) Without this, no Facebook
+ * Page ever receives an echo of its own outbound sends, so echo
+ * reconciliation (services/automation/echo.ts) — and therefore automatic
+ * handoff when a human replies to a Facebook Page conversation from Meta's
+ * own apps — is silently inert for every Facebook Page connected before
+ * this field was added. Existing connections must re-run Subscribe
+ * (`POST /api/automation/accounts/[id]/subscribe`) to pick this up; it is
+ * not retroactive.
  */
-const PAGE_SUBSCRIBED_FIELDS = ["feed", "messages"] as const;
+const PAGE_SUBSCRIBED_FIELDS = ["feed", "messages", "message_echoes"] as const;
 
 async function getPageAccessToken(
   connectionId: string,
@@ -449,7 +483,12 @@ export async function listAdFacebookPosts(
 }
 
 /**
- * Subscribe this app to the linked Page's comment + message webhooks.
+ * Subscribe this app to the linked Page's comment + message + outbound
+ * message-echo webhooks (PAGE_SUBSCRIBED_FIELDS).
+ *
+ * Idempotent: re-POSTing the same field list returns {"success":true}
+ * again, so re-running Subscribe on an already-subscribed Page is safe and
+ * is the supported way to pick up a newly added field.
  *
  * Page-scoped, with a Page token: `/{ig-id}/subscribed_apps` does not exist
  * (#100) and the system-user token is rejected here (#190). `pageId` is the
@@ -481,8 +520,13 @@ export async function getSubscriptionStatus(
     .map((s) => String(s).trim())
     .filter(Boolean);
   return {
-    // Checked against the Page vocabulary we actually subscribe with
-    // (feed + messages), not the Instagram-object names.
+    // Checked against the Page vocabulary we actually subscribe with —
+    // PAGE_SUBSCRIBED_FIELDS (currently feed + messages + message_echoes),
+    // not the Instagram-object names. Deliberately every field, not a
+    // subset: this drives the "Webhooks on" / "Setup needed" badge, and a
+    // Page missing message_echoes genuinely cannot hand a thread over when
+    // a human replies from Business Suite, so "Setup needed" is the honest
+    // answer until Subscribe is re-run.
     subscribed: PAGE_SUBSCRIBED_FIELDS.every((f) => fields.includes(f)),
     fields,
   };

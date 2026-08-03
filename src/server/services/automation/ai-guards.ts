@@ -31,6 +31,91 @@ export interface ProfileCorpus {
   faqs: Array<{ question: string; answer: string }>;
 }
 
+/**
+ * The subset of a BotLead the model is allowed to see.
+ *
+ * `email` and `phone` are DELIBERATELY ABSENT from this type — not merely
+ * unused. The lead record exists so the bot stops re-asking for facts it
+ * already has, and knowing someone's requirement/budget/timeline achieves
+ * that. Reciting a contact detail back at a person achieves nothing except
+ * sounding surveillance-y, and an AI_PUBLIC_REPLY is a PUBLIC comment: a
+ * model told "this contact's phone is 98…" can repeat it where anyone can
+ * read it. Omitting the fields from the prompt makes that leak structurally
+ * impossible rather than a matter of instruction-following.
+ *
+ * A full BotLead row may be passed here — the extra properties are simply
+ * never read (buildSystemPrompt walks leadPromptFields(channel), a
+ * channel-aware allowlist).
+ */
+export interface LeadFacts {
+  name?: string | null;
+  company?: string | null;
+  requirement?: string | null;
+  budget?: string | null;
+  timeline?: string | null;
+}
+
+// Allowlist + render order, channel-aware. Most decision-relevant first,
+// since the block is read as a hint about what NOT to ask again.
+//
+// `budget` is dropped for PUBLIC_REPLY. Contact details (email/phone) are
+// already structurally unreachable — see LeadFacts — but budget IS on the
+// type because it's legitimate, useful context in a DM. A public comment
+// reply is readable by anyone, including competitors, and the bot
+// restating "your budget is 5 lakh" under a public post is a real leak of
+// commercially sensitive information about the customer. Same reasoning
+// that keeps phone/email off the type entirely, applied per-channel instead
+// of globally because budget IS safe and useful in the DM case.
+//
+// `company` is deliberately NOT suppressed publicly: for an Instagram/
+// Facebook commenter, the company is typically already visible from their
+// handle or bio, so restating it adds little incremental exposure, and
+// keeping it avoids re-asking for something the commenter effectively
+// already made public themselves. Revisit this if the extractor is ever
+// used somewhere company names aren't already public-by-default.
+//
+// `requirement` is NEVER suppressed on either channel — it's what the reply
+// is actually about; hiding it would break the feature.
+//
+// IMPORTANT: keep this filter here, not as string surgery on the rendered
+// block — post-processing a built prompt is exactly how a field like this
+// leaks back in when someone reorders or reformats the block later.
+function leadPromptFields(
+  channel: "PUBLIC_REPLY" | "DM" | undefined,
+): Array<[keyof LeadFacts, string]> {
+  const fields: Array<[keyof LeadFacts, string]> = [
+    ["requirement", "requirement"],
+    ["budget", "budget"],
+    ["timeline", "timeline"],
+    ["company", "company"],
+    ["name", "name"],
+  ];
+  return channel === "PUBLIC_REPLY"
+    ? fields.filter(([key]) => key !== "budget")
+    : fields;
+}
+
+/**
+ * Render the known-facts block, or "" when nothing is known. Blank/whitespace
+ * values count as unknown — an empty "budget: " line would read to the model
+ * as a fact it already has and stop it asking. `channel` controls which
+ * fields are eligible at all — see leadPromptFields above.
+ */
+function buildLeadBlock(
+  lead: LeadFacts | null | undefined,
+  channel: "PUBLIC_REPLY" | "DM" | undefined,
+): string {
+  if (!lead) return "";
+  const parts = leadPromptFields(channel).flatMap(([key, label]) => {
+    const value = lead[key];
+    return typeof value === "string" && value.trim()
+      ? [`${label}: ${value.trim()}`]
+      : [];
+  });
+  if (!parts.length) return "";
+  return `\nKnown about this contact: ${parts.join("; ")}.\nAlready stated by this contact — do NOT ask for any of it again. Do not restate these details back to them unless they bring it up first.`;
+}
+
 export function buildSystemPrompt(
   p: ProfileCorpus,
   languageMode: string,
@@ -54,6 +139,15 @@ export function buildSystemPrompt(
    * commenter to "DM us on Instagram", pointing them at the wrong surface.
    */
   platform?: "INSTAGRAM" | "FACEBOOK",
+  /**
+   * Durable facts already extracted from this conversation. The lead record
+   * IS the rolling summary — it is what lets a budget stated in message 1
+   * still be known at message 40, once that message has fallen outside the
+   * 30-message history window. Without it the bot re-asks for things it was
+   * already told, which is the exact behaviour the lead table exists to kill.
+   * Contact details are excluded by construction — see LeadFacts.
+   */
+  lead?: LeadFacts | null,
 ): string {
   const faqBlock = p.faqs
     .map((f, i) => `${i + 1}. Q: ${f.question}\n   A: ${f.answer}`)
@@ -75,6 +169,11 @@ export function buildSystemPrompt(
     languageMode === "mirror"
       ? "\nReply in the same language the user used."
       : `\nReply in ${languageMode}.`,
+    // Conversation memory, not profile: what this specific contact has
+    // already told us. Empty string when nothing is known, and .filter(Boolean)
+    // below drops it entirely — a bare "Known about this contact:" header with
+    // no facts would invite the model to invent some.
+    buildLeadBlock(lead, channel),
     // Per-rule steer goes AFTER the profile blocks so it wins on wording and
     // intent, but BEFORE the hard rules below so it can never talk its way
     // past them.

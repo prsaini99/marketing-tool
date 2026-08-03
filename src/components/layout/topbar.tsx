@@ -17,7 +17,10 @@ export function Topbar({ businesses, accountToBusiness }: TopbarProps) {
         />
       </div>
       <div className="flex items-center gap-3">
-        <UserMenu />
+        {/* Server component, so the signed-in identity comes from the env
+            the session is actually validated against rather than a literal
+            baked into the client bundle. */}
+        <UserMenu email={process.env.MASTER_EMAIL ?? "signed in"} />
       </div>
     </header>
   );

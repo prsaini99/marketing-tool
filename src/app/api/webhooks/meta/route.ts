@@ -5,11 +5,12 @@
  * PUBLIC route (excluded in middleware.ts): auth is the X-Hub-Signature-256
  * HMAC over the raw body with META_APP_SECRET, not the session cookie.
  *
- * Flow per spec §4: verify → drop echoes → dedupe (unique
- * AutomationEvent.eventId; P2002 = duplicate delivery, skip) → 200 fast →
- * process in after() so Meta gets its ack in milliseconds. Unknown IG
- * accounts are logged and skipped without erroring (Meta must keep
- * considering this endpoint healthy).
+ * Flow per spec §4: verify → split echoes from inbound events → dedupe
+ * inbound (unique AutomationEvent.eventId; P2002 = duplicate delivery,
+ * skip) → 200 fast → process in after() so Meta gets its ack in
+ * milliseconds. Echoes are reconciled via recordEcho (see echo.ts) rather
+ * than orchestrated. Unknown IG accounts are logged and skipped without
+ * erroring (Meta must keep considering this endpoint healthy).
  */
 
 import { after, NextResponse } from "next/server";
@@ -20,6 +21,7 @@ import {
   type IncomingWebhookEvent,
 } from "@/lib/meta/webhooks";
 import { orchestrateEvent } from "@/server/services/automation/orchestrate";
+import { recordEcho } from "@/server/services/automation/echo";
 import type { IncomingEvent } from "@/server/services/automation/types";
 
 export const dynamic = "force-dynamic";
@@ -79,8 +81,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true }); // not ours to parse — still ack
   }
 
-  const parsed = parseMetaWebhook(body).filter((e) => !e.isEcho);
-  const keys = [...new Set(parsed.map((e) => `${e.platform}:${e.igUserId}`))];
+  const all = parseMetaWebhook(body);
+  const parsed = all.filter((e) => !e.isEcho);
+  const echoes = all.filter((e) => e.isEcho && e.type === "MESSAGE");
+  const keys = [...new Set([...parsed, ...echoes].map((e) => `${e.platform}:${e.igUserId}`))];
   const accounts = keys.length
     ? await prisma.socialAccount.findMany({
         where: {
@@ -125,6 +129,22 @@ export async function POST(req: Request) {
   }
 
   after(async () => {
+    // Echoes are reconciled, not orchestrated: they are OUR outbound
+    // messages coming back. One that we did not send means a human replied
+    // from Meta's own apps, which hands the thread over.
+    for (const e of echoes) {
+      const igAccountId = byKey.get(`${e.platform}:${e.igUserId}`);
+      if (!igAccountId) continue;
+      try {
+        await recordEcho(
+          { metaMid: e.eventId, toIgsid: e.toIgsid, text: e.text },
+          igAccountId,
+        );
+      } catch (err) {
+        console.error("[webhook] echo reconcile failed for", e.eventId, err);
+      }
+    }
+
     for (const { e, eventDbId } of fresh) {
       try {
         await orchestrateEvent(toIncomingEvent(e), { eventDbId });

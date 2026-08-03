@@ -10,7 +10,7 @@
  * rule.
  */
 
-import { Prisma } from "@prisma/client";
+import { Prisma, type BotLead, type BotThread } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import {
   getMediaCaption,
@@ -27,16 +27,41 @@ import { matchRuleWithReason } from "./match";
 import { isOptOutMessage } from "./opt-out";
 import { generateAiReply } from "./ai";
 import type { ProfileCorpus } from "./ai-guards";
+import {
+  AI_HISTORY_LIMIT,
+  appendMessages,
+  readRecentMessages,
+} from "./thread-messages";
+import {
+  deriveStage,
+  EMPTY_LEAD,
+  mergeLead,
+  type LeadFields,
+  type LeadStage,
+} from "./lead";
+import { pickFlagReason } from "./flags";
+import { extractLead } from "./lead-extract";
 import type {
   IncomingEvent,
   PlannedAction,
   RuleLike,
 } from "./types";
 
+/**
+ * Each send method resolves to the Meta message id of what was just sent
+ * (or `null` when there isn't one to record) — NOT void. This is what lets
+ * a BOT reply's `BotMessage` row carry the same `metaMid` Meta later echoes
+ * back, so echo.ts's `recordEcho` can recognise "this echo is our own send"
+ * via the `metaMid` unique lookup instead of always treating an unmatched
+ * echo as a human reply. Before this, BOT rows never got a `metaMid` at
+ * all, so every echo of the bot's own DM looked exactly like an outside
+ * human reply and flipped `ownership` to HUMAN after the bot's first
+ * message — silently killing automation on that thread.
+ */
 export interface Sender {
-  sendPublicReply(commentId: string, text: string): Promise<void>;
-  sendCommentDm(commentId: string, text: string): Promise<void>;
-  sendThreadDm(igsid: string, text: string): Promise<void>;
+  sendPublicReply(commentId: string, text: string): Promise<string | null>;
+  sendCommentDm(commentId: string, text: string): Promise<string | null>;
+  sendThreadDm(igsid: string, text: string): Promise<string | null>;
 }
 
 export interface OrchestrateOptions {
@@ -50,6 +75,8 @@ export interface OrchestrateOptions {
 export type ActionOutcome = PlannedAction & {
   status: "SENT" | "FAILED" | "SKIPPED" | "PLANNED";
   metaError?: string;
+  /** Meta message id returned by the send, when there is one to record. */
+  metaMid?: string | null;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -76,16 +103,32 @@ function makeMetaSender(
     return pageId;
   }
   return {
-    sendPublicReply: (commentId, text) =>
-      replyToComment(connectionId, requirePageId(), commentId, text).then(
-        () => undefined,
-      ),
-    sendCommentDm: (commentId, text) =>
-      sendDmToCommenter(connectionId, requirePageId(), commentId, text).then(
-        () => undefined,
-      ),
-    sendThreadDm: (igsid, text) =>
-      sendDm(connectionId, requirePageId(), igsid, text).then(() => undefined),
+    // replyToComment resolves { id }, a COMMENT id — a different Meta id
+    // namespace than a DM message mid. `BotMessage.metaMid` is @unique
+    // across the whole table and echo reconciliation (echo.ts) only ever
+    // looks at MESSAGE-type echoes (route.ts filters echoes on
+    // `e.type === "MESSAGE"` before calling recordEcho), so a comment id
+    // would never be looked up there anyway. Returning it as a metaMid
+    // would buy nothing and risks an unrelated comment id colliding with a
+    // real message mid on that shared unique column. Deliberately discard
+    // it and return null.
+    sendPublicReply: async (commentId, text) => {
+      await replyToComment(connectionId, requirePageId(), commentId, text);
+      return null;
+    },
+    sendCommentDm: async (commentId, text) => {
+      const res = await sendDmToCommenter(
+        connectionId,
+        requirePageId(),
+        commentId,
+        text,
+      );
+      return res.messageId;
+    },
+    sendThreadDm: async (igsid, text) => {
+      const res = await sendDm(connectionId, requirePageId(), igsid, text);
+      return res.messageId;
+    },
   };
 }
 
@@ -96,37 +139,10 @@ function makeMetaSender(
  * sender is the structural default rather than a caller convention.
  */
 const NOOP_SENDER: Sender = {
-  sendPublicReply: async () => {},
-  sendCommentDm: async () => {},
-  sendThreadDm: async () => {},
+  sendPublicReply: async () => null,
+  sendCommentDm: async () => null,
+  sendThreadDm: async () => null,
 };
-
-function readThreadMessages(
-  json: Prisma.JsonValue,
-): Array<{ role: string; text: string }> {
-  if (!Array.isArray(json)) return [];
-  return json
-    .filter(
-      (m): m is { role: string; text: string } =>
-        typeof m === "object" &&
-        m !== null &&
-        typeof (m as { role?: unknown }).role === "string" &&
-        typeof (m as { text?: unknown }).text === "string",
-    )
-    .map((m) => ({ role: m.role, text: m.text }));
-}
-
-function appendThreadMessages(
-  json: Prisma.JsonValue,
-  additions: Array<{ role: string; text: string }>,
-): Prisma.InputJsonValue {
-  const next = [
-    ...readThreadMessages(json),
-    ...additions.map((a) => ({ ...a, at: new Date().toISOString() })),
-  ];
-  return next.slice(-10) as unknown as Prisma.InputJsonValue;
-}
-
 
 /**
  * IG media ids currently attached to ads, across every ad account this
@@ -249,13 +265,35 @@ export async function orchestrateEvent(
 
   // Thread state — read before runOne is defined so its closure can use it
   // for AI history. Re-assigned later by the opt-out / inbound upserts.
-  let thread = event.fromIgsid
+  //
+  // The thread's BotLead comes along on this same query (`include`, not a
+  // second round-trip) and MUST be read here rather than in the extraction
+  // block at the bottom: the lead record is the conversation's rolling
+  // summary, so the reply model needs it BEFORE it writes a reply, not after.
+  // Reading it late is what made the table write-only — a budget stated in
+  // message 1 was safely in the DB and completely invisible to the model by
+  // message 40, so the bot asked for it again.
+  //
+  // Read-only, so it is safe on the dry-run path for the same reason
+  // getMediaCaption is (see below): purity is about not writing and not
+  // sending. A brand-new thread has no lead, and `lead` is simply null — the
+  // common case, handled everywhere by the optional chain / null checks.
+  const threadWithLead = event.fromIgsid
     ? await prisma.botThread.findUnique({
         where: {
           igAccountId_igsid: { igAccountId: ig.id, igsid: event.fromIgsid },
         },
+        include: { lead: true },
       })
     : null;
+  let thread: BotThread | null = threadWithLead;
+  // Reused by the extraction block at the bottom as `existingLead`, so there
+  // is still exactly ONE BotLead read per event.
+  const lead: BotLead | null = threadWithLead?.lead ?? null;
+
+  // Set by runOne when the reply model asks for a human. Read later by the
+  // flag decision, which runs after all actions have been attempted.
+  let aiEscalated = false;
 
   // Post context for the AI and the {post_caption} variable. Comment events
   // carry a media id but no caption, so "how much for this?" is
@@ -332,7 +370,7 @@ export async function orchestrateEvent(
       } else {
         try {
           const threadMsgs = thread
-            ? readThreadMessages(thread.recentMessagesJson)
+            ? await readRecentMessages(thread.id, AI_HISTORY_LIMIT)
             : [];
           const ai = await generateAiReply({
             profile: corpus,
@@ -362,7 +400,12 @@ export async function orchestrateEvent(
               ? rules.find((r) => r.id === a.ruleId)?.aiInstructions
               : undefined,
             platform: event.platform,
+            // Durable facts that have aged out of the 30-message window.
+            // buildSystemPrompt reads an allowlist of fields off this and
+            // never touches email/phone — see LeadFacts in ai-guards.ts.
+            lead,
           });
+          if (ai.escalate) aiEscalated = true;
           if (!ai.safe || ai.confidence < 0.6 || ai.escalate) {
             if (a.action === "AI_DM" || a.action === "AI_DM_VIA_COMMENT") {
               text = HUMAN_FALLBACK_TEXT;
@@ -447,21 +490,22 @@ export async function orchestrateEvent(
           })
         : null;
     try {
+      let metaMid: string | null = null;
       if (a.action === "PUBLIC_REPLY" || a.action === "AI_PUBLIC_REPLY") {
         // Unreachable given the missing_target guard above — kept as a real
         // check (not an assertion) so a future refactor that removes that
         // guard fails safe here too, instead of hitting Meta with "/null/...".
         if (!event.commentId) throw new Error("missing_target: no commentId");
-        await sender.sendPublicReply(event.commentId, text!);
+        metaMid = await sender.sendPublicReply(event.commentId, text!);
       } else if (
         a.action === "DM_VIA_COMMENT" ||
         a.action === "AI_DM_VIA_COMMENT"
       ) {
         if (!event.commentId) throw new Error("missing_target: no commentId");
-        await sender.sendCommentDm(event.commentId, text!);
+        metaMid = await sender.sendCommentDm(event.commentId, text!);
       } else {
         if (!event.fromIgsid) throw new Error("missing_target: no fromIgsid");
-        await sender.sendThreadDm(event.fromIgsid, text!);
+        metaMid = await sender.sendThreadDm(event.fromIgsid, text!);
       }
       if (logRow) {
         await prisma.automationLog.update({
@@ -469,7 +513,55 @@ export async function orchestrateEvent(
           data: { status: "SENT", sentAt: new Date() },
         });
       }
-      return { ...a, text, status: persist ? "SENT" : "PLANNED" };
+
+      // Record THIS bot reply NOW, per-send — deliberately NOT batched into
+      // one createMany after the action loop. Do not "tidy" this back.
+      //
+      // The race: Meta echoes every outbound message straight back to
+      // /api/webhooks/meta, and echo.ts's recordEcho decides "this echo is
+      // our own send" purely by finding a BotMessage whose `metaMid`
+      // matches. A trailing batch leaves the row unwritten for the whole
+      // remainder of orchestrateEvent — a window that includes the next
+      // action's AI generation (seconds) on the common multi-action plan
+      // (public reply + DM), while a Meta webhook round-trip is often well
+      // under a second. An echo landing inside that window finds no row, so
+      // recordEcho treats the bot's own message as a human reply, flips
+      // `ownership` to HUMAN, and inserts the mid as a HUMAN row — after
+      // which appendMessages' `skipDuplicates` silently swallows the bot's
+      // real row and the bot is permanently mute on that thread. Writing
+      // here shrinks the window to the gap between the Send API responding
+      // and this single insert committing.
+      //
+      // Ordering is preserved: readRecentMessages sorts by createdAt then
+      // id, these inserts are sequential (the action loop never fans out),
+      // and cuid()s are monotonic — so per-send rows read back in send
+      // order exactly as the batch did.
+      //
+      // Only reached on a SUCCESSFUL send (the catch below returns without
+      // touching this), so a FAILED send still produces no message row.
+      // `persist` gates it, so a dry run writes nothing.
+      const t = thread;
+      if (persist && t && text) {
+        try {
+          await appendMessages(t.id, [
+            {
+              role: "BOT",
+              text,
+              channel:
+                a.action === "PUBLIC_REPLY" || a.action === "AI_PUBLIC_REPLY"
+                  ? "COMMENT"
+                  : "DM",
+              metaMid,
+            },
+          ]);
+        } catch (e) {
+          // Bookkeeping must never restamp a delivered message as FAILED,
+          // which is exactly what letting this hit the outer catch would do.
+          console.warn("[automation] failed to record bot message", e);
+        }
+      }
+
+      return { ...a, text, status: persist ? "SENT" : "PLANNED", metaMid };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (logRow) {
@@ -519,12 +611,15 @@ export async function orchestrateEvent(
           igsid: event.fromIgsid,
           lastInboundAt: new Date(),
           optedOut: true,
-          recentMessagesJson: [
-            { role: "user", text: event.text, at: new Date().toISOString() },
-          ],
         },
         update: { optedOut: true, lastInboundAt: new Date() },
       });
+      // Record the "stop" message itself. The old blob wrote this on the
+      // create branch only, so a repeat opt-out from an existing thread was
+      // never recorded at all.
+      await appendMessages(thread.id, [
+        { role: "USER", text: event.text, channel: "DM" },
+      ]);
     }
     if (alreadyOptedOut) {
       const out = await runOne({
@@ -571,17 +666,26 @@ export async function orchestrateEvent(
         igAccountId: ig.id,
         igsid: event.fromIgsid,
         lastInboundAt: event.type === "MESSAGE" ? new Date() : null,
-        recentMessagesJson: [
-          { role: "user", text: event.text, at: new Date().toISOString() },
-        ],
+        username: event.fromUsername ?? null,
       },
       update: {
         ...(event.type === "MESSAGE" ? { lastInboundAt: new Date() } : {}),
-        recentMessagesJson: appendThreadMessages(thread?.recentMessagesJson ?? [], [
-          { role: "user", text: event.text },
-        ]),
+        // Never overwrite a known username with null — comment webhooks
+        // carry one, DM webhooks don't (see src/lib/meta/webhooks.ts), so a
+        // DM arriving after a comment must not erase what the comment
+        // taught us.
+        ...(event.fromUsername ? { username: event.fromUsername } : {}),
       },
     });
+    await appendMessages(thread.id, [
+      {
+        role: "USER",
+        text: event.text,
+        channel: event.type === "MESSAGE" ? "DM" : "COMMENT",
+        // Dedupe key: a redelivered webhook must not append the message twice.
+        metaMid: event.type === "MESSAGE" ? (event.eventId ?? null) : null,
+      },
+    ]);
   }
 
   // Guardrail inputs for decide().
@@ -660,7 +764,8 @@ export async function orchestrateEvent(
     matchedRule?.aiIntentGuard &&
     callAi &&
     !(matchedRule.skipNoIntent && !hasIntent(event.text)) &&
-    !thread?.optedOut
+    !thread?.optedOut &&
+    thread?.ownership !== "HUMAN"
   ) {
     try {
       intentVerdict = await classifyIntent({
@@ -685,6 +790,7 @@ export async function orchestrateEvent(
     intentVerdict,
     aiFallbackEnabled: profile?.aiFallbackEnabled ?? false,
     optedOut: thread?.optedOut ?? false,
+    humanOwned: thread?.ownership === "HUMAN",
     lastInboundAt:
       event.type === "MESSAGE"
         ? new Date() // replying to an inbound DM is always in-window
@@ -703,21 +809,149 @@ export async function orchestrateEvent(
     outcomes.push(await runOne(a)); // sequential — never Promise.all
   }
 
-  // Append bot replies to the thread for future AI context.
-  if (persist && thread) {
-    const botTexts = outcomes
-      .filter((o) => (o.status === "SENT" || o.status === "PLANNED") && o.text)
-      .map((o) => ({ role: "assistant", text: o.text! }));
-    if (botTexts.length > 0) {
-      await prisma.botThread.update({
-        where: { id: thread.id },
-        data: {
-          recentMessagesJson: appendThreadMessages(
-            thread.recentMessagesJson,
-            botTexts,
-          ),
-        },
+  // NOTE: bot replies are NOT recorded here. Each one is written inside
+  // runOne immediately after its own successful send, with the `metaMid`
+  // Meta returned — see the long comment there for the echo race that
+  // batching them at this point reintroduces. This block used to hold that
+  // trailing createMany; it is gone on purpose, so there is exactly one
+  // write path and no double-write.
+
+  // Lead extraction + flagging. Runs after replies so the flag decision can
+  // see whether the reply model escalated.
+  //
+  // Gated on `hasIntent` for the same cost reason the intent guard is: paying
+  // for an extraction call on "🔥🔥🔥" is pure waste. Gated on `persist` so a
+  // dry run neither writes nor bills.
+  //
+  // `!thread.optedOut` matches the intent guard's posture above. Someone who
+  // said "stop" gets no reply (decide() suppresses it), so extracting from
+  // them buys nothing — it only spends a gpt-4o-mini call and builds a lead
+  // profile on a person who explicitly asked to be left alone.
+  //
+  // `thread.ownership !== "HUMAN"` for the same reason: a human is handling
+  // the conversation, so paying for extraction on every message they
+  // exchange is waste — and the operator can see the thread themselves.
+  if (
+    persist &&
+    thread &&
+    !thread.optedOut &&
+    thread.ownership !== "HUMAN" &&
+    callAi &&
+    event.fromIgsid &&
+    hasIntent(event.text)
+  ) {
+    try {
+      // Read once, at the top of the function, and reused here — the reply
+      // model needs it before it replies, and a second query would be a
+      // second round-trip for a row nothing has written since.
+      const existingLead = lead;
+      const history = await readRecentMessages(thread.id, AI_HISTORY_LIMIT);
+      const extracted = await extractLead({ history, userText: event.text });
+
+      const before: LeadFields | null = existingLead
+        ? {
+            name: existingLead.name,
+            email: existingLead.email,
+            phone: existingLead.phone,
+            company: existingLead.company,
+            requirement: existingLead.requirement,
+            budget: existingLead.budget,
+            timeline: existingLead.timeline,
+          }
+        : null;
+
+      const merged = mergeLead(before, extracted);
+      const priorStage = (existingLead?.stage ?? null) as LeadStage | null;
+      const nextStage = deriveStage(merged, priorStage);
+
+      // Two concurrent after() handlers can race on the same thread (e.g. a
+      // comment and a DM arriving together, or two rapid inbound DMs): both
+      // read `existingLead` before either has written, so a plain
+      // `update: { ...merged }` lets whichever write lands second stomp
+      // fields the first one just persisted with nulls its own extraction
+      // simply didn't see (the very loss `mergeLead` exists to prevent).
+      // Only send the NON-NULL entries of `merged` on update, so a field
+      // not mentioned in this turn is left untouched rather than erased.
+      const FIELD_KEYS = Object.keys(EMPTY_LEAD) as Array<keyof LeadFields>;
+      const nonNullFields: Partial<LeadFields> = {};
+      for (const key of FIELD_KEYS) {
+        if (merged[key] !== null) nonNullFields[key] = merged[key];
+      }
+
+      // Stage is guarded the same way, but a simple "only if non-null"
+      // filter doesn't apply to a single enum column — instead the WHERE
+      // clause below is checked against the row's LIVE stage at the moment
+      // this UPDATE executes (atomic per statement), not the possibly-stale
+      // `priorStage` read above. That stops a handler that read stage=NEW
+      // from dragging a concurrently-advanced QUALIFIED back down to
+      // ENGAGED. UNQUALIFIED is never produced by `deriveStage` here, but is
+      // included in the rank so an operator-set UNQUALIFIED (Phase 3) is
+      // never silently downgraded by this path either.
+      const STAGE_RANK: Record<LeadStage, number> = {
+        NEW: 0,
+        ENGAGED: 1,
+        QUALIFIED: 2,
+        UNQUALIFIED: 3,
+      };
+      const safeCurrentStages = (Object.keys(STAGE_RANK) as LeadStage[]).filter(
+        (s) => STAGE_RANK[s] <= STAGE_RANK[nextStage],
+      );
+
+      const updated = await prisma.botLead.updateMany({
+        where: { threadId: thread.id, stage: { in: safeCurrentStages } },
+        data: { ...nonNullFields, stage: nextStage },
       });
+
+      if (updated.count === 0) {
+        // Either no row exists yet for this thread, or one exists but is
+        // already at a stage this write must not downgrade (the WHERE above
+        // excluded it). Either way, the facts extracted THIS turn must still
+        // land — the stage guard must never become a reason to drop a
+        // newly-learned field.
+        try {
+          await prisma.botLead.create({
+            data: { threadId: thread.id, ...merged, stage: nextStage },
+          });
+        } catch (e) {
+          // P2002 = a concurrent handler created the row between our read
+          // and this create — i.e. the "already exists at a higher/guarded
+          // stage" case. Fall back to a fields-only update; stage is
+          // deliberately left untouched here since we no longer know what
+          // the other handler wrote and must not risk downgrading it.
+          if ((e as { code?: string }).code !== "P2002") throw e;
+          await prisma.botLead.updateMany({
+            where: { threadId: thread.id },
+            data: nonNullFields,
+          });
+        }
+      }
+
+      // Only the TRANSITION into QUALIFIED flags — not every later message
+      // while the lead stays qualified, which would re-flag forever.
+      const becameQualified =
+        nextStage === "QUALIFIED" && priorStage !== "QUALIFIED";
+
+      const reason = pickFlagReason({
+        aiEscalated,
+        intentCategory: intentVerdict?.category ?? null,
+        becameQualified,
+        currentReason: (thread.flagReason ?? null) as
+          | "ai_stuck"
+          | "complaint"
+          | "qualified"
+          | null,
+      });
+      if (reason) {
+        await prisma.botThread.update({
+          where: { id: thread.id },
+          data: { flagReason: reason, flaggedAt: new Date(), resolvedAt: null },
+        });
+      }
+    } catch (e) {
+      // Fail OPEN, loudly. The reply has already been sent by this point, so
+      // a failure here costs qualification data, never a response. Silence
+      // would make a revoked OpenAI key look like "no leads are qualifying".
+      console.warn("[automation] lead extraction failed", e);
     }
   }
 

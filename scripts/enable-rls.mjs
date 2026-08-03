@@ -29,6 +29,8 @@ const TABLES = [
   "BotThread",
   "AutomationEvent",
   "AutomationLog",
+  "BotMessage",
+  "BotLead",
 ];
 
 const p = new PrismaClient();
