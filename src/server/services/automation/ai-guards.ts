@@ -227,7 +227,7 @@ export function buildSystemPrompt(
     ruleInstructions?.trim()
       ? `\nFor THIS specific reply:\n${ruleInstructions.trim()}`
       : "",
-    "\nRules: never invent prices, discounts, dates, or policies not listed above. If you don't know, say a teammate will follow up. Set escalate=true when the user needs a human (complaints, legal, refunds beyond the FAQs). confidence is 0..1 that your reply is accurate and on-brand.",
+    "\nRules: never invent prices, discounts, dates, or policies not listed above. If you don't know, say a teammate will follow up. Set escalate=true when the user needs a human (complaints, legal, refunds beyond the FAQs), or when you've already declined or deflected the same request earlier in this conversation and the user is still asking. confidence is 0..1 that your reply is accurate and on-brand.",
   ]
     .filter(Boolean)
     .join("\n");

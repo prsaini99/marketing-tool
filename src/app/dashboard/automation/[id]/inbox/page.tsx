@@ -14,8 +14,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db/prisma";
-import { withinReplyWindow } from "@/server/services/automation/inbox";
+import { replyWindowState } from "@/server/services/automation/inbox";
 import { InboxThread } from "@/components/automation/inbox-thread";
+import { AutoRefresh } from "@/components/automation/auto-refresh";
 
 export const dynamic = "force-dynamic";
 
@@ -155,6 +156,10 @@ export default async function InboxPage({
 
   return (
     <div className="space-y-4 p-6">
+      {/* Polls the server render so webhook-delivered messages appear on their
+          own. Renders nothing; see the component for why polling and not a
+          socket. */}
+      <AutoRefresh />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
@@ -337,7 +342,10 @@ export default async function InboxPage({
                   threadId={selected.id}
                   ownership={selected.ownership === "HUMAN" ? "HUMAN" : "BOT"}
                   lastInboundAt={selected.lastInboundAt}
-                  withinWindow={withinReplyWindow(selected.lastInboundAt)}
+                  windowState={replyWindowState(selected.lastInboundAt)}
+                  // Same predicate the Needs attention filter uses, so the
+                  // button appears exactly when the thread is in that queue.
+                  flagged={Boolean(selected.flagReason) && !selected.resolvedAt}
                 />
 
                 <div className="rounded-lg border border-border bg-surface p-4 space-y-2">

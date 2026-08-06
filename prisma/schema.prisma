@@ -787,3 +787,43 @@ model AutomationLog {
   createdAt     DateTime @default(now())
   sentAt        DateTime?
 }
+
+// Forensic log of EVERY inbound webhook POST, written before parsing and
+// before signature verification. Exists because "Meta never called us" and
+// "Meta called us and we dropped it" were indistinguishable, which stalled a
+// multi-day investigation into missing message webhooks.
+model WebhookDelivery {
+  id             String   @id @default(cuid())
+  receivedAt     DateTime @default(now())
+  objectType     String?  // Meta's top-level `object`: "page" | "instagram" | other
+  signatureValid Boolean
+  parsedCount    Int      @default(0) // events parseMetaWebhook produced
+  matchedCount   Int      @default(0) // of those, how many mapped to a known account
+  note           String?  // short human hint, e.g. "unknown account: page:123"
+  rawJson        Json
+  @@index([receivedAt])
+}
+
+// ─── App logins ──────────────────────────────────────────────────────────
+
+// Database-backed login credentials, so the owner can create/revoke logins
+// (notably a temporary reviewer account for Meta App Review) without editing
+// Vercel env vars and redeploying. The env-var pairs (MASTER_* / REVIEWER_*)
+// remain as a fallback in the login route — they're the lockout escape hatch
+// when this table is empty, the DB is unreachable, or a hash is corrupt.
+//
+// Named AppUser, not User, to stay unambiguous against Meta/social users.
+//
+// NOTE: only credential checking touches this table, and only from the Node
+// runtime. `src/lib/auth.ts` must stay Prisma-free — edge middleware imports
+// it, and session verification is a pure HMAC check that needs no DB.
+model AppUser {
+  id           String    @id @default(cuid())
+  email        String    @unique          // always stored lowercased
+  passwordHash String                     // "scrypt$<saltHex>$<hashHex>"
+  role         String                     // "owner" | "reviewer"
+  disabledAt   DateTime?                  // set = revoked, login refused
+  expiresAt    DateTime?                  // past = login refused (self-revoking)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
