@@ -14,7 +14,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { sendDm } from "@/lib/meta/messaging";
+import { sendDm, sendHumanAgentDm } from "@/lib/meta/messaging";
 import { appendMessages } from "./thread-messages";
 import { THREAD_DM_WINDOW_HOURS } from "./decide";
 
@@ -22,13 +22,36 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 
 const WINDOW_MS = THREAD_DM_WINDOW_HOURS * 60 * 60 * 1000;
 
-/** True when Meta still allows a plain (untagged) reply on this thread. */
-export function withinReplyWindow(
+/**
+ * Human Agent tag window (operator-side only — do NOT move this to
+ * decide.ts, which is the bot's own pure policy file and must stay that
+ * way). Deliberately distinct from decide.ts's COMMENT_DM_WINDOW_DAYS,
+ * which is a different 7-day rule for a different edge (comment-triggered
+ * DMs); the two happen to share a number, not a meaning.
+ */
+const HUMAN_AGENT_WINDOW_DAYS = 7;
+const HUMAN_AGENT_WINDOW_MS = HUMAN_AGENT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+
+export type ReplyWindow = "OPEN" | "HUMAN_AGENT" | "CLOSED" | "NEVER_MESSAGED";
+
+/**
+ * Which reply path Meta allows right now, based on the customer's last
+ * inbound message.
+ *
+ * `NEVER_MESSAGED` is a real, distinct case from `CLOSED` — a thread created
+ * from a comment alone never had an inbound DM, so no reply window ever
+ * opened. Reporting that as "closed" sends the operator chasing a Meta
+ * problem that doesn't exist; there is simply nothing to reply to yet.
+ */
+export function replyWindowState(
   lastInboundAt: Date | null,
   now: Date = new Date(),
-): boolean {
-  if (!lastInboundAt) return false;
-  return now.getTime() - lastInboundAt.getTime() <= WINDOW_MS;
+): ReplyWindow {
+  if (!lastInboundAt) return "NEVER_MESSAGED";
+  const age = now.getTime() - lastInboundAt.getTime();
+  if (age <= WINDOW_MS) return "OPEN";
+  if (age <= HUMAN_AGENT_WINDOW_MS) return "HUMAN_AGENT";
+  return "CLOSED";
 }
 
 /**
@@ -111,11 +134,19 @@ export async function sendHumanMessage(
   if (!thread.igAccount.linkedPageId) {
     return { ok: false, error: "This account has no linked Facebook Page." };
   }
-  if (!withinReplyWindow(thread.lastInboundAt)) {
+  const windowState = replyWindowState(thread.lastInboundAt);
+  if (windowState === "CLOSED") {
     return {
       ok: false,
       error:
-        "Meta's 24-hour reply window has closed for this conversation. Replying later needs the HUMAN_AGENT tag, which requires App Review approval.",
+        "Meta's 7-day human-agent reply limit has passed for this conversation. The customer needs to message again before you can reply.",
+    };
+  }
+  if (windowState === "NEVER_MESSAGED") {
+    return {
+      ok: false,
+      error:
+        "This person has never sent a direct message on this thread, so there's nothing to reply to yet.",
     };
   }
 
@@ -126,12 +157,20 @@ export async function sendHumanMessage(
 
   let messageId: string | null = null;
   try {
-    const res = await sendDm(
-      thread.igAccount.connectionId,
-      thread.igAccount.linkedPageId,
-      thread.igsid,
-      body,
-    );
+    const res =
+      windowState === "HUMAN_AGENT"
+        ? await sendHumanAgentDm(
+            thread.igAccount.connectionId,
+            thread.igAccount.linkedPageId,
+            thread.igsid,
+            body,
+          )
+        : await sendDm(
+            thread.igAccount.connectionId,
+            thread.igAccount.linkedPageId,
+            thread.igsid,
+            body,
+          );
     messageId = res.messageId;
   } catch (e) {
     return { ok: false, error: (e as Error).message };

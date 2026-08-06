@@ -25,8 +25,6 @@ export const MAX_DMS_PER_USER_PER_DAY = 5;
 export const MAX_PUBLIC_REPLIES_PER_USER_PER_DAY = 3;
 export const COMMENT_DM_WINDOW_DAYS = 7;
 export const THREAD_DM_WINDOW_HOURS = 24;
-export const HUMAN_FALLBACK_TEXT =
-  "Thanks for reaching out! A teammate will get back to you shortly.";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -170,7 +168,16 @@ export function decide(ctx: DecideContext): PlannedAction[] {
     if (ctx.vetoedByNegativeKeyword) return [skip(null, "negative_keyword")];
     if (!ctx.aiFallbackEnabled) return [skip(null, "no_rule")];
     if (event.type === "COMMENT") {
-      return [{ action: "AI_PUBLIC_REPLY", ruleId: null, text: null, useAi: true, skipReason: null }];
+      // Two channels, DM first: the executor runs actions in array order, so
+      // the DM is attempted before the public reply is composed. This lets
+      // orchestrate.ts's companionDm check look at whether the DM ACTUALLY
+      // sent (not just whether it was planned) before deciding whether the
+      // public reply may use the "just sent you a DM" teaser — see the long
+      // comment in orchestrate.ts for why that distinction matters.
+      return [
+        planDm(ctx, null),
+        { action: "AI_PUBLIC_REPLY", ruleId: null, text: null, useAi: true, skipReason: null },
+      ];
     }
     return [planDm(ctx, null)];
   }

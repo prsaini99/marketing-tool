@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { AlertTriangle, BarChart3, BookOpen, BookMarked, Bot, Building2, FileClock, FileText, Image as ImageIcon, Images, Layers, Megaphone, MessageSquare, Settings, Sparkles, Target, Users, Video } from "lucide-react";
+import { AlertTriangle, BarChart3, BookOpen, BookMarked, Bot, Building2, FileClock, FileText, Image as ImageIcon, Images, Inbox, Layers, Megaphone, MessageSquare, Settings, Sparkles, Target, Users, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getActiveBusinessId,
   type AccountBusinessMap,
 } from "@/lib/active-business";
+import { isReviewerAllowedPath, type SessionRole } from "@/lib/auth";
 
 const navItems = [
   { href: "/dashboard/accounts", label: "Accounts", icon: Building2 },
@@ -23,7 +24,8 @@ const navItems = [
   { href: "/dashboard/reports", label: "Reports", icon: FileText },
   { href: "/dashboard/alerts", label: "Alerts", icon: AlertTriangle, badgeKey: "alertCount" as const },
   { href: "/dashboard/chat", label: "AI Assistant", icon: MessageSquare },
-  { href: "/dashboard/automation", label: "Automation", icon: Bot },
+  { href: "/dashboard/automation", label: "Automation", icon: Bot, badgeKey: "needsAttentionCount" as const },
+  { href: "/dashboard/automation/inbox", label: "Inbox", icon: Inbox },
   { href: "/dashboard/playbook", label: "Playbook", icon: BookMarked },
   { href: "/dashboard/audit-log", label: "Audit log", icon: FileClock },
   { href: "/dashboard/setup-guide", label: "Setup guide", icon: BookOpen },
@@ -34,9 +36,33 @@ interface SidebarProps {
   accountToBusiness: AccountBusinessMap;
   /** Undismissed-alerts count — drives the badge on the Alerts entry. */
   alertCount?: number;
+  /**
+   * Threads across all accounts with flagReason != null AND resolvedAt ==
+   * null — drives the "needs attention" badge on the Automation entry.
+   */
+  needsAttentionCount?: number;
+  /**
+   * Session role from the server component that renders this (dashboard
+   * layout reads the cookie via getSessionRole and passes it down — this
+   * stays a client component for the pathname/search-param logic below, so
+   * the role can't be looked up here directly). A reviewer session can only
+   * reach automation/inbox routes (enforced again, independently, in
+   * middleware), so entries it would just bounce off of are hidden rather
+   * than left to 403/redirect on click. Undefined/"owner" shows everything.
+   */
+  role?: SessionRole;
 }
 
-export function Sidebar({ accountToBusiness, alertCount = 0 }: SidebarProps) {
+export function Sidebar({
+  accountToBusiness,
+  alertCount = 0,
+  needsAttentionCount = 0,
+  role,
+}: SidebarProps) {
+  const visibleNavItems =
+    role === "reviewer"
+      ? navItems.filter((item) => isReviewerAllowedPath(item.href))
+      : navItems;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   // Preserve every active search param across sidebar nav (range, client, etc.).
@@ -72,14 +98,26 @@ export function Sidebar({ accountToBusiness, alertCount = 0 }: SidebarProps) {
           past the viewport instead of scrolling here. */}
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
         <ul className="space-y-0.5">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive =
               pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
+            const badgeKey = "badgeKey" in item ? item.badgeKey : null;
             const badge =
-              "badgeKey" in item && item.badgeKey === "alertCount"
+              badgeKey === "alertCount"
                 ? alertCount
-                : 0;
+                : badgeKey === "needsAttentionCount"
+                  ? needsAttentionCount
+                  : 0;
+            // Alerts stays red (danger); "needs attention" signals a thread
+            // waiting on a human, not an outright failure, so it gets the
+            // amber warning treatment used elsewhere (e.g. the automation
+            // home page's "Setup needed" pill) rather than danger or the
+            // green "on"/positive treatment.
+            const badgeClass =
+              badgeKey === "needsAttentionCount"
+                ? "bg-amber-100 text-amber-800"
+                : "bg-danger text-white";
             return (
               <li key={item.href}>
                 <Link
@@ -95,7 +133,10 @@ export function Sidebar({ accountToBusiness, alertCount = 0 }: SidebarProps) {
                   <span className="flex-1">{item.label}</span>
                   {badge > 0 && (
                     <span
-                      className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-danger px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white"
+                      className={cn(
+                        "inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                        badgeClass,
+                      )}
                       aria-label={`${badge} unread`}
                     >
                       {badge > 99 ? "99+" : badge}

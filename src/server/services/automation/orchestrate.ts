@@ -20,12 +20,13 @@ import {
   sendDm,
   sendDmToCommenter,
 } from "@/lib/meta/messaging";
-import { decide, HUMAN_FALLBACK_TEXT } from "./decide";
+import { decide } from "./decide";
 import { hasIntent } from "./intent";
 import { classifyIntent, type IntentVerdict } from "./intent-guard";
 import { matchRuleWithReason } from "./match";
 import { isOptOutMessage } from "./opt-out";
 import { generateAiReply } from "./ai";
+import { isRepetitive } from "./repetition";
 import type { ProfileCorpus } from "./ai-guards";
 import {
   AI_HISTORY_LIMIT,
@@ -334,7 +335,73 @@ export async function orchestrateEvent(
         )
       : null;
 
-  const runOne = async (a: PlannedAction): Promise<ActionOutcome> => {
+  // Shared by both AI-guard trip sites below (the low-confidence/unsafe/
+  // escalate branch and the catch-when-AI-throws branch), for both DM and
+  // public-reply channels. Previously a DM channel sent a canned "human
+  // will follow up shortly" style fallback line here instead of skipping —
+  // but that line both announces the bot and deflects a real question in
+  // the same breath (a prospect asking for delivered-work examples got
+  // exactly that brush-off). Silence beats a robotic deflection: send
+  // nothing, log WHY with a specific reason, and hand the thread to a
+  // human so it actually gets attention instead of being invisibly dropped.
+  const skipAiGuard = async (
+    a: PlannedAction,
+    skipReason:
+      | "ai_unsafe"
+      | "ai_low_confidence"
+      | "ai_escalated"
+      | "ai_repetitive"
+      | "ai_error",
+  ): Promise<ActionOutcome> => {
+    if (persist && eventDbId) {
+      await prisma.automationLog.create({
+        data: {
+          eventDbId,
+          matchedRuleId: a.ruleId,
+          action: "SKIPPED",
+          status: "SKIPPED",
+          skipReason,
+        },
+      });
+    }
+    // Handover happens right here, at the point the guard actually fires —
+    // not in the lead-extraction block further down, which is gated on
+    // hasIntent() and would miss cases where the guard trips on a message
+    // that block would have skipped extraction for entirely.
+    if (persist && thread) {
+      try {
+        await prisma.botThread.update({
+          where: { id: thread.id },
+          data: {
+            ownership: "HUMAN",
+            // Overwriting an existing flagReason is intended: flags.ts
+            // ranks ai_stuck highest, so this is never a downgrade.
+            flagReason: "ai_stuck",
+            flaggedAt: new Date(),
+            resolvedAt: null,
+          },
+        });
+      } catch (e) {
+        // Bookkeeping only — must never change the response or break
+        // processing of this event.
+        console.warn(
+          "[automation] failed to hand thread to human after AI guard trip",
+          e,
+        );
+      }
+    }
+    return { ...a, action: "SKIPPED", skipReason, status: "SKIPPED" };
+  };
+
+  // outcomesSoFar lets an AI_PUBLIC_REPLY look back at whether an earlier
+  // action in THIS SAME event's plan (the DM, when decide() planned one
+  // ahead of it) actually sent — runOne is defined before the `outcomes`
+  // array exists below, so it cannot close over it and the caller passes
+  // the accumulated list explicitly instead.
+  const runOne = async (
+    a: PlannedAction,
+    outcomesSoFar: ActionOutcome[] = [],
+  ): Promise<ActionOutcome> => {
     if (a.action === "SKIPPED") {
       if (persist && eventDbId) {
         await prisma.automationLog.create({
@@ -400,18 +467,38 @@ export async function orchestrateEvent(
             // correctly falls back to profile-only instructions.
             channel:
               a.action === "AI_PUBLIC_REPLY" ? "PUBLIC_REPLY" : "DM",
-            // Does this same comment also get a DM? If so the public reply
-            // must point at the DM instead of answering, or the two come out
-            // near-identical. `planned` is the full action list for this
-            // event, so this is known before either AI call is made.
+            // Does this same comment ALSO get a DM — and did it actually go
+            // out? This must be outcome-based, not plan-based: decide() can
+            // plan a DM ahead of this public reply (see decide.ts's AI
+            // fallback branch) and that DM can still fail, get skipped by
+            // the daily cap, or fall outside the 7-day comment window. If we
+            // told the AI "a companion DM exists" just because one was
+            // PLANNED, the public reply would say "Just sent you a DM!"
+            // under the post while no DM exists — a public promise the
+            // business didn't keep, visible to everyone who reads the
+            // thread. That is not hypothetical: pages_messaging is not yet
+            // App-Review-approved, so DMs to anyone without a role on the
+            // Meta app currently fail with error code 10, which makes this
+            // the LIKELY outcome for the fallback path right now, not an
+            // edge case. So: only treat the DM as "sent" when a prior
+            // outcome for this event is a DM-family action with
+            // status === "SENT". decide.ts places the DM action before the
+            // AI_PUBLIC_REPLY in its planned array specifically so it is
+            // attempted (and its outcome known) before we get here.
+            //
+            // Exception: in a dry run (persist: false) sends never happen at
+            // all — runOne's real send is swapped for NOOP_SENDER, so a
+            // successful "send" reports status "PLANNED", not "SENT". If we
+            // required "SENT" here, the test panel would always show the
+            // single-channel fallback wording and never preview the real
+            // two-message behaviour it's meant to demonstrate. So PLANNED
+            // counts as success ONLY when persist is false.
             companionDm:
               a.action === "AI_PUBLIC_REPLY" &&
-              planned.some(
+              outcomesSoFar.some(
                 (other) =>
-                  other.action === "DM" ||
-                  other.action === "AI_DM" ||
-                  other.action === "DM_VIA_COMMENT" ||
-                  other.action === "AI_DM_VIA_COMMENT",
+                  DM_ACTIONS.includes(other.action) &&
+                  (other.status === "SENT" || (!persist && other.status === "PLANNED")),
               ),
             ruleInstructions: a.ruleId
               ? rules.find((r) => r.id === a.ruleId)?.aiInstructions
@@ -423,50 +510,40 @@ export async function orchestrateEvent(
             lead,
           });
           if (ai.escalate) aiEscalated = true;
+          // Evaluated in this fixed order so the recorded reason is
+          // deterministic when more than one condition is true at once
+          // (e.g. an unsafe AND low-confidence reply reports ai_unsafe).
           if (!ai.safe || ai.confidence < 0.6 || ai.escalate) {
-            if (a.action === "AI_DM" || a.action === "AI_DM_VIA_COMMENT") {
-              text = HUMAN_FALLBACK_TEXT;
-            } else {
-              // Public contexts never post an unvetted fallback.
-              const skipped: ActionOutcome = {
-                ...a,
-                action: "SKIPPED",
-                skipReason: "ai_low_confidence",
-                status: "SKIPPED",
-              };
-              if (persist && eventDbId) {
-                await prisma.automationLog.create({
-                  data: {
-                    eventDbId,
-                    matchedRuleId: a.ruleId,
-                    action: "SKIPPED",
-                    status: "SKIPPED",
-                    skipReason: "ai_low_confidence",
-                  },
-                });
-              }
-              return skipped;
-            }
+            const skipReason = !ai.safe
+              ? "ai_unsafe"
+              : ai.confidence < 0.6
+                ? "ai_low_confidence"
+                : "ai_escalated";
+            return await skipAiGuard(a, skipReason);
           } else {
+            // Deterministic backstop, checked LAST (after safety/confidence/
+            // escalate, and only on a reply that otherwise passed all
+            // three): those are per-reply checks and each turn of the real
+            // deflection loop this guards against passed every one of them
+            // individually — the model has no reliable self-awareness that
+            // it's repeating itself, which is why prompting it to notice
+            // (ai-guards.ts's escalate rule) isn't enough on its own. This
+            // runs on `ai.reply` BEFORE it is assigned to `text` — i.e.
+            // before anything downstream can send it — using the SAME
+            // `threadMsgs` already fetched above for the AI call (no extra
+            // DB query, no extra AI call), filtered to BOT-authored replies
+            // only: a human repeating themselves on this thread is their own
+            // business, not this guard's.
+            const priorBotReplies = threadMsgs
+              .filter((m) => m.role === "BOT")
+              .map((m) => m.text);
+            if (isRepetitive(ai.reply, priorBotReplies)) {
+              return await skipAiGuard(a, "ai_repetitive");
+            }
             text = ai.reply;
           }
         } catch {
-          if (a.action === "AI_DM" || a.action === "AI_DM_VIA_COMMENT") {
-            text = HUMAN_FALLBACK_TEXT;
-          } else {
-            if (persist && eventDbId) {
-              await prisma.automationLog.create({
-                data: {
-                  eventDbId,
-                  matchedRuleId: a.ruleId,
-                  action: "SKIPPED",
-                  status: "SKIPPED",
-                  skipReason: "ai_unavailable",
-                },
-              });
-            }
-            return { ...a, action: "SKIPPED", skipReason: "ai_unavailable", status: "SKIPPED" };
-          }
+          return await skipAiGuard(a, "ai_error");
         }
       }
     }
@@ -855,7 +932,7 @@ export async function orchestrateEvent(
 
   const outcomes: ActionOutcome[] = [];
   for (const a of planned) {
-    outcomes.push(await runOne(a)); // sequential — never Promise.all
+    outcomes.push(await runOne(a, outcomes)); // sequential — never Promise.all
   }
 
   // NOTE: bot replies are NOT recorded here. Each one is written inside

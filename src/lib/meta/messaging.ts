@@ -571,6 +571,7 @@ async function sendMessage(
   pageId: string,
   recipient: Record<string, string>,
   text: string,
+  extra?: Record<string, unknown>,
 ): Promise<IgSendResult> {
   const pageToken = await getPageAccessToken(connectionId, pageId);
   const resp = await metaPostJson<{
@@ -579,6 +580,7 @@ async function sendMessage(
   }>(`/${pageId}/messages`, pageToken, {
     recipient,
     message: { text },
+    ...extra,
   });
   return {
     recipientId: resp.recipient_id ?? null,
@@ -604,6 +606,37 @@ export function sendDm(
   text: string,
 ): Promise<IgSendResult> {
   return sendMessage(connectionId, pageId, { id: igsid }, text);
+}
+
+/**
+ * Human-agent-tagged DM (24h–7d window). Meta's Human Agent tag
+ * (`messaging_type: "MESSAGE_TAG"`, `tag: "HUMAN_AGENT"`) extends the plain
+ * 24-hour messaging window to 7 days, but ONLY for messages a human actually
+ * composed — Meta has no technical way to verify who wrote the text it is
+ * sent through App Review approval and after-the-fact audit, and it is an
+ * attestation, not a checked fact. Misuse risks losing the tag or the app's
+ * messaging access entirely.
+ *
+ * This is why the tag is not a parameter on `sendDm`: `sendDm` is called
+ * from the bot's automated `Sender` in orchestrate.ts, and any parameter
+ * there is a parameter an automated code path could eventually pass. This
+ * function exists so the tag has exactly one call site
+ * (`services/automation/inbox.ts`'s `sendHumanMessage`), which only runs
+ * from an operator-initiated inbox action — never from `orchestrateEvent` or
+ * anything the webhook pipeline can reach. Do not add a `tag` parameter to
+ * `sendDm`, and do not call this function from anywhere the bot itself can
+ * trigger.
+ */
+export function sendHumanAgentDm(
+  connectionId: string,
+  pageId: string,
+  igsid: string,
+  text: string,
+): Promise<IgSendResult> {
+  return sendMessage(connectionId, pageId, { id: igsid }, text, {
+    messaging_type: "MESSAGE_TAG",
+    tag: "HUMAN_AGENT",
+  });
 }
 
 /**

@@ -70,7 +70,65 @@ export async function POST(req: Request) {
   }
 
   const raw = await req.text();
-  if (!verifyWebhookSignature(raw, req.headers.get("x-hub-signature-256"), secret)) {
+  const signatureValid = verifyWebhookSignature(
+    raw,
+    req.headers.get("x-hub-signature-256"),
+    secret,
+  );
+
+  // Forensic log of every delivery, independent of what happens below.
+  // Never let a logging failure change the response or block processing.
+  // No-op until the row exists; reassigned below once we have its id, so the
+  // call sites downstream never need to care whether logging succeeded.
+  let logDelivery: (update: {
+    objectType?: string | null;
+    parsedCount?: number;
+    matchedCount?: number;
+    note?: string | null;
+  }) => void = () => {};
+  try {
+    let objectType: string | null = null;
+    let rawForLog: unknown = raw;
+    try {
+      const parsedBody = JSON.parse(raw);
+      rawForLog = parsedBody;
+      if (
+        parsedBody &&
+        typeof parsedBody === "object" &&
+        "object" in parsedBody &&
+        typeof (parsedBody as { object?: unknown }).object === "string"
+      ) {
+        objectType = (parsedBody as { object: string }).object;
+      }
+    } catch {
+      // raw body isn't JSON — log it as a string, nothing else to derive.
+    }
+
+    const delivery = await prisma.webhookDelivery.create({
+      data: {
+        objectType,
+        signatureValid,
+        rawJson: rawForLog as object,
+      },
+    });
+
+    logDelivery = (update) => {
+      prisma.webhookDelivery
+        .update({
+          where: { id: delivery.id },
+          data: {
+            parsedCount: update.parsedCount ?? undefined,
+            matchedCount: update.matchedCount ?? undefined,
+            note: update.note ?? undefined,
+          },
+        })
+        .catch((err) => console.warn("[webhook] delivery log update failed", err));
+    };
+  } catch (err) {
+    console.warn("[webhook] delivery log create failed", err);
+  }
+
+  if (!signatureValid) {
     return NextResponse.json({ error: "Bad signature" }, { status: 401 });
   }
 
@@ -101,12 +159,17 @@ export async function POST(req: Request) {
   );
 
   const fresh: Array<{ e: IncomingWebhookEvent; eventDbId: string }> = [];
+  let matchedCount = 0;
+  let unmatchedNote: string | null = null;
   for (const e of parsed) {
-    const igAccountId = byKey.get(`${e.platform}:${e.igUserId}`);
+    const key = `${e.platform}:${e.igUserId}`;
+    const igAccountId = byKey.get(key);
     if (!igAccountId) {
       console.warn("[webhook] event for unknown account", e.platform, e.igUserId);
+      unmatchedNote ??= `unknown account: ${key}`;
       continue;
     }
+    matchedCount++;
     try {
       const row = await prisma.automationEvent.create({
         data: {
@@ -127,6 +190,12 @@ export async function POST(req: Request) {
       throw err;
     }
   }
+
+  logDelivery({
+    parsedCount: parsed.length,
+    matchedCount,
+    note: unmatchedNote,
+  });
 
   after(async () => {
     // Echoes are reconciled, not orchestrated: they are OUR outbound

@@ -31,6 +31,8 @@ const TABLES = [
   "AutomationLog",
   "BotMessage",
   "BotLead",
+  "WebhookDelivery",
+  "AppUser",
 ];
 
 const p = new PrismaClient();
