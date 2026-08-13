@@ -23,6 +23,11 @@ import {
 import { prisma } from "@/lib/db/prisma";
 import { cn } from "@/lib/utils";
 import { resolveDateRange } from "@/lib/date-range";
+import {
+  assessAccountDelivery,
+  describeDeliveryHealth,
+} from "@/lib/delivery-health";
+import { NoDeliveryNotice } from "@/components/insights/no-delivery-notice";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { EmptyState } from "@/components/ui/empty-state";
 import { KpiCard } from "@/components/insights/kpi-card";
@@ -202,6 +207,8 @@ export default async function AccountDetailPage({
     insightsSync,
     perCampaign,
     syncLogs,
+    latestSnapshot,
+    allAdSets,
   ] = await Promise.all([
     prisma.insightsSnapshot.aggregate({
       where: { adAccountId: account.id, level: "account", ...dateFilter },
@@ -233,7 +240,34 @@ export default async function AccountDetailPage({
       orderBy: { startedAt: "desc" },
       take: 10,
     }),
+    // Latest delivery we hold, regardless of the selected window. Turns
+    // "everything is zero" into "the last delivery was on 5 June".
+    prisma.insightsSnapshot.findFirst({
+      where: { adAccountId: account.id, level: "account" },
+      orderBy: { date: "desc" },
+      select: { date: true },
+    }),
+    prisma.adSet.findMany({
+      where: { campaign: { adAccountId: account.id } },
+      select: {
+        metaAdSetId: true,
+        name: true,
+        status: true,
+        effectiveStatus: true,
+        startTime: true,
+        endTime: true,
+        budgetRemainingCents: true,
+        dailyBudgetCents: true,
+        lifetimeBudgetCents: true,
+      },
+    }),
   ]);
+
+  const health = assessAccountDelivery(allAdSets);
+  const showNoDelivery =
+    Boolean(latestSnapshot) &&
+    (accountTotals._sum.spendCents ?? 0) === 0 &&
+    (accountTotals._sum.impressions ?? 0) === 0;
 
   const hasInsights = Boolean(insightsSync);
   const spendCents = accountTotals._sum.spendCents ?? 0;
@@ -514,6 +548,17 @@ export default async function AccountDetailPage({
           <h2 className="text-sm font-semibold tracking-tight">Performance</h2>
           <p className="text-xs text-muted">{dateRange.label}</p>
         </div>
+        {showNoDelivery && (
+          <div className="mt-3">
+            <NoDeliveryNotice
+              rangeLabel={dateRange.label}
+              latestDataAt={latestSnapshot?.date ?? null}
+              deliveryReason={
+                health.allStopped ? describeDeliveryHealth(health) : null
+              }
+            />
+          </div>
+        )}
         <div className="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard
             label="Spend"
