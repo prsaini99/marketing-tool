@@ -26,18 +26,18 @@ npx prisma studio
 node scripts/enable-rls.mjs  # re-run after adding any model (see RLS below)
 ```
 
-The `db:*` scripts in `package.json` (`db:migrate`, `db:generate`, `db:reset`, `db:studio`) all wrap `dotenv -e .env.local`, but this repo keeps its config in **`.env`** and no `.env.local` exists. Those scripts fail to see the DB URLs. Call `prisma` directly, or fix the scripts to point at `.env`.
+The `db:*` scripts in `package.json` (`db:migrate`, `db:generate`, `db:reset`, `db:studio`) wrap `dotenv -e .env.local`, which is now correct: config lives in **`.env.local`** and there is no `.env`. `npm run cron-worker` wraps the same loader, because the tick endpoint requires `CRON_SECRET` and the worker has to read it.
 
 ## Environment
 
-`.env` (not `.env.local`) is what Next actually loads. Two connection strings, both required:
+`.env.local` is what Next actually loads, and it is the only env file present. Two connection strings, both required:
 
 - `DATABASE_URL` — Supabase **transaction** pooler, port 6543, with `?pgbouncer=true&connection_limit=1`. Used by Prisma Client. The Prisma **schema engine cannot run over this URL** — `prisma db execute`/`migrate` against it fails with "Error in Schema engine".
 - `DIRECT_URL` — port 5432. Must use the **session pooler** hostname (`aws-1-*.pooler.supabase.com`), *not* `db.<ref>.supabase.co`. The latter is IPv6-only and unreachable from IPv4 networks.
 
 `ENCRYPTION_KEY` must stay stable forever. It AES-256-GCM-encrypts Meta tokens at rest. If it changes, every stored token becomes undecryptable and **every Meta call fails with the Node crypto error `Unsupported state or unable to authenticate data`** — which reads like a Meta auth failure but is a local key mismatch. Recovery is re-pasting the token, not fixing Meta. Same stability rule for `SESSION_SECRET` (rotating logs everyone out).
 
-Other env vars the code reads: `OPENAI_API_KEY` (required by the whole AI/RAG layer; prod logs a boot error if missing), `OPENAI_IMAGE_MODEL` (optional override for ad-image generation, default `gpt-image-1.5`), `CRON_SECRET` (optional — if set, cron routes require `Authorization: Bearer <secret>`; Vercel Cron sends it automatically), `META_TEST_TOKEN` (optional dev shortcut).
+Other env vars the code reads: `OPENAI_API_KEY` (required by the whole AI/RAG layer; prod logs a boot error if missing), `OPENAI_IMAGE_MODEL` (optional override for ad-image generation, default `gpt-image-1.5`), `CRON_SECRET` (**required in any deployment** — `/api/cron/*` is exempt from the session middleware, so this bearer token is the only thing guarding endpoints that sync from Meta, send email, spend OpenAI credits and execute budget rules. `requireCronAuth` in `src/lib/cron-auth.ts` fails closed: with no secret set, every cron request 401s. Vercel Cron sends the header automatically once the variable exists), `META_TEST_TOKEN` (optional dev shortcut).
 
 - `META_APP_SECRET` — Meta app secret. Verifies `X-Hub-Signature-256` on every webhook POST to `/api/webhooks/meta`; without it the endpoint 500s by design.
 - `META_WEBHOOK_VERIFY_TOKEN` — random string you paste into the App Dashboard webhook config; the GET handshake compares it.
@@ -100,6 +100,8 @@ The shared `Embedding` table is pgvector. Prisma has no native vector type, so `
 
 ### Auth
 
+Login is rate limited to 10 attempts per IP per 15 minutes (`src/lib/rate-limit.ts`, in-memory so the counter is per serverless instance; a successful login clears the caller's counter). Security response headers (HSTS, `frame-ancestors 'none'`, nosniff, Referrer-Policy, Permissions-Policy) are set for every route in `next.config.ts`. There is deliberately no full CSP yet: a real `script-src` needs per-request nonces threaded through the App Router bootstrap, and Clarity/GA4 will each need an explicit allowance when they land.
+
 Single-user master-credential gate (`MASTER_EMAIL` / `MASTER_PASSWORD`) with an HMAC-signed session cookie. `src/middleware.ts` guards `/dashboard/:path*` plus all API routes **except `/api/auth/*` and `/api/cron/*`** — cron routes are publicly reachable and rely on their own optional `CRON_SECRET` bearer check. Multi-user is a future phase.
 
 ### RLS
@@ -120,7 +122,7 @@ Every public table has RLS **enabled with zero policies**, blocking PostgREST/Re
 
 - **Rule #5 claims all Meta calls go through a retry wrapper. They don't.** `src/lib/meta/retry.ts` exports `withRetry` and *nothing imports it* — it is dead code. There is currently no retry or backoff on any Meta call. `rate-limit.ts` is likewise an explicit no-op stub.
 - Both files say **"Create ad — not yet built"**. It shipped, along with creatives, images, videos, audiences, conversions, alerts, audits, playbook, reports, chat, and the whole AI/RAG stack. The folder listing in PROJECT.md predates all of it.
-- README's setup instructions reference `.env.local` throughout; the repo uses `.env`.
+- README's setup instructions reference `.env.local`, which is now correct. Earlier revisions of this file claimed the repo used `.env`; it does not.
 - PROJECT.md says "Production cron handled by Vercel Cron once deployed" — only the reindex and alerts crons exist in `vercel.json`; the sync tick has no prod trigger (see Cron topology).
 
 Update these when you touch the relevant area rather than adding another layer on top.

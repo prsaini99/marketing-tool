@@ -42,7 +42,7 @@ function getEnv(): {
   const secret = process.env.SESSION_SECRET;
   if (!email || !password || !secret) {
     throw new Error(
-      "Missing auth env vars — set MASTER_EMAIL, MASTER_PASSWORD, SESSION_SECRET in .env",
+      "Missing auth env vars. Set MASTER_EMAIL, MASTER_PASSWORD, SESSION_SECRET in .env",
     );
   }
   return { email, password, secret };
