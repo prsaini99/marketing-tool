@@ -437,6 +437,7 @@ export function CampaignCopilot({
               plan={edited}
               issues={liveIssues}
               currency={result.currency}
+              assets={assets}
               onChange={setEdited}
             />
           )}

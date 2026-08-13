@@ -20,13 +20,15 @@
  */
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Code2, ListTree } from "lucide-react";
+import { ChevronDown, ChevronRight, Code2, ImageIcon, ListTree } from "lucide-react";
 import {
   type CampaignPlan,
+  type PlanAd,
   type PlanAdSet,
   type PlanIssue,
 } from "@/lib/campaign-plan";
 import { cn } from "@/lib/utils";
+import type { PickerAsset } from "./campaign-copilot";
 
 /** Cheap structural clone so edits never mutate the object we were handed. */
 function clone(plan: CampaignPlan): CampaignPlan {
@@ -99,11 +101,14 @@ export function PlanEditor({
   plan,
   issues,
   currency,
+  assets,
   onChange,
 }: {
   plan: CampaignPlan;
   issues: PlanIssue[];
   currency: string;
+  /** The account library, so each ad's creative can be changed in place. */
+  assets: PickerAsset[];
   onChange: (next: CampaignPlan) => void;
 }) {
   const [mode, setMode] = useState<"fields" | "json">("fields");
@@ -361,6 +366,26 @@ export function PlanEditor({
                           Ad {j + 1}
                         </p>
                         <div className="mt-2 space-y-2">
+                          <AdCreativePicker
+                            ad={ad}
+                            assets={assets}
+                            onPick={(a) =>
+                              patchSet(i, (x) => {
+                                const target = x.ads[j];
+                                target.mediaType = a.kind;
+                                if (a.kind === "image") {
+                                  target.imageHash = a.id;
+                                  // Clear the other side. An ad carrying both
+                                  // an image hash and a video id is ambiguous,
+                                  // and Meta picks one without telling you.
+                                  target.videoId = undefined;
+                                } else {
+                                  target.videoId = a.id;
+                                  target.imageHash = undefined;
+                                }
+                              })
+                            }
+                          />
                           <Field label="Headline">
                             <input
                               value={ad.headline}
@@ -400,6 +425,107 @@ export function PlanEditor({
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Choose the creative for ONE ad.
+ *
+ * Separate from the plan-level pin picker, and they answer different
+ * questions. Pinning constrains what the agent may produce, before it plans.
+ * This changes what a specific ad uses, after. Conflating them would mean
+ * either pinning could not be enforced or an edit could not be made without
+ * regenerating.
+ */
+function AdCreativePicker({
+  ad,
+  assets,
+  onPick,
+}: {
+  ad: PlanAd;
+  assets: PickerAsset[];
+  onPick: (asset: PickerAsset) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const currentId = ad.mediaType === "video" ? ad.videoId : ad.imageHash;
+  const current = assets.find((a) => a.id === currentId) ?? null;
+
+  return (
+    <div>
+      <span className="text-[11px] font-semibold uppercase tracking-wide text-subtle">
+        Creative
+      </span>
+      <div className="mt-1 flex items-center gap-2.5 rounded-md border border-border bg-background p-2">
+        <span className="h-11 w-11 shrink-0 overflow-hidden rounded bg-surface-2">
+          {current?.thumb ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={current.thumb} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="flex h-full w-full items-center justify-center text-subtle">
+              <ImageIcon className="h-4 w-4" aria-hidden />
+            </span>
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-medium">
+            {current?.name ?? (currentId ? "Not in this library" : "No creative set")}
+          </span>
+          <span className="block truncate text-[11px] text-subtle">
+            {currentId
+              ? `${ad.mediaType} · ${currentId}`
+              : "The plan will fail validation without one."}
+          </span>
+        </span>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="shrink-0 rounded-md border border-border px-2.5 py-1 text-[12px] font-medium text-muted hover:text-foreground"
+        >
+          {open ? "Close" : "Change"}
+        </button>
+      </div>
+
+      {open && (
+        <div className="mt-2 grid max-h-56 grid-cols-4 gap-1.5 overflow-y-auto rounded-md border border-border bg-background p-2 sm:grid-cols-6">
+          {assets.length === 0 && (
+            <p className="col-span-full text-[12px] text-subtle">
+              Nothing in this account&apos;s library.
+            </p>
+          )}
+          {assets.map((a) => (
+            <button
+              key={`${a.kind}:${a.id}`}
+              type="button"
+              title={a.insight ?? `${a.name} (not analysed)`}
+              onClick={() => {
+                onPick(a);
+                setOpen(false);
+              }}
+              className={cn(
+                "relative aspect-square overflow-hidden rounded border bg-surface-2",
+                a.id === currentId
+                  ? "border-accent ring-2 ring-accent"
+                  : "border-border hover:border-border-strong",
+              )}
+            >
+              {a.thumb ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={a.thumb} alt={a.name} className="h-full w-full object-cover" />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center text-subtle">
+                  <ImageIcon className="h-4 w-4" aria-hidden />
+                </span>
+              )}
+              {a.kind === "video" && (
+                <span className="absolute bottom-0.5 left-0.5 rounded bg-black/60 px-1 text-[8px] text-white">
+                  Video
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       )}
     </div>
