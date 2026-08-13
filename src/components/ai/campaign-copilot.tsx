@@ -25,13 +25,20 @@ import {
 } from "lucide-react";
 import type { CampaignPlan, PlanIssue } from "@/lib/campaign-plan";
 
+interface AgentStep {
+  tool: string;
+  summary: string;
+}
+
 interface PlanResponse {
-  plan: CampaignPlan;
+  /** Null when the agent asked a question instead of committing to a plan. */
+  plan: CampaignPlan | null;
   issues: PlanIssue[];
   executable: boolean;
   dailySpendCents: number;
   currency: string;
-  repaired: boolean;
+  steps: AgentStep[];
+  message?: string;
 }
 
 const EXAMPLES = [
@@ -190,7 +197,37 @@ export function CampaignCopilot({
         </div>
       )}
 
-      {result && (
+      {/* What the agent actually did. Shown whether or not it produced a
+          plan, because "searched the library for missed calls, 6 matches" is
+          how you tell a good pick from a lucky one. */}
+      {result && result.steps.length > 0 && (
+        <ol className="space-y-1.5 rounded-2xl border border-border bg-surface px-5 py-4">
+          {result.steps.map((s, i) => (
+            <li key={i} className="flex items-start gap-2.5 text-[13px] text-muted">
+              <span
+                className="mt-0.5 text-[11px] font-semibold text-accent"
+                style={{ fontFamily: "var(--font-mono)" }}
+              >
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              {s.summary}
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {result && !result.plan && result.message && (
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <p className="text-[15px] leading-relaxed text-foreground">
+            {result.message}
+          </p>
+          <p className="mt-2 text-[13px] text-subtle">
+            Answer above and draft again.
+          </p>
+        </div>
+      )}
+
+      {result?.plan && (
         <div className="space-y-4">
           {/* Verdict bar. Spend first, because it is the number that decides
               whether anyone reads the rest. */}
@@ -221,15 +258,13 @@ export function CampaignCopilot({
                   {warnCount} to check
                 </span>
               )}
-              {result.repaired && (
-                <span className="text-xs text-subtle">repaired once</span>
-              )}
+              
             </div>
           </div>
 
-          {result.plan.rationale && (
+          {result.plan!.rationale && (
             <p className="text-[15px] leading-relaxed text-muted">
-              {result.plan.rationale}
+              {result.plan!.rationale}
             </p>
           )}
 
@@ -240,25 +275,25 @@ export function CampaignCopilot({
                 className="text-lg font-semibold"
                 style={{ fontFamily: "var(--font-display)" }}
               >
-                {result.plan.campaign.name}
+                {result.plan!.campaign.name}
               </h3>
               <span className="text-xs font-medium uppercase tracking-wide text-subtle">
-                {result.plan.campaign.objective}
+                {result.plan!.campaign.objective}
               </span>
             </div>
             <p className="mt-1 text-[13px] text-muted">
-              {result.plan.campaign.budgetType
-                ? `Campaign budget optimisation on, ${result.plan.campaign.budgetType} ${money(result.plan.campaign.budgetCents ?? 0, result.currency)}`
+              {result.plan!.campaign.budgetType
+                ? `Campaign budget optimisation on, ${result.plan!.campaign.budgetType} ${money(result.plan!.campaign.budgetCents ?? 0, result.currency)}`
                 : "Budget set per ad set"}
-              {result.plan.campaign.specialAdCategories.length > 0 &&
-                ` · ${result.plan.campaign.specialAdCategories.join(", ")}`}
+              {result.plan!.campaign.specialAdCategories.length > 0 &&
+                ` · ${result.plan!.campaign.specialAdCategories.join(", ")}`}
             </p>
             <IssueList items={issuesFor(result.issues, "campaign")} />
             <IssueList items={issuesFor(result.issues, "metaAdAccountId")} />
           </div>
 
           {/* Ad sets */}
-          {result.plan.adSets.map((s, i) => {
+          {result.plan!.adSets.map((s, i) => {
             const open = openSets[i] ?? false;
             const setIssues = issuesFor(result.issues, `adSets[${i}]`);
             const setErrors = setIssues.filter((x) => x.severity === "error");

@@ -21,10 +21,17 @@
  */
 
 import { NextResponse } from "next/server";
-import { planCampaign } from "@/server/services/ai/plan-campaign";
+import { runCopilot } from "@/server/services/ai/copilot-agent";
 import type { CampaignPlan } from "@/lib/campaign-plan";
 
 export const maxDuration = 180;
+
+/** Tolerant coercion: a missing or malformed pin list means "nothing pinned". */
+function asStringArray(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.filter((x): x is string => typeof x === "string" && x.length > 0);
+  return out.length ? out : undefined;
+}
 
 export async function POST(req: Request) {
   let body: {
@@ -32,6 +39,8 @@ export async function POST(req: Request) {
     brief?: unknown;
     priorPlan?: unknown;
     maxDailySpendCents?: unknown;
+    pinnedImageHashes?: unknown;
+    pinnedVideoIds?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -61,11 +70,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await planCampaign({
+    const result = await runCopilot({
       adAccountId: body.adAccountId,
       brief: body.brief.trim(),
       priorPlan: (body.priorPlan as CampaignPlan | undefined) ?? undefined,
       maxDailySpendCents: body.maxDailySpendCents as number | undefined,
+      pinnedImageHashes: asStringArray(body.pinnedImageHashes),
+      pinnedVideoIds: asStringArray(body.pinnedVideoIds),
     });
     return NextResponse.json(result);
   } catch (e) {

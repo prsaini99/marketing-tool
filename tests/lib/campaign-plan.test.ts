@@ -618,3 +618,80 @@ describe("planDailySpendCents", () => {
     expect(planDailySpendCents(p)).toBe(7_500_00);
   });
 });
+
+describe("pinned assets", () => {
+  const withAd = (over: Record<string, unknown>) =>
+    plan({
+      adSets: [
+        adSet({
+          ads: [
+            {
+              name: "Ad",
+              primaryText: "x",
+              headline: "y",
+              linkUrl: "https://e.com",
+              mediaType: "image",
+              imageHash: "abc123",
+              ...over,
+            },
+          ],
+        }),
+      ],
+    });
+
+  it("accepts a plan that uses the pinned image", () => {
+    const issues = validatePlan(withAd({}), {
+      ...OPTS,
+      pinnedImageHashes: ["abc123"],
+    });
+    expect(issues.filter((i) => i.severity === "error")).toEqual([]);
+  });
+
+  it("rejects a plan that ignores the pinned image", () => {
+    // Pinning is an act of having already decided. A model that quietly
+    // picks something else has overruled the operator.
+    const issues = validatePlan(withAd({ imageHash: "somethingelse" }), {
+      ...OPTS,
+      pinnedImageHashes: ["abc123"],
+    });
+    const e = issues.find((i) => i.severity === "error");
+    expect(e?.message).toContain("abc123");
+  });
+
+  it("rejects a plan that ignores a pinned video", () => {
+    const issues = validatePlan(withAd({}), {
+      ...OPTS,
+      pinnedVideoIds: ["vid_9"],
+    });
+    expect(issues.some((i) => i.message.includes("vid_9"))).toBe(true);
+  });
+
+  it("is satisfied by use anywhere in the plan, not in every ad set", () => {
+    // "Use this creative" means somewhere in this campaign. How it is spread
+    // across ad sets is the brief's business, not the validator's.
+    const p = plan({
+      adSets: [
+        adSet({ name: "A" }),
+        adSet({
+          name: "B",
+          ads: [
+            {
+              name: "Ad B",
+              primaryText: "x",
+              headline: "y",
+              linkUrl: "https://e.com",
+              mediaType: "image",
+              imageHash: "pinned-one",
+            },
+          ],
+        }),
+      ],
+    });
+    const issues = validatePlan(p, { ...OPTS, pinnedImageHashes: ["pinned-one"] });
+    expect(issues.filter((i) => i.severity === "error")).toEqual([]);
+  });
+
+  it("does nothing when nothing is pinned", () => {
+    expect(errors(withAd({}))).toEqual([]);
+  });
+});

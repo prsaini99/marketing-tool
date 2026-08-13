@@ -150,6 +150,15 @@ export interface ValidateOptions {
   minDailyBudgetCents: number;
   /** Ad account currency, for message text only. */
   currency?: string;
+  /**
+   * Assets the operator pinned. A plan that fails to use one is REJECTED.
+   *
+   * Hard constraint rather than a hint on purpose: pinning is an act of
+   * having already decided, so the model does not get a vote. A hint would
+   * make the feature unreliable in exactly the case someone reached for it.
+   */
+  pinnedImageHashes?: string[];
+  pinnedVideoIds?: string[];
 }
 
 /**
@@ -487,6 +496,34 @@ export function validatePlan(
       }
     });
   });
+
+  // Pinned assets. Checked across the whole plan rather than per ad set,
+  // because "use this creative" means somewhere in this campaign, not in
+  // every ad set. Distribution is the brief's business, not the validator's.
+  const usedImages = new Set<string>();
+  const usedVideos = new Set<string>();
+  for (const s2 of plan.adSets) {
+    for (const ad of s2.ads ?? []) {
+      if (ad.imageHash) usedImages.add(ad.imageHash);
+      if (ad.videoId) usedVideos.add(ad.videoId);
+    }
+  }
+  for (const hash of opts.pinnedImageHashes ?? []) {
+    if (!usedImages.has(hash)) {
+      err(
+        "adSets",
+        `Pinned image ${hash} does not appear in any ad. It was pinned deliberately, so the plan must use it.`,
+      );
+    }
+  }
+  for (const id of opts.pinnedVideoIds ?? []) {
+    if (!usedVideos.has(id)) {
+      err(
+        "adSets",
+        `Pinned video ${id} does not appear in any ad. It was pinned deliberately, so the plan must use it.`,
+      );
+    }
+  }
 
   // The guardrail. Checked last so the message can report the real total.
   if (dailyCommittedCents > opts.maxDailySpendCents) {
