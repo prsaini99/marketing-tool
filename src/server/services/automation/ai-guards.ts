@@ -1,5 +1,6 @@
 /**
- * AI prompt construction + output safety filter. Pure module.
+ * AI prompt construction + output safety filter. Pure module. Its one
+ * import is a string constant from lib/llm/style, which performs no I/O.
  *
  * The AI may ONLY know what's in the structured bot profile — the system
  * prompt contains exactly that and nothing else. The output filter is a
@@ -22,6 +23,8 @@
  * via exact set membership (not substring containment) to prevent
  * cross-sentence digit fusion exploits.
  */
+
+import { HUMAN_STYLE_RULE_SHORT } from "@/lib/llm/style";
 
 export interface ProfileCorpus {
   businessDescription: string;
@@ -146,7 +149,7 @@ function buildLeadBlock(
     return clean ? [`${label}: ${clean}`] : [];
   });
   if (!parts.length) return "";
-  return `\nKnown about this contact: ${parts.join("; ")}.\nAlready stated by this contact — do NOT ask for any of it again. Do not restate these details back to them unless they bring it up first.`;
+  return `\nKnown about this contact: ${parts.join("; ")}.\nAlready stated by this contact, so do NOT ask for any of it again. Do not restate these details back to them unless they bring it up first.`;
 }
 
 export function buildSystemPrompt(
@@ -227,6 +230,7 @@ export function buildSystemPrompt(
     ruleInstructions?.trim()
       ? `\nFor THIS specific reply:\n${ruleInstructions.trim()}`
       : "",
+    HUMAN_STYLE_RULE_SHORT,
     "\nRules: never invent prices, discounts, dates, or policies not listed above. If you don't know, say a teammate will follow up. Set escalate=true when the user needs a human (complaints, legal, refunds beyond the FAQs), or when you've already declined or deflected the same request earlier in this conversation and the user is still asking. confidence is 0..1 that your reply is accurate and on-brand.",
   ]
     .filter(Boolean)
@@ -328,10 +332,31 @@ function normalizeUrl(url: string): string {
 
 /**
  * Normalize a price for comparison: lowercase, strip spaces and commas
- * to handle formatting drift (e.g., "$1,200" vs "$1200").
+ * to handle formatting drift (e.g., "$1,200" vs "$1200"), then strip any
+ * TRAILING dots.
+ *
+ * The trailing-dot strip is load-bearing, not cosmetic. PRICE_RE's digit
+ * class is `[\d,.]*`, so a price ending a sentence is captured WITH the
+ * full stop: "delivery costs $20." yields the token "$20.". Prices in the
+ * profile corpus (business description, FAQ answers) routinely end
+ * sentences, while the same price inside a generated reply usually does
+ * not — so the allowed-set held "$20." while the reply produced "$20",
+ * exact membership failed, and a reply quoting a price the business
+ * actually published was rejected as unsafe. The bot then goes silent
+ * instead of answering, which is the expensive kind of false positive:
+ * nothing surfaces, and it looks like the model simply declined.
+ *
+ * Only trailing dots are stripped. Stripping every dot would collapse
+ * "$20.50" to "$2050" and let it satisfy a corpus price of "$2050" — the
+ * exact digit-fusion class of exploit that made this check exact-membership
+ * rather than substring in the first place. Internal decimal points must
+ * survive.
  */
 function normalizePrice(price: string): string {
-  return price.toLowerCase().replace(/[\s,]/g, "");
+  return price
+    .toLowerCase()
+    .replace(/[\s,]/g, "")
+    .replace(/\.+$/, "");
 }
 
 export function isReplySafe(reply: string, p: ProfileCorpus): boolean {

@@ -74,7 +74,7 @@ export async function GET(
     // system-user token is rejected on Page edges (#190).
     if (!ig.linkedPageId) {
       throw new Error(
-        "No linked Facebook Page recorded — re-run Discover to capture the Page linkage.",
+        "No linked Facebook Page recorded. Re-run Discover to capture the Page linkage.",
       );
     }
     webhook = await getSubscriptionStatus(ig.connectionId, ig.linkedPageId);

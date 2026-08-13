@@ -51,11 +51,11 @@ model Connection {
   status           ConnectionStatus @default(ACTIVE)
   lastDiscoveredAt DateTime?
 
-  businesses       MetaBusiness[]
-  socialAccounts   SocialAccount[]
+  businesses     MetaBusiness[]
+  socialAccounts SocialAccount[]
 
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 // ─── Discovered entities ─────────────────────────────────────────────────
@@ -64,18 +64,18 @@ model Connection {
 // The same BM discovered by two different connections lives as two rows
 // (one per connection) — uniqueness is per-connection.
 model MetaBusiness {
-  id              String   @id @default(cuid())
+  id              String     @id @default(cuid())
   metaBusinessId  String
   name            String
   connectionId    String
   connection      Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  selectedForSync Boolean  @default(false)
+  selectedForSync Boolean    @default(false)
 
-  adAccounts      MetaAdAccount[]
-  embeddings      Embedding[]
+  adAccounts MetaAdAccount[]
+  embeddings Embedding[]
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([connectionId, metaBusinessId])
 }
@@ -90,15 +90,15 @@ model MetaBusiness {
 // reader knows how stale the number is. `null` everywhere means the detail
 // sync hasn't run yet for this account.
 model MetaAdAccount {
-  id                  String   @id @default(cuid())
-  metaAdAccountId     String   // e.g. "act_1234567890"
-  name                String
-  currency            String
-  timezone            String
-  status              String   // Meta's account status string
-  selectedForSync     Boolean  @default(false)
-  businessId          String
-  business            MetaBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  id              String       @id @default(cuid())
+  metaAdAccountId String // e.g. "act_1234567890"
+  name            String
+  currency        String
+  timezone        String
+  status          String // Meta's account status string
+  selectedForSync Boolean      @default(false)
+  businessId      String
+  business        MetaBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   // Account health fields — pulled from Meta on the "account-detail" sync.
   // Money in account-currency cents. `spendCapCents = null` means no cap.
@@ -108,26 +108,28 @@ model MetaAdAccount {
   minDailyBudgetCents Int?
   fundingSourceId     String?
   businessCountryCode String?
-  disableReason       String?  // null when account is healthy; stable code otherwise
+  disableReason       String? // null when account is healthy; stable code otherwise
   healthSyncedAt      DateTime?
 
-  campaigns           Campaign[]
-  adSets              AdSet[]
-  ads                 Ad[]
-  creatives           AdCreative[]
-  images              AdImage[]
-  videos              AdVideo[]
-  audiences           CustomAudience[]
-  conversions         CustomConversion[]
-  insights            InsightsSnapshot[]
-  syncLogs            SyncLog[]
-  schedules           SyncSchedule[]
-  embeddings          Embedding[]
-  alerts              Alert[]
-  audits              Audit[]
+  campaigns    Campaign[]
+  adSets       AdSet[]
+  ads          Ad[]
+  creatives    AdCreative[]
+  images       AdImage[]
+  videos       AdVideo[]
+  audiences    CustomAudience[]
+  conversions  CustomConversion[]
+  insights     InsightsSnapshot[]
+  syncLogs     SyncLog[]
+  schedules    SyncSchedule[]
+  embeddings   Embedding[]
+  alerts       Alert[]
+  audits       Audit[]
+  notification NotificationSetting?
+  adRules      AdRule[]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([businessId, metaAdAccountId])
 }
@@ -139,17 +141,17 @@ model MetaAdAccount {
 // Granularity is intentional: senior wants explicit control over what runs
 // and how often, to keep Meta API usage predictable.
 model SyncSchedule {
-  id          String   @id @default(cuid())
+  id          String        @id @default(cuid())
   adAccountId String
   adAccount   MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  kind        String   // "campaigns" | "adsets" | "ads" | "insights"
-  frequency   String   // preset key — UI never deals with raw cron expressions
-  enabled     Boolean  @default(true)
+  kind        String // "campaigns" | "adsets" | "ads" | "insights"
+  frequency   String // preset key — UI never deals with raw cron expressions
+  enabled     Boolean       @default(true)
   lastRunAt   DateTime?
   nextRunAt   DateTime?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([adAccountId, kind])
   @@index([enabled, nextRunAt])
@@ -159,24 +161,24 @@ model SyncSchedule {
 // /act_{id}/campaigns endpoint. One row per (adAccount, campaign) — re-syncs
 // upsert by metaCampaignId so historical Campaign rows are stable across syncs.
 model Campaign {
-  id                  String   @id @default(cuid())
-  metaCampaignId      String   // Meta's id
+  id                  String        @id @default(cuid())
+  metaCampaignId      String // Meta's id
   adAccountId         String
   adAccount           MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
   name                String
-  status              String   // "ACTIVE" | "PAUSED" | "DELETED" | "ARCHIVED"
-  objective           String?  // Meta's objective string; null if absent
+  status              String // "ACTIVE" | "PAUSED" | "DELETED" | "ARCHIVED"
+  objective           String? // Meta's objective string; null if absent
   dailyBudgetCents    Int?
   lifetimeBudgetCents Int?
   // Campaign-wide lifetime spend ceiling (cents). null = no cap. Mirrored so
   // the Edit Campaign form can pre-fill it without a live fetch.
   spendCapCents       Int?
   metaUpdatedTime     DateTime? // Meta's last-edited timestamp for this campaign
-  syncedAt            DateTime @default(now())
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  syncedAt            DateTime      @default(now())
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
-  adSets              AdSet[]
+  adSets AdSet[]
 
   @@unique([adAccountId, metaCampaignId])
 }
@@ -184,23 +186,34 @@ model Campaign {
 // Ad sets under a Campaign. Pulled by Phase 1.1 sync from /act_{id}/adsets.
 // Each ad set knows its parent campaign via campaign_id in the API response.
 model AdSet {
-  id                  String   @id @default(cuid())
-  metaAdSetId         String
-  adAccountId         String
-  adAccount           MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  campaignId          String
-  campaign            Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  name                String
-  status              String
-  optimizationGoal    String?
-  dailyBudgetCents    Int?
-  lifetimeBudgetCents Int?
-  metaUpdatedTime     DateTime?
-  syncedAt            DateTime @default(now())
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                   String        @id @default(cuid())
+  metaAdSetId          String
+  adAccountId          String
+  adAccount            MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  campaignId           String
+  campaign             Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name                 String
+  status               String
+  // Meta's REAL delivery state, vs `status` which is only the operator's
+  // intent. A finished ad set still reports status="ACTIVE"; this is the
+  // field that says whether it can actually deliver.
+  effectiveStatus      String?
+  optimizationGoal     String?
+  dailyBudgetCents     Int?
+  lifetimeBudgetCents  Int?
+  // Schedule + remaining spend. These three are what distinguish a running
+  // ad set from an expired one — see NormalizedAdSet in src/lib/meta/types.ts
+  // for why their absence let an account sit at zero delivery for weeks while
+  // every status in the UI read ACTIVE.
+  startTime            DateTime?
+  endTime              DateTime?
+  budgetRemainingCents Int?
+  metaUpdatedTime      DateTime?
+  syncedAt             DateTime      @default(now())
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
-  ads                 Ad[]
+  ads Ad[]
 
   @@unique([adAccountId, metaAdSetId])
 }
@@ -215,14 +228,14 @@ model AdSet {
 // thumbnail is mirrored on the Ad row so tables can render an inline
 // preview without joining when AdCreative isn't synced yet.
 model Ad {
-  id                   String   @id @default(cuid())
+  id                   String        @id @default(cuid())
   metaAdId             String
   adAccountId          String
   adAccount            MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
   adSetId              String
-  adSet                AdSet @relation(fields: [adSetId], references: [id], onDelete: Cascade)
+  adSet                AdSet         @relation(fields: [adSetId], references: [id], onDelete: Cascade)
   name                 String
-  status               String   // Meta's `status` field — ACTIVE/PAUSED user intent
+  status               String // Meta's `status` field — ACTIVE/PAUSED user intent
   // Meta's `effective_status` — the *real* delivery status after policy/billing
   // gates. Common values: ACTIVE, PAUSED, DISAPPROVED, WITH_ISSUES,
   // CAMPAIGN_PAUSED, ADSET_PAUSED, DELETED. Drives the policy alert.
@@ -232,13 +245,13 @@ model Ad {
   // Stored as JSON so we don't need a separate table for the few accounts
   // that ever have non-empty entries.
   issuesInfo           Json?
-  format               String?  // "SINGLE_IMAGE" | "VIDEO" | "CAROUSEL" | "COLLECTION" | null
+  format               String? // "SINGLE_IMAGE" | "VIDEO" | "CAROUSEL" | "COLLECTION" | null
   metaCreativeId       String?
   creativeThumbnailUrl String?
   metaUpdatedTime      DateTime?
-  syncedAt             DateTime @default(now())
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  syncedAt             DateTime      @default(now())
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   @@unique([adAccountId, metaAdId])
 }
@@ -251,29 +264,29 @@ model Ad {
 // spec, full object_story_spec) are deliberately omitted — fetch them
 // per-creative on detail view if needed later.
 model AdCreative {
-  id                  String   @id @default(cuid())
-  metaCreativeId      String
-  adAccountId         String
-  adAccount           MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  id               String        @id @default(cuid())
+  metaCreativeId   String
+  adAccountId      String
+  adAccount        MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
   // Meta sometimes leaves `name` blank (it's optional). We keep it nullable
   // and let the UI fall back to "Untitled creative" or the creative id.
-  name                String?
-  body                String?  // "primary text" in Ads Manager parlance
-  title               String?  // headline
-  linkUrl             String?
-  imageUrl            String?
-  imageHash           String?
-  thumbnailUrl        String?
-  videoId             String?
-  callToActionType    String?  // SHOP_NOW, LEARN_MORE, SIGN_UP, …
-  status              String?  // ACTIVE | IN_PROCESS | WITH_ISSUES | DELETED
-  effectiveStoryId    String?  // page_id_post_id form; useful for previewing
-  pageId              String?  // FB Page id from object_story_spec
-  instagramActorId    String?
-  objectType          String?  // SHARE | VIDEO | PHOTO | …
-  syncedAt            DateTime @default(now())
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  name             String?
+  body             String? // "primary text" in Ads Manager parlance
+  title            String? // headline
+  linkUrl          String?
+  imageUrl         String?
+  imageHash        String?
+  thumbnailUrl     String?
+  videoId          String?
+  callToActionType String? // SHOP_NOW, LEARN_MORE, SIGN_UP, …
+  status           String? // ACTIVE | IN_PROCESS | WITH_ISSUES | DELETED
+  effectiveStoryId String? // page_id_post_id form; useful for previewing
+  pageId           String? // FB Page id from object_story_spec
+  instagramActorId String?
+  objectType       String? // SHARE | VIDEO | PHOTO | …
+  syncedAt         DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   @@unique([adAccountId, metaCreativeId])
 }
@@ -284,19 +297,22 @@ model AdCreative {
 // instead of re-uploading. Meta's `hash` field is the natural id (it's
 // content-addressed), so we make (adAccountId, hash) the unique key.
 model AdImage {
-  id              String   @id @default(cuid())
-  metaImageHash   String   // Meta's `hash` — content-addressed image fingerprint
+  id              String        @id @default(cuid())
+  metaImageHash   String // Meta's `hash` — content-addressed image fingerprint
   adAccountId     String
   adAccount       MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  url             String?  // Direct CDN URL — short-lived; refetch if 404s
-  name            String?  // Original filename if Meta retained it
+  url             String? // Direct CDN URL — short-lived; refetch if 404s
+  name            String? // Original filename if Meta retained it
   width           Int?
   height          Int?
-  status          String?  // ACTIVE | DELETED | INTERNAL
+  status          String? // ACTIVE | DELETED | INTERNAL
   metaCreatedTime DateTime?
-  syncedAt        DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  // One-paragraph vision-model description of the image, cached for
+  // classification. null = not attempted; "" = attempted, unusable.
+  aiDescription   String?
+  syncedAt        DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@unique([adAccountId, metaImageHash])
 }
@@ -306,20 +322,23 @@ model AdImage {
 // `video_id`, and one video can back many creatives. We mirror the metadata
 // (not the file) so the UI can show a browse grid with thumbnails.
 model AdVideo {
-  id               String   @id @default(cuid())
-  metaVideoId      String   // Meta's `id` for the video object
-  adAccountId      String
-  adAccount        MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  title            String?
-  description      String?
-  thumbnailUrl     String?  // Meta's `picture` field — single-frame poster
-  sourceUrl        String?  // Direct mp4 URL — short-lived; refetch if 404s
-  lengthSeconds    Float?
-  status           String?  // ready | processing | error | …
-  metaCreatedTime  DateTime?
-  syncedAt         DateTime @default(now())
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id              String        @id @default(cuid())
+  metaVideoId     String // Meta's `id` for the video object
+  adAccountId     String
+  adAccount       MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  title           String?
+  description     String?
+  thumbnailUrl    String? // Meta's `picture` field — single-frame poster
+  sourceUrl       String? // Direct mp4 URL — short-lived; refetch if 404s
+  lengthSeconds   Float?
+  status          String? // ready | processing | error | …
+  metaCreatedTime DateTime?
+  // Whisper transcript of the video's audio, cached here so classification
+  // never re-transcribes. null = not attempted yet; "" = attempted, no speech.
+  transcript      String?
+  syncedAt        DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   @@unique([adAccountId, metaVideoId])
 }
@@ -335,22 +354,22 @@ model AdVideo {
 // `approximateCount` is integer; Meta returns "1000+" for very small or
 // privacy-bucketed audiences, in which case we store null.
 model CustomAudience {
-  id                 String   @id @default(cuid())
-  metaAudienceId     String
-  adAccountId        String
-  adAccount          MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  name               String
+  id                String        @id @default(cuid())
+  metaAudienceId    String
+  adAccountId       String
+  adAccount         MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  name              String
   // CUSTOM | WEBSITE | LOOKALIKE | ENGAGEMENT | APP | OFFLINE_CONVERSION | …
-  subtype            String?
-  description        String?
-  approximateCount   Int?
+  subtype           String?
+  description       String?
+  approximateCount  Int?
   // READY | PROCESSING | UPDATING | RECENTLY_USED | PENDING_TARGET …
-  operationStatus    String?
-  dataSourceSubtype  String?  // free-form Meta string, useful for UX hints
-  metaCreatedTime    DateTime?
-  syncedAt           DateTime @default(now())
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  operationStatus   String?
+  dataSourceSubtype String? // free-form Meta string, useful for UX hints
+  metaCreatedTime   DateTime?
+  syncedAt          DateTime      @default(now())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   @@unique([adAccountId, metaAudienceId])
 }
@@ -365,24 +384,24 @@ model CustomAudience {
 // `rule` is the JSON predicate string Meta returns verbatim — preserved
 // (not parsed) so we can display it to the senior without round-tripping.
 model CustomConversion {
-  id                 String   @id @default(cuid())
-  metaConversionId   String
-  adAccountId        String
-  adAccount          MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  name               String
-  description        String?
+  id                String        @id @default(cuid())
+  metaConversionId  String
+  adAccountId       String
+  adAccount         MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  name              String
+  description       String?
   // Raw JSON predicate (e.g. {"and":[{"event":{"eq":"Purchase"}},
   // {"value":{"gt":100}}]}). Stored as text since the shape is open-ended.
-  rule               String?
+  rule              String?
   // PURCHASE | ADD_TO_CART | LEAD | COMPLETE_REGISTRATION | OTHER | …
-  customEventType    String?
+  customEventType   String?
   // Pixel id this conversion is built on top of.
-  eventSourceId      String?
-  metaLastFiredTime  DateTime?
-  metaCreatedTime    DateTime?
-  syncedAt           DateTime @default(now())
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  eventSourceId     String?
+  metaLastFiredTime DateTime?
+  metaCreatedTime   DateTime?
+  syncedAt          DateTime      @default(now())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   @@unique([adAccountId, metaConversionId])
 }
@@ -393,25 +412,25 @@ model CustomConversion {
 // On re-sync, rows are upserted (Meta backfills attribution for ~28 days —
 // Phase 1.3's cron re-pulls the last 7 days each night to catch updates).
 model InsightsSnapshot {
-  id          String   @id @default(cuid())
-  adAccountId String
-  adAccount   MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  date        DateTime @db.Date
-  level       String   // "account" | "campaign" | "adset" | "ad"
-  entityId    String   // Meta id of the entity at this level
-  impressions Int      @default(0)
-  reach       Int      @default(0)
-  clicks      Int      @default(0)
-  spendCents  Int      @default(0)
-  ctr         Float    @default(0) // 0..1
-  cpmCents    Int      @default(0)
+  id               String        @id @default(cuid())
+  adAccountId      String
+  adAccount        MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  date             DateTime      @db.Date
+  level            String // "account" | "campaign" | "adset" | "ad"
+  entityId         String // Meta id of the entity at this level
+  impressions      Int           @default(0)
+  reach            Int           @default(0)
+  clicks           Int           @default(0)
+  spendCents       Int           @default(0)
+  ctr              Float         @default(0) // 0..1
+  cpmCents         Int           @default(0)
   // Conversion events (purchase + lead + registration + …) summed across
   // recognised action_types. ROAS is derived: revenueCents / spendCents.
-  conversionsCount Int @default(0)
-  revenueCents     Int @default(0)
-  syncedAt    DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  conversionsCount Int           @default(0)
+  revenueCents     Int           @default(0)
+  syncedAt         DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   @@unique([adAccountId, date, level, entityId])
   @@index([adAccountId, date])
@@ -422,28 +441,28 @@ model InsightsSnapshot {
 
 // Records each sync attempt per ad account, per kind.
 model SyncLog {
-  id           String        @id @default(cuid())
-  adAccountId  String
-  adAccount    MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  kind         String        // "discovery" | "campaigns" | "ad_sets" | "ads" | "insights"
-  status       String        // "success" | "failed"
-  error        String?
-  startedAt    DateTime
-  finishedAt   DateTime?
+  id          String        @id @default(cuid())
+  adAccountId String
+  adAccount   MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  kind        String // "discovery" | "campaigns" | "ad_sets" | "ads" | "insights"
+  status      String // "success" | "failed"
+  error       String?
+  startedAt   DateTime
+  finishedAt  DateTime?
 }
 
 // Every write operation we perform on Meta. Empty in Phase 0.5 (read-only),
 // but the table exists so we never have to add it under pressure later.
 // userId is nullable because we have no user-auth in Phase 0.5.
 model AuditLog {
-  id          String   @id @default(cuid())
-  userId      String?
-  action      String   // e.g. "connection.create", "ad_account.select"
-  targetType  String
-  targetId    String
-  before      Json?
-  after       Json?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String // e.g. "connection.create", "ad_account.select"
+  targetType String
+  targetId   String
+  before     Json?
+  after      Json?
+  createdAt  DateTime @default(now())
 }
 
 // ─── Alerts ─────────────────────────────────────────────────────────────
@@ -458,28 +477,28 @@ model AuditLog {
 // strategist can usually ignore. Dismissed alerts stay in the DB so the
 // daily scan doesn't re-create them (unique constraint on account+date+key).
 model Alert {
-  id           String   @id @default(cuid())
-  adAccountId  String
-  adAccount    MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  forDate      DateTime @db.Date  // the day the anomaly refers to (usually yesterday)
-  severity     String   // "high" | "medium" | "low" | "info"
+  id          String        @id @default(cuid())
+  adAccountId String
+  adAccount   MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  forDate     DateTime      @db.Date // the day the anomaly refers to (usually yesterday)
+  severity    String // "high" | "medium" | "low" | "info"
   // Short slug describing what tripped — used both for de-dupe and for the
   // sidebar grouping later (e.g. "spend_drop", "delivery_stopped",
   // "adset_roas_drop", "ad_disapproved", "audience_overlap_high").
-  kind         String
+  kind        String
   // What the alert is ABOUT inside the account — lets ad-set, ad, and
   // audience-pair alerts coexist with account-level ones on the same day.
   // For account-level alerts, entityType="account" + entityId="".
   // For ad-set: entityType="adset" + entityId=Meta ad-set id.
   // For ad-pair audience overlap: entityType="audience_pair" + entityId="a|b".
-  entityType   String   @default("account")
-  entityId     String   @default("")
-  entityName   String?  // cached display string (e.g. ad-set name)
-  title        String   // headline, e.g. "Spend dropped 65% yesterday"
-  body         String   // LLM-narrated explanation, plain-English
-  metrics      Json     @default("{}") // structured numbers backing the alert
-  dismissedAt  DateTime?
-  createdAt    DateTime @default(now())
+  entityType  String        @default("account")
+  entityId    String        @default("")
+  entityName  String? // cached display string (e.g. ad-set name)
+  title       String // headline, e.g. "Spend dropped 65% yesterday"
+  body        String // LLM-narrated explanation, plain-English
+  metrics     Json          @default("{}") // structured numbers backing the alert
+  dismissedAt DateTime?
+  createdAt   DateTime      @default(now())
 
   // The unique tuple now includes entityId so multiple ad-sets / pairs can
   // have the same `kind` on the same day without colliding.
@@ -502,14 +521,14 @@ model Alert {
 // History retention is open-ended for now. If a single account ever has
 // thousands of rows, a cleanup cron can trim by `runAt`.
 model Audit {
-  id            String   @id @default(cuid())
-  adAccountId   String
-  adAccount     MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  runAt         DateTime @default(now())
-  windowDays    Int      // window used by the budget / data-driven checks
-  summary       String   // LLM-narrated executive summary
-  findings      Json     @default("[]") // array of AuditFinding (see service)
-  stats         Json     @default("{}") // { high, medium, low, info }
+  id          String        @id @default(cuid())
+  adAccountId String
+  adAccount   MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  runAt       DateTime      @default(now())
+  windowDays  Int // window used by the budget / data-driven checks
+  summary     String // LLM-narrated executive summary
+  findings    Json          @default("[]") // array of AuditFinding (see service)
+  stats       Json          @default("{}") // { high, medium, low, info }
 
   @@index([adAccountId, runAt(sort: Desc)])
 }
@@ -541,10 +560,10 @@ model ChatMessage {
   id         String     @id @default(cuid())
   threadId   String
   thread     ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  role       String     // "user" | "assistant" | "tool"
-  content    String     // "" when assistant only emitted tool_calls
-  toolCalls  Json?      // assistant's tool_calls array (when present)
-  toolCallId String?    // for tool messages — references the call id
+  role       String // "user" | "assistant" | "tool"
+  content    String // "" when assistant only emitted tool_calls
+  toolCalls  Json? // assistant's tool_calls array (when present)
+  toolCallId String? // for tool messages — references the call id
   createdAt  DateTime   @default(now())
 
   @@index([threadId, createdAt])
@@ -567,21 +586,21 @@ model ChatMessage {
 // Embedding model used at index time is recorded in `metadata.model` so we
 // can detect when a row needs re-embedding after a model swap.
 model Embedding {
-  id           String   @id @default(cuid())
-  namespace    String   // partition: "ads" | "brand_docs" | "audit_findings" | ...
-  sourceType   String   // origin table: "Ad" | "AdCreative" | "BrandDoc" | ...
-  sourceId     String   // origin row id (or any stable string for non-DB sources)
-  content      String   // raw text that was embedded — returned with hits
-  vector       Unsupported("vector(1536)")
+  id          String                      @id @default(cuid())
+  namespace   String // partition: "ads" | "brand_docs" | "audit_findings" | ...
+  sourceType  String // origin table: "Ad" | "AdCreative" | "BrandDoc" | ...
+  sourceId    String // origin row id (or any stable string for non-DB sources)
+  content     String // raw text that was embedded — returned with hits
+  vector      Unsupported("vector(1536)")
   // Tenant scoping. At least one MUST be set for any tenant-specific corpus —
   // search always filters by one of these so cross-tenant leakage is impossible.
-  businessId   String?
-  business     MetaBusiness? @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  adAccountId  String?
-  adAccount    MetaAdAccount? @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  metadata     Json     @default("{}")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  businessId  String?
+  business    MetaBusiness?               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  adAccountId String?
+  adAccount   MetaAdAccount?              @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  metadata    Json                        @default("{}")
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
 
   @@unique([namespace, sourceType, sourceId])
   @@index([businessId, namespace])
@@ -595,9 +614,9 @@ model Embedding {
 // threads and audit log hanging off this row are platform-agnostic, and
 // sends for both go through a Page token.
 model SocialAccount {
-  id                  String   @id @default(cuid())
+  id                  String     @id @default(cuid())
   // INSTAGRAM | FACEBOOK
-  platform            String   @default("INSTAGRAM")
+  platform            String     @default("INSTAGRAM")
   // IG user id, or Facebook Page id. Unique per platform rather than
   // globally: an IG account and its linked Page are separate surfaces and
   // may both be automated.
@@ -609,64 +628,64 @@ model SocialAccount {
   linkedPageId        String?
   connectionId        String
   connection          Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-  botEnabled          Boolean  @default(false)
+  botEnabled          Boolean    @default(false)
   webhookSubscribedAt DateTime?
 
-  profile             BotProfile?
-  rules               BotRule[]
-  threads             BotThread[]
-  events              AutomationEvent[]
+  profile BotProfile?
+  rules   BotRule[]
+  threads BotThread[]
+  events  AutomationEvent[]
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([platform, accountId])
 }
 
 // 1:1 with SocialAccount. Everything the AI is allowed to know lives here.
 model BotProfile {
-  id                  String   @id @default(cuid())
-  igAccountId         String   @unique
+  id                  String        @id @default(cuid())
+  igAccountId         String        @unique
   igAccount           SocialAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
-  businessDescription String   @default("")
-  toneRules           String   @default("")
-  linksJson           Json     @default("{}")    // key → URL, referenced by {link:key} in templates
-  bannedTopics        String[] @default([])
-  languageMode        String   @default("mirror") // "mirror" | fixed ISO code (en, hi, es...)
-  aiFallbackEnabled   Boolean  @default(false)
-  optOutConfirmation  String   @default("You've been unsubscribed and won't receive more messages.")
+  businessDescription String        @default("")
+  toneRules           String        @default("")
+  linksJson           Json          @default("{}") // key → URL, referenced by {link:key} in templates
+  bannedTopics        String[]      @default([])
+  languageMode        String        @default("mirror") // "mirror" | fixed ISO code (en, hi, es...)
+  aiFallbackEnabled   Boolean       @default(false)
+  optOutConfirmation  String        @default("You've been unsubscribed and won't receive more messages.")
   faqs                BotFaq[]
 }
 
 model BotFaq {
-  id        String  @id @default(cuid())
+  id        String     @id @default(cuid())
   profileId String
   profile   BotProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   question  String
   answer    String
-  sortOrder Int     @default(0)
+  sortOrder Int        @default(0)
 }
 
 model BotRule {
-  id                  String   @id @default(cuid())
+  id                  String        @id @default(cuid())
   igAccountId         String
   igAccount           SocialAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
-  enabled             Boolean  @default(true)
-  priority            Int      @default(100)   // lower wins; first match short-circuits
-  triggerType         String   // COMMENT_KEYWORD | COMMENT_ANY | DM_KEYWORD | DM_ANY
-  keywords            String[] @default([])     // case-insensitive substring match
+  enabled             Boolean       @default(true)
+  priority            Int           @default(100) // lower wins; first match short-circuits
+  triggerType         String // COMMENT_KEYWORD | COMMENT_ANY | DM_KEYWORD | DM_ANY
+  keywords            String[]      @default([]) // case-insensitive substring match
   // Words that VETO this rule. Checked during matching, so a rule can answer
   // "price" while ignoring "your price is a ripoff". Whole-word and
   // case-insensitive, same matcher as `keywords` — a veto that matched
   // substrings would silently kill the rule ("scam" vetoing "scamper").
-  negativeKeywords    String[] @default([])
+  negativeKeywords    String[]      @default([])
   // Skip emoji-only / single filler-word messages ("🔥🔥🔥", "nice", "first").
   // Defaults true because an _ANY rule otherwise answers pure noise; a
   // KEYWORD rule already implies intent, so the UI defaults it off there.
-  skipNoIntent        Boolean  @default(true)
+  skipNoIntent        Boolean       @default(true)
   // Run a gpt-4o-mini classifier before replying and stay silent on
   // complaints, spam and praise-only. Off by default: it costs a call.
-  aiIntentGuard       Boolean  @default(false)
+  aiIntentGuard       Boolean       @default(false)
   // Which posts this rule covers:
   //   ALL      — every post, organic or ad (default; back-compatible)
   //   ORGANIC  — only posts in the IG feed (excludes dark-post ads)
@@ -674,45 +693,45 @@ model BotRule {
   //   SPECIFIC — only the single post named by mediaId
   // ADS/ORGANIC resolve at match time against a synced media list, so new
   // ads are covered automatically without editing the rule.
-  mediaScope          String   @default("ALL")
-  mediaId             String?                   // used when mediaScope = SPECIFIC
-  publicReplyEnabled  Boolean  @default(false)
-  publicReplyTemplate String   @default("")
-  dmEnabled           Boolean  @default(false)
-  dmTemplate          String   @default("")
-  aiFallback          Boolean  @default(false)  // matched but template empty → ask AI
+  mediaScope          String        @default("ALL")
+  mediaId             String? // used when mediaScope = SPECIFIC
+  publicReplyEnabled  Boolean       @default(false)
+  publicReplyTemplate String        @default("")
+  dmEnabled           Boolean       @default(false)
+  dmTemplate          String        @default("")
+  aiFallback          Boolean       @default(false) // matched but template empty → ask AI
   // Per-rule steer for the AI, appended to the profile-level system prompt.
   // The profile says WHO the business is; this says what THIS rule's replies
   // should do — e.g. "they asked for pricing: never quote, push the call" vs
   // "they want the demo link: give it, one line". Empty = profile only.
-  aiInstructions      String   @default("")
-  oncePerUser         Boolean  @default(true)   // dedupe per (rule, user)
+  aiInstructions      String        @default("")
+  oncePerUser         Boolean       @default(true) // dedupe per (rule, user)
 }
 
 // Conversation state per (account, IG-scoped user). Window checks + AI context.
 model BotThread {
-  id                 String   @id @default(cuid())
-  igAccountId        String
-  igAccount          SocialAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
-  igsid              String              // Instagram-scoped user id of the other party
+  id            String        @id @default(cuid())
+  igAccountId   String
+  igAccount     SocialAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
+  igsid         String // Instagram-scoped user id of the other party
   // Best-effort display name for the inbox. Comment webhooks carry a
   // username; DM webhooks do not (see src/lib/meta/webhooks.ts), so a
   // thread that has only ever exchanged DMs stays null and the UI falls
   // back to `igsid`. Once known, never overwritten with null.
-  username           String?
-  lastInboundAt      DateTime?           // 24h window anchor (inbound DMs only, never comments)
-  optedOut           Boolean   @default(false)
-  messages           BotMessage[]
-  lead               BotLead?
+  username      String?
+  lastInboundAt DateTime? // 24h window anchor (inbound DMs only, never comments)
+  optedOut      Boolean       @default(false)
+  messages      BotMessage[]
+  lead          BotLead?
   // Inbox queue state. flagReason is ai_stuck | complaint | qualified.
-  flagReason         String?
-  flaggedAt          DateTime?
-  resolvedAt         DateTime?
+  flagReason    String?
+  flaggedAt     DateTime?
+  resolvedAt    DateTime?
   // BOT | HUMAN. Flips to HUMAN when a person replies (from the inbox, or
   // from Meta's own apps — see echo.ts). A HUMAN thread never gets another
   // automated reply until an operator explicitly hands it back, so no timer
   // can make the bot cut into a live human conversation mid-sentence.
-  ownership   String    @default("BOT")
+  ownership     String        @default("BOT")
 
   @@unique([igAccountId, igsid])
 }
@@ -724,9 +743,9 @@ model BotMessage {
   id        String    @id @default(cuid())
   threadId  String
   thread    BotThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  role      String    // USER | BOT | HUMAN
+  role      String // USER | BOT | HUMAN
   text      String
-  channel   String    // DM | COMMENT | UNKNOWN (UNKNOWN = backfilled rows only)
+  channel   String // DM | COMMENT | UNKNOWN (UNKNOWN = backfilled rows only)
   metaMid   String?   @unique // Meta message id; dedupes redelivered webhooks
   createdAt DateTime  @default(now())
 
@@ -757,34 +776,34 @@ model BotLead {
 // Idempotency store — one row per webhook event. Unique eventId makes
 // duplicate Meta deliveries harmless: insert fails, we skip.
 model AutomationEvent {
-  id           String   @id @default(cuid())
-  eventId      String   @unique              // comment id / message mid — dedupe key
+  id           String          @id @default(cuid())
+  eventId      String          @unique // comment id / message mid — dedupe key
   igAccountId  String
-  igAccount    SocialAccount @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
-  eventType    String                        // COMMENT | MESSAGE
+  igAccount    SocialAccount   @relation(fields: [igAccountId], references: [id], onDelete: Cascade)
+  eventType    String // COMMENT | MESSAGE
   fromIgsid    String?
   fromUsername String?
   text         String?
   commentId    String?
   mediaId      String?
-  rawJson      Json                          // raw webhook change payload, for forensics
+  rawJson      Json // raw webhook change payload, for forensics
   actions      AutomationLog[]
-  createdAt    DateTime @default(now())
+  createdAt    DateTime        @default(now())
 }
 
 // Audit trail — one row PER ACTION ATTEMPT (one matched rule can fire both a
 // public reply and a DM; each gets its own audit-first row).
 model AutomationLog {
-  id            String   @id @default(cuid())
+  id            String          @id @default(cuid())
   eventDbId     String
   event         AutomationEvent @relation(fields: [eventDbId], references: [id], onDelete: Cascade)
   matchedRuleId String?
-  action        String                        // PUBLIC_REPLY | AI_PUBLIC_REPLY | DM | DM_VIA_COMMENT | AI_DM | SKIPPED
+  action        String // PUBLIC_REPLY | AI_PUBLIC_REPLY | DM | DM_VIA_COMMENT | AI_DM | SKIPPED
   renderedText  String?
-  status        String   @default("PENDING")  // PENDING → SENT | FAILED | SKIPPED
+  status        String          @default("PENDING") // PENDING → SENT | FAILED | SKIPPED
   skipReason    String?
   metaError     String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime        @default(now())
   sentAt        DateTime?
 }
 
@@ -795,12 +814,13 @@ model AutomationLog {
 model WebhookDelivery {
   id             String   @id @default(cuid())
   receivedAt     DateTime @default(now())
-  objectType     String?  // Meta's top-level `object`: "page" | "instagram" | other
+  objectType     String? // Meta's top-level `object`: "page" | "instagram" | other
   signatureValid Boolean
   parsedCount    Int      @default(0) // events parseMetaWebhook produced
   matchedCount   Int      @default(0) // of those, how many mapped to a known account
-  note           String?  // short human hint, e.g. "unknown account: page:123"
+  note           String? // short human hint, e.g. "unknown account: page:123"
   rawJson        Json
+
   @@index([receivedAt])
 }
 
@@ -819,11 +839,131 @@ model WebhookDelivery {
 // it, and session verification is a pure HMAC check that needs no DB.
 model AppUser {
   id           String    @id @default(cuid())
-  email        String    @unique          // always stored lowercased
-  passwordHash String                     // "scrypt$<saltHex>$<hashHex>"
-  role         String                     // "owner" | "reviewer"
-  disabledAt   DateTime?                  // set = revoked, login refused
-  expiresAt    DateTime?                  // past = login refused (self-revoking)
+  email        String    @unique // always stored lowercased
+  passwordHash String // "scrypt$<saltHex>$<hashHex>"
+  role         String // "owner" | "reviewer"
+  disabledAt   DateTime? // set = revoked, login refused
+  expiresAt    DateTime? // past = login refused (self-revoking)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+}
+
+// Where an account's alerts and weekly briefs get delivered.
+//
+// Delivery is opt-in per account and per digest type, because the two have
+// very different cadences and audiences: alerts are operational (the person
+// running the account wants them daily), weekly briefs are narrative (the
+// client or account lead wants them, and only weekly).
+//
+// `lastAlertDigestAt` is what makes the daily send idempotent. The alerts
+// cron is safe to re-run — Alert rows are uniquely keyed on
+// [adAccountId, forDate, kind, entityId] — but EMAIL is not idempotent: a
+// re-run would send a second copy of the same digest. So the digest sender
+// only mails alerts created after this stamp, and advances it on success.
+// A failed send deliberately leaves it unmoved, so the next run retries
+// rather than silently dropping the digest.
+model NotificationSetting {
+  id                String        @id @default(cuid())
+  adAccountId       String        @unique
+  adAccount         MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  // Recipients for this account. Empty = configured but muted; the row
+  // existing at all is what marks the account as "set up".
+  emails            String[]      @default([])
+  alertsEnabled     Boolean       @default(true)
+  weeklyEnabled     Boolean       @default(false)
+  // Floor for what's worth an email. "high" | "medium" | "low" — an alert
+  // below this never triggers delivery, though it still appears in the UI.
+  minSeverity       String        @default("medium")
+  lastAlertDigestAt DateTime?
+  lastWeeklySentAt  DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+// Automated ad rules — "pause this campaign if CPA exceeds X for 3 days".
+//
+// The only feature that acts on a client's ads without a human present, so
+// the safety guards are columns, not conventions: `minSpendCents` stops
+// action on noise, `windowDays` sets the judgement period, and
+// `cooldownHours` + `lastFiredAt` stop a fired rule re-firing every tick
+// while the entity sits paused and its metrics stay frozen.
+//
+// `action` is deliberately limited to PAUSE and NOTIFY. There is no
+// budget-increase action: an unattended system that can raise spend can lose
+// money at machine speed. Scaling up stays a human decision.
+//
+// `entityIds` empty means "every entity of this scope in the account".
+// Populated means only those Meta ids — the narrow case is the safer default
+// to offer in the UI, but both are supported.
+model AdRule {
+  id              String        @id @default(cuid())
+  adAccountId     String
+  adAccount       MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  name            String
+  enabled         Boolean       @default(true)
+  // "campaign" | "adset" | "ad" — which level this rule watches and acts on.
+  scope           String
+  // Meta ids to restrict to. Empty = all entities of `scope` in the account.
+  entityIds       String[]      @default([])
+  // "cpa" | "spend" | "roas" | "ctr"
+  metric          String
+  // "gt" | "lt"
+  operator        String
+  // Money metrics in CENTS; ratio metrics (roas, ctr) as plain numbers.
+  threshold       Float
+  windowDays      Int           @default(3)
+  minSpendCents   Int           @default(100000)
+  // "pause" | "notify"
+  action          String
+  cooldownHours   Int           @default(24)
+  lastEvaluatedAt DateTime?
+  lastFiredAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([adAccountId, enabled])
+}
+
+// DANGER — READ BEFORE RUNNING `prisma migrate diff`.
+//
+// Two things exist in this database that Prisma cannot see, and a full diff
+// therefore proposes DESTROYING both:
+//
+//   1. `heartbeats` (modelled below, so it is now safe).
+//   2. `Embedding_vector_hnsw_idx` — the pgvector HNSW index that makes
+//      similarity search fast. Prisma has no way to express an HNSW index on
+//      an Unsupported("vector") column, so every diff emits
+//      `DROP INDEX "Embedding_vector_hnsw_idx"`. It is created by
+//      prisma/migrations/20260604120000_add_pgvector_embeddings and MUST be
+//      recreated by hand if ever dropped:
+//        CREATE INDEX "Embedding_vector_hnsw_idx"
+//          ON "Embedding" USING hnsw ("vector" vector_cosine_ops);
+//      Dropping it does not break anything visibly — searches still return
+//      correct results, just via a sequential scan — which is exactly why it
+//      would go unnoticed until the corpus is large enough to hurt.
+//
+// NEVER apply the output of `prisma migrate diff` wholesale. Hand-author the
+// statements you actually intend, apply with `prisma db execute`, then record
+// with `prisma migrate resolve --applied <name>`.
+
+// NOT written by this app.
+//
+// An external keep-alive: a launchd job on the operator's Mac inserts a row
+// on a schedule so the Supabase project registers activity and does not get
+// paused for inactivity. 95 rows and counting, still firing daily — see the
+// `source` column ("launchd", "native-app", "manual").
+//
+// It is modelled here for exactly one reason: `prisma migrate diff` compares
+// the live database against this schema, and a table it cannot see reads as
+// drift to be removed. Without this block the generated SQL contains
+// `DROP TABLE "heartbeats"`, and anyone applying a full diff would silently
+// delete the thing keeping the database awake. Declaring it makes the diff
+// clean and the table safe.
+//
+// Nothing in src/ reads or writes it, and nothing should — the writer lives
+// outside this repo. Do not add a relation to it, and do not "tidy" it away.
+model heartbeats {
+  id         BigInt   @id @default(autoincrement())
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  source     String?
 }

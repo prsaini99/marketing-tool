@@ -23,7 +23,12 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
+import {
+  assessAccountDelivery,
+  describeDeliveryHealth,
+} from "@/lib/delivery-health";
 import { complete } from "@/lib/llm/chat";
+import { HUMAN_STYLE_RULES } from "@/lib/llm/style";
 import { metaClient } from "@/lib/meta/client";
 
 interface DailyTotals {
@@ -104,9 +109,14 @@ export async function detectAnomaliesForAllAccounts(): Promise<ScanResult> {
     const adSetCount = await scanAdSetsForAccount(acc);
     const policyCount = await scanPolicyForAccount(acc);
     const overlapCount = await scanAudienceOverlapForAccount(acc);
+    const deliveryCount = await scanDeliveryForAccount(acc);
 
     const total =
-      accountSummary.anomaliesWritten + adSetCount + policyCount + overlapCount;
+      accountSummary.anomaliesWritten +
+      adSetCount +
+      policyCount +
+      overlapCount +
+      deliveryCount;
     totalAnomalies += total;
     perAccount.push({
       ...accountSummary,
@@ -472,7 +482,7 @@ async function diagnoseAnomalies(input: {
     input.baselineMean.spendCents,
   );
 
-  const block = `ACCOUNT: ${input.businessName} — ${input.accountName} (${input.currency})
+  const block = `ACCOUNT: ${input.businessName} / ${input.accountName} (${input.currency})
 DATE FLAGGED: ${input.yesterday}
 
 YESTERDAY:
@@ -496,15 +506,17 @@ BASELINE (prior 7-day mean):
 ANOMALIES DETECTED:
 ${input.anomalies.map((a) => `  - ${a.kind}: ${a.title}`).join("\n")}`;
 
-  const system = `You are a media-buying analyst writing a 2–3 sentence morning brief for an agency strategist. Read the structured anomaly data and write the cause-and-recommendation explanation in plain English.
+  const system = `You are a media-buying analyst writing a 2-3 sentence morning brief for an agency strategist. Read the structured anomaly data and write the cause-and-recommendation explanation in plain English.
 
 Rules:
-- 2–3 short sentences total. No bullet lists. No headers.
-- Be honest about uncertainty — if you can't pinpoint a cause from the data, say "likely cause is X or Y; check ad-set delivery / budget / scheduling to confirm."
+- 2-3 short sentences total. No bullet lists. No headers.
+- Be honest about uncertainty. If you can't pinpoint a cause from the data, say "likely cause is X or Y; check ad-set delivery / budget / scheduling to confirm."
 - Common causes you can suggest when they fit: budget exhausted, audience expansion or restriction, creative fatigue, account-level pause, ad disapproval, schedule change, holiday/seasonal effect, learning-phase reset, landing-page issues, conversion tracking break.
-- For ROAS / conversion anomalies specifically: check whether spend changed too (if both moved together, it's a volume story; if ROAS moved alone, it's a quality story — audience, creative, or landing page).
+- For ROAS / conversion anomalies specifically: check whether spend changed too (if both moved together, it's a volume story; if ROAS moved alone, it's a quality story about audience, creative, or landing page).
 - Don't invent metrics.
-- No clichés ("crushed it", "synergy", "game-changer").`;
+- No clichés ("crushed it", "synergy", "game-changer").
+
+${HUMAN_STYLE_RULES}`;
 
   return complete(`Diagnose:\n\n${block}`, {
     system,
@@ -783,7 +795,7 @@ function buildAdSetBody(a: DetectedAnomaly, currency: string): string {
     return `Spend yesterday: ${fm(a.current)} ${currency}. 7-day baseline: ${fm(a.baseline)} ${currency}/day. Common causes for this kind of shift: budget change, audience expansion or restriction, schedule change, or a new winning ad inside the ad-set pulling more delivery.`;
   }
   if (a.kind === "adset_roas_spike" || a.kind === "adset_roas_drop") {
-    return `ROAS yesterday: ${a.current.toFixed(2)}x. 7-day baseline: ${a.baseline.toFixed(2)}x. A ROAS shift without a matching spend shift usually means a quality change — different audience reaching, a new creative, or a landing-page issue. Check what changed in the ad-set yesterday.`;
+    return `ROAS yesterday: ${a.current.toFixed(2)}x. 7-day baseline: ${a.baseline.toFixed(2)}x. A ROAS shift without a matching spend shift usually means a quality change: a different audience being reached, a new creative, or a landing-page issue. Check what changed in the ad-set yesterday.`;
   }
   return `Yesterday: ${a.current.toFixed(2)}. Baseline: ${a.baseline.toFixed(2)}. Delta: ${Math.round(a.deltaPct * 100)}%.`;
 }
@@ -844,7 +856,7 @@ async function scanPolicyForAccount(account: {
           const summary = i.error_summary ?? i.error_message ?? "Issue";
           const detail = i.error_message ?? "";
           return detail && detail !== summary
-            ? `• ${summary} — ${detail}`
+            ? `• ${summary}: ${detail}`
             : `• ${summary}`;
         })
         .join("\n");
@@ -894,6 +906,113 @@ async function scanPolicyForAccount(account: {
   }
 
   return written;
+}
+
+// ─── Delivery capacity scan ─────────────────────────────────────────────
+//
+// The check that would have caught a real 68-day outage.
+//
+// Every other signal in this file compares numbers over time, which cannot
+// see this failure: an account whose ad sets have all expired simply stops
+// producing rows, and "no data" is indistinguishable from "not synced yet".
+// Meanwhile every status reads ACTIVE — account, campaigns, ads, and the ad
+// sets themselves — because the objects ARE enabled; they just have no
+// schedule left to run in and no budget left to spend.
+//
+// So this scan asks a structural question instead of a statistical one: does
+// any active ad set still have both a live schedule and remaining budget?
+// See src/lib/delivery-health.ts for the rules.
+
+async function scanDeliveryForAccount(account: {
+  id: string;
+  name: string;
+}): Promise<number> {
+  const adSets = await prisma.adSet.findMany({
+    where: { adAccountId: account.id },
+    select: {
+      metaAdSetId: true,
+      name: true,
+      status: true,
+      effectiveStatus: true,
+      startTime: true,
+      endTime: true,
+      budgetRemainingCents: true,
+      dailyBudgetCents: true,
+      lifetimeBudgetCents: true,
+    },
+  });
+  if (adSets.length === 0) return 0;
+
+  const health = assessAccountDelivery(adSets, new Date());
+
+  // Only the total-stoppage case is worth an alert. A partial block is
+  // ordinary — ad sets end all the time — and alerting on it would bury the
+  // one that means the account has gone dark.
+  if (!health.allStopped) return 0;
+
+  const latest = await prisma.insightsSnapshot.findFirst({
+    where: { adAccountId: account.id, level: "campaign" },
+    orderBy: { date: "desc" },
+    select: { date: true },
+  });
+  const forDate = latest?.date ?? new Date();
+
+  const examples = health.blocked
+    .slice(0, 5)
+    .map((b) => `• ${b.name}: ${b.detail}`)
+    .join("\n");
+  const more =
+    health.blocked.length > 5
+      ? `\n…and ${health.blocked.length - 5} more.`
+      : "";
+
+  const body = [
+    describeDeliveryHealth(health),
+    "",
+    examples + more,
+    "",
+    "Give these ad sets new end dates and fresh budgets, or duplicate them into new ad sets.",
+  ].join("\n");
+
+  await prisma.alert.upsert({
+    where: {
+      adAccountId_forDate_kind_entityId: {
+        adAccountId: account.id,
+        forDate,
+        kind: "delivery_stopped",
+        entityId: "",
+      },
+    },
+    create: {
+      adAccountId: account.id,
+      forDate,
+      kind: "delivery_stopped",
+      entityType: "account",
+      entityId: "",
+      entityName: account.name,
+      severity: "high",
+      title: `No live delivery: all ${health.intendedActive} active ad sets are blocked`,
+      body,
+      metrics: {
+        intendedActive: health.intendedActive,
+        canDeliver: health.canDeliver,
+        reasons: health.reasons,
+      } as Prisma.InputJsonValue,
+    },
+    update: {
+      severity: "high",
+      title: `No live delivery: all ${health.intendedActive} active ad sets are blocked`,
+      body,
+      entityName: account.name,
+      metrics: {
+        intendedActive: health.intendedActive,
+        canDeliver: health.canDeliver,
+        reasons: health.reasons,
+      } as Prisma.InputJsonValue,
+    },
+  });
+
+  return 1;
 }
 
 // ─── Audience overlap scan ──────────────────────────────────────────────
@@ -977,7 +1096,7 @@ async function scanAudienceOverlapForAccount(account: {
         .join("|");
       const pairName = `${anchor.name} ∩ ${cmp.name}`;
 
-      const body = `Estimated ${overlapUsers.toLocaleString()} users in common (~${Math.round(pct * 100)}% of "${anchor.name}"). When two ad-sets target overlapping audiences, Meta serves both ad-sets to the same users — driving frequency up and unique reach down, which usually shows as rising CPM. Consider excluding "${cmp.name}" from any ad-set targeting "${anchor.name}", or merging the two audiences.`;
+      const body = `Estimated ${overlapUsers.toLocaleString()} users in common (~${Math.round(pct * 100)}% of "${anchor.name}"). When two ad-sets target overlapping audiences, Meta serves both ad-sets to the same users, driving frequency up and unique reach down, which usually shows as rising CPM. Consider excluding "${cmp.name}" from any ad-set targeting "${anchor.name}", or merging the two audiences.`;
 
       await prisma.alert.upsert({
         where: {
@@ -996,7 +1115,7 @@ async function scanAudienceOverlapForAccount(account: {
           entityId: pairKey,
           entityName: pairName,
           severity: pct >= 0.5 ? "high" : "medium",
-          title: `${pairName} — ${Math.round(pct * 100)}% overlap`,
+          title: `${pairName}: ${Math.round(pct * 100)}% overlap`,
           body,
           metrics: {
             overlapUsers,
@@ -1006,7 +1125,7 @@ async function scanAudienceOverlapForAccount(account: {
         },
         update: {
           severity: pct >= 0.5 ? "high" : "medium",
-          title: `${pairName} — ${Math.round(pct * 100)}% overlap`,
+          title: `${pairName}: ${Math.round(pct * 100)}% overlap`,
           body,
           entityName: pairName,
           metrics: {

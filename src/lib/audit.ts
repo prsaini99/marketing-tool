@@ -92,8 +92,8 @@ export function summarizeChange(
         const toCents = typeof a[key] === "number" ? (a[key] as number) : null;
         return {
           field: key === "dailyBudgetCents" ? "Daily budget" : "Lifetime budget",
-          from: fromCents != null ? formatMoney(fromCents / 100, currency) : "—",
-          to: toCents != null ? formatMoney(toCents / 100, currency) : "—",
+          from: fromCents != null ? formatMoney(fromCents / 100, currency) : "-",
+          to: toCents != null ? formatMoney(toCents / 100, currency) : "-",
         };
       }
     }

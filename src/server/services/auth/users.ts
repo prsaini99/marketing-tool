@@ -59,9 +59,25 @@ export function verifyPassword(plain: string, stored: string): boolean {
     const salt = Buffer.from(saltHex, "hex");
     const expected = Buffer.from(hashHex, "hex");
     if (salt.length === 0 || expected.length === 0) return false;
-    // scryptSync's keylen must match the stored hash length, otherwise the
-    // lengths differ and timingSafeEqual throws.
-    const actual = scryptSync(plain, salt, expected.length);
+    // The stored hash must be exactly the length we write (KEY_BYTES), not
+    // merely non-empty.
+    //
+    // Deriving at `expected.length` — as this did before — means the STORED
+    // ROW decides how many bytes get compared. scrypt finishes with
+    // PBKDF2-HMAC-SHA256, whose output is prefix-consistent, so a hash
+    // truncated to its first N bytes still verifies against the correct
+    // password: the comparison silently weakens to N bytes. A row truncated
+    // to one byte would accept roughly 1 in 256 passwords. Exploiting it
+    // requires write access to the row (at which point an attacker could
+    // simply store their own hash), so this is hardening rather than an open
+    // hole — but a truncating bug or a partial restore must fail closed, not
+    // quietly downgrade the check.
+    //
+    // A future scheme with a different key length gets a new SCHEME tag, so
+    // pinning the length here does not block the self-describing format from
+    // evolving.
+    if (expected.length !== KEY_BYTES) return false;
+    const actual = scryptSync(plain, salt, KEY_BYTES);
     return timingSafeEqual(actual, expected);
   } catch {
     return false;

@@ -16,6 +16,7 @@
  */
 
 import { complete } from "@/lib/llm/chat";
+import { HUMAN_STYLE_RULES } from "@/lib/llm/style";
 import {
   buildWeeklyReportContext,
   type ReportContext,
@@ -26,7 +27,7 @@ export interface WeeklyReport {
   context: ReportContext;
 }
 
-const SYSTEM_PROMPT = `You are a senior media buyer writing a weekly performance report for an agency client. Plain English, no jargon dumps. Be honest — if performance dropped, say so and explain why. Avoid clichés ("crushed it", "knocked it out of the park", "game-changer", "synergy").
+const SYSTEM_PROMPT = `You are a senior media buyer writing a weekly performance report for an agency client. Plain English, no jargon dumps. Be honest. If performance dropped, say so and explain why. Avoid clichés ("crushed it", "knocked it out of the park", "game-changer", "synergy").
 
 Output MUST be valid markdown with EXACTLY these sections, in this order, all H2s:
 
@@ -34,27 +35,29 @@ Output MUST be valid markdown with EXACTLY these sections, in this order, all H2
 ONE short paragraph (≤ 3 sentences) that summarises the week vs the prior week. Lead with the most important fact (spend up/down, delivery efficiency, etc.). State direction + magnitude.
 
 ## Summary
-A compact totals block — bulleted list of the 4–6 KPIs that matter (spend, impressions, clicks, CTR, CPM, CPC) with **week-on-week deltas in parentheses**, e.g. "Spend: ₹1,24,500 (+18% WoW)". Use the account's currency symbol.
+A compact totals block: a bulleted list of the 4 to 6 KPIs that matter (spend, impressions, clicks, CTR, CPM, CPC) with **week-on-week deltas in parentheses**, e.g. "Spend: ₹1,24,500 (+18% WoW)". Use the account's currency symbol.
 
 ## Wins
-3–5 bullets on what worked. Each bullet names a campaign and a specific number. If nothing genuinely improved, say "No clear wins this week — see Needs attention." Don't manufacture wins.
+3-5 bullets on what worked. Each bullet names a campaign and a specific number. If nothing genuinely improved, say "No clear wins this week, see Needs attention." Don't manufacture wins.
 
 ## Needs attention
-3–5 bullets on what underperformed or shifted in the wrong direction. Same shape — name the campaign, cite a number. Be specific about probable causes ("CPM up 40% suggests audience saturation" / "Clicks dropped Wed onwards — landing page or hook issue").
+3-5 bullets on what underperformed or shifted in the wrong direction. Same shape: name the campaign, cite a number. Be specific about probable causes ("CPM up 40% suggests audience saturation" / "Clicks dropped Wed onwards, so landing page or hook issue").
 
 ## Next week
-2–4 bullets with concrete actions the team should take. Tie each to one of the issues above.
+2-4 bullets with concrete actions the team should take. Tie each to one of the issues above.
 
 Rules:
 - Currency: format integer amounts in the account's currency, comma-separated. Cents come in as integers; divide by 100 for display.
 - Percentages: round to whole numbers unless precision matters.
-- ROAS: when the context shows a non-zero ROAS, LEAD WITH IT in the Headline — it's the metric clients care about most. When ROAS is 0 OR conversionsCount is 0, the account either has no conversion tracking or no conversions yet this period — explicitly note that ("no conversion data this period") instead of saying ROAS is bad.
-- Conversions: when conversionsCount > 0 but revenue is 0, this is a lead-gen / app-install style account — talk in conversions, not money. Cost per conversion = spend / conversions.
+- ROAS: when the context shows a non-zero ROAS, LEAD WITH IT in the Headline, because it's the metric clients care about most. When ROAS is 0 OR conversionsCount is 0, the account either has no conversion tracking or no conversions yet this period. Explicitly note that ("no conversion data this period") instead of saying ROAS is bad.
+- Conversions: when conversionsCount > 0 but revenue is 0, this is a lead-gen or app-install style account, so talk in conversions rather than money. Cost per conversion = spend / conversions.
 - Never invent metrics that weren't in the context.
 - When you say "campaigns", distinguish carefully: the ROSTER section has the TOTAL campaign count (active + paused); the CAMPAIGNS section lists only those with activity in this window. Don't claim "only X campaigns exist" when the roster says otherwise.
-- If many active campaigns had NO delivery this window (see roster.activeWithoutActivity), flag it under "Needs attention" — it usually means budget exhaustion, audience too narrow, or scheduling issues worth investigating.
+- If many active campaigns had NO delivery this window (see roster.activeWithoutActivity), flag it under "Needs attention", since it usually means budget exhaustion, audience too narrow, or scheduling issues worth investigating.
 - If coverage is thin (fewer than 4 daysWithData), open with a one-line caveat in the Headline section.
-- Total length ≤ 350 words. Tight beats long.`;
+- Total length ≤ 350 words. Tight beats long.
+
+${HUMAN_STYLE_RULES}`;
 
 function formatContextBlock(ctx: ReportContext): string {
   // Currency-agnostic — the LLM is told the currency code; it picks the
@@ -81,7 +84,7 @@ function formatContextBlock(ctx: ReportContext): string {
           : row.conversionsCount > 0
             ? `, conversions ${row.conversionsCount}`
             : "";
-      return `  ${i + 1}. "${row.name}" [${row.status}] — spend ${fmtMoney(row.spendCents)} ${ctx.account.currency}, impr ${row.impressions}, clicks ${row.clicks}, CTR ${pct(row.ctr)}, CPM ${fmtMoney(row.cpmCents)} ${ctx.account.currency}, CPC ${fmtMoney(row.cpcCents)} ${ctx.account.currency}${roasPart}`;
+      return `  ${i + 1}. "${row.name}" [${row.status}]: spend ${fmtMoney(row.spendCents)} ${ctx.account.currency}, impr ${row.impressions}, clicks ${row.clicks}, CTR ${pct(row.ctr)}, CPM ${fmtMoney(row.cpmCents)} ${ctx.account.currency}, CPC ${fmtMoney(row.cpcCents)} ${ctx.account.currency}${roasPart}`;
     })
     .join("\n");
 
@@ -94,7 +97,7 @@ function formatContextBlock(ctx: ReportContext): string {
           : "")
       : "    (none)";
 
-  return `ACCOUNT: ${ctx.account.businessName} — ${ctx.account.name}
+  return `ACCOUNT: ${ctx.account.businessName} / ${ctx.account.name}
 CURRENCY: ${ctx.account.currency} (amounts below are in major units, not cents)
 TIMEZONE: ${ctx.account.timezone}
 COVERAGE: ${ctx.coverage.daysWithData} day(s) with data in current window. Last insights sync: ${ctx.coverage.lastSyncedAt ?? "never"}
@@ -102,7 +105,7 @@ COVERAGE: ${ctx.coverage.daysWithData} day(s) with data in current window. Last 
 CURRENT WINDOW: ${ctx.periods.current.from} → ${ctx.periods.current.to}
 PREVIOUS WINDOW: ${ctx.periods.previous.from} → ${ctx.periods.previous.to}
 
-ROSTER (the FULL campaign list — use this for "how many campaigns" questions):
+ROSTER (the FULL campaign list, use this for "how many campaigns" questions):
   Total campaigns mirrored: ${r.totalCampaigns}
   Active                  : ${r.activeCampaigns}
   Paused                  : ${r.pausedCampaigns}
@@ -110,7 +113,7 @@ ROSTER (the FULL campaign list — use this for "how many campaigns" questions):
   Active-no-delivery names (sample):
 ${idleNames}
 
-TOTALS — CURRENT (week-on-week vs previous in parens):
+TOTALS, CURRENT (week-on-week vs previous in parens):
   Spend       : ${fmtMoney(c.spendCents)} (${delta(c.spendCents, p.spendCents)})
   Impressions : ${c.impressions} (${delta(c.impressions, p.impressions)})
   Clicks      : ${c.clicks} (${delta(c.clicks, p.clicks)})
@@ -133,7 +136,7 @@ export async function generateWeeklyReport(
 
   const markdown = await complete(`Write the weekly report based on this:\n\n${contextBlock}`, {
     system: SYSTEM_PROMPT,
-    temperature: 0.6, // narrative but grounded — too high and it embellishes
+    temperature: 0.6, // narrative but grounded; too high and it embellishes
     maxTokens: 1400,
   });
 

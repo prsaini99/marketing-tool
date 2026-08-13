@@ -42,7 +42,7 @@ export async function createConnectionFromToken(
   // persist a connection we can't identify.
   if (!discovery.tokenOwner.id || discovery.tokenOwner.id === "unknown") {
     throw new Error(
-      "Could not identify the token owner from Meta — refusing to store this connection.",
+      "Could not identify the token owner from Meta. Refusing to store this connection.",
     );
   }
 

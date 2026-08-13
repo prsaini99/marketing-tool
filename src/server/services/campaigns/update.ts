@@ -89,7 +89,7 @@ export async function updateCampaign(
   if (input.budgetType && input.budgetCents != null) {
     if (!campaignHasCbo) {
       throw new Error(
-        "This campaign has no CBO budget — edit the ad set budgets instead",
+        "This campaign has no CBO budget. Edit the ad set budgets instead",
       );
     }
     if (input.budgetCents <= 0) {

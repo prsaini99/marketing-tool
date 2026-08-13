@@ -58,7 +58,7 @@ export async function indexText(input: IndexInput): Promise<{ id: string }> {
   const vec = await embedText(input.content);
   if (vec.length !== EMBEDDING_DIMENSIONS) {
     throw new Error(
-      `embedding dimension mismatch — got ${vec.length}, expected ${EMBEDDING_DIMENSIONS}`,
+      `embedding dimension mismatch: got ${vec.length}, expected ${EMBEDDING_DIMENSIONS}`,
     );
   }
 
@@ -86,7 +86,12 @@ export async function indexText(input: IndexInput): Promise<{ id: string }> {
       "vector"     = EXCLUDED."vector",
       "businessId" = EXCLUDED."businessId",
       "adAccountId"= EXCLUDED."adAccountId",
-      metadata     = EXCLUDED.metadata,
+      -- MERGE, never replace. Enrichment passes (creative classification)
+      -- patch tags into this blob; a wholesale replace here silently wiped
+      -- them on every reindex — which runs on every creatives sync — so
+      -- hooks/angles vanished from the UI hours after being paid for.
+      -- Old keys survive; the reindex's own keys (perf numbers) still win.
+      metadata     = "Embedding".metadata || EXCLUDED.metadata,
       "updatedAt"  = NOW()
     RETURNING id
   `;
@@ -325,6 +330,52 @@ export function formatHitsForPrompt(hits: SearchHit[]): string {
         `[${i + 1}] (${h.sourceType}:${h.sourceId}) ${h.content.trim()}`,
     )
     .join("\n\n");
+}
+
+/**
+ * Merge a patch into an existing row's `metadata`, leaving `content` and the
+ * vector untouched.
+ *
+ * This exists so enrichment passes (creative classification, and anything
+ * like it later) don't have to re-embed. Going back through `indexText` to
+ * add a few tags would spend an embedding call per row to write the same
+ * vector it already has — real money and real latency for no change.
+ *
+ * Postgres `||` on jsonb is a shallow merge, which is what's wanted: the
+ * patch replaces the keys it names and leaves the rest — so classification
+ * tags land next to the performance numbers written at index time without
+ * either clobbering the other.
+ *
+ * Tenant scope is REQUIRED, exactly as in `search`. This is a raw-SQL write
+ * against the shared Embedding table, so it is one of the places where
+ * forgetting the scope would be a cross-tenant write.
+ */
+export async function patchMetadata(opts: {
+  namespace: string;
+  sourceType: string;
+  sourceId: string;
+  patch: Record<string, unknown>;
+  businessId?: string | null;
+  adAccountId?: string | null;
+}): Promise<{ updated: number }> {
+  if (!opts.businessId && !opts.adAccountId) {
+    throw new Error("patchMetadata: businessId or adAccountId required");
+  }
+  const patchJson = JSON.stringify(opts.patch);
+  const scope = opts.adAccountId
+    ? Prisma.sql`"adAccountId" = ${opts.adAccountId}`
+    : Prisma.sql`"businessId" = ${opts.businessId}`;
+
+  const updated = await prisma.$executeRaw`
+    UPDATE "Embedding"
+    SET metadata = COALESCE(metadata, '{}'::jsonb) || ${patchJson}::jsonb,
+        "updatedAt" = NOW()
+    WHERE namespace = ${opts.namespace}
+      AND "sourceType" = ${opts.sourceType}
+      AND "sourceId" = ${opts.sourceId}
+      AND ${scope}
+  `;
+  return { updated };
 }
 
 /**

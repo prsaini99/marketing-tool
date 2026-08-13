@@ -52,7 +52,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "original must be { headline, primaryText, description } — all strings",
+          "original must be { headline, primaryText, description }, all of them strings",
       },
       { status: 400 },
     );

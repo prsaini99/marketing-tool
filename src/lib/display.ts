@@ -80,7 +80,7 @@ const KNOWN_OBJECTIVES: Record<string, string> = {
 };
 
 export function getObjectiveLabel(objective: string): string {
-  if (!objective) return "—";
+  if (!objective) return "-";
   if (KNOWN_OBJECTIVES[objective]) return KNOWN_OBJECTIVES[objective];
   // Format unknowns: "OUTCOME_FOO_BAR" → "Foo bar"
   return objective
@@ -175,7 +175,7 @@ const KNOWN_OPTIMIZATION_GOALS: Record<string, string> = {
 };
 
 export function getOptimizationGoalLabel(goal: string | null): string {
-  if (!goal) return "—";
+  if (!goal) return "-";
   if (KNOWN_OPTIMIZATION_GOALS[goal]) return KNOWN_OPTIMIZATION_GOALS[goal];
   return goal
     .split("_")
@@ -205,7 +205,7 @@ const KNOWN_AD_FORMATS: Record<string, string> = {
 };
 
 export function getAdFormatLabel(format: string | null): string {
-  if (!format) return "—";
+  if (!format) return "-";
   if (KNOWN_AD_FORMATS[format]) return KNOWN_AD_FORMATS[format];
   return format
     .split("_")

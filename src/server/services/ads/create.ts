@@ -105,12 +105,12 @@ export async function createAd(
     if (!input.videoId.trim()) throw new Error("videoId is required");
     if (!input.thumbnailUrl.trim()) {
       throw new Error(
-        "thumbnailUrl is required — Meta rejects a video creative with no poster",
+        "thumbnailUrl is required, since Meta rejects a video creative with no poster",
       );
     }
   } else if (!input.imageHash?.trim() && !input.imageBlob) {
     throw new Error(
-      "an image is required — provide either uploaded bytes or a library imageHash",
+      "an image is required: provide either uploaded bytes or a library imageHash",
     );
   }
 

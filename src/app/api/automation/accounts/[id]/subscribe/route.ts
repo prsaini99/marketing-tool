@@ -25,7 +25,7 @@ export async function POST(
     return NextResponse.json(
       {
         error:
-          "No linked Facebook Page recorded for this account — re-run Discover to capture the Page linkage.",
+          "No linked Facebook Page recorded for this account. Re-run Discover to capture the Page linkage.",
       },
       { status: 400 },
     );

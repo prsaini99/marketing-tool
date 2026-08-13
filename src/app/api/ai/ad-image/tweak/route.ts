@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "originalB64 is required — the image being tweaked must be sent so the edit preserves it",
+          "originalB64 is required. Send the image being tweaked so the edit can preserve it",
       },
       { status: 400 },
     );

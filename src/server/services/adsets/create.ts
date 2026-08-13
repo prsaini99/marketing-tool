@@ -128,12 +128,12 @@ export async function createAdSet(
     campaign.dailyBudgetCents != null || campaign.lifetimeBudgetCents != null;
   if (campaignHasCbo && input.budgetType) {
     throw new Error(
-      "Parent campaign uses CBO — ad set must not set its own budget",
+      "Parent campaign uses CBO, so the ad set must not set its own budget",
     );
   }
   if (!campaignHasCbo && !input.budgetType) {
     throw new Error(
-      "Parent campaign has no CBO budget — ad set must set a daily or lifetime budget",
+      "Parent campaign has no CBO budget, so the ad set must set a daily or lifetime budget",
     );
   }
 

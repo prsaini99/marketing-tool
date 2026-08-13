@@ -83,7 +83,7 @@ export async function updateAdSet(
   if (input.budgetType && input.budgetCents != null) {
     if (!adSetOwnsBudget) {
       throw new Error(
-        "This ad set's budget is managed at the campaign level (CBO) — edit the campaign budget instead",
+        "This ad set's budget is managed at the campaign level (CBO). Edit the campaign budget instead",
       );
     }
     if (input.budgetCents <= 0) {

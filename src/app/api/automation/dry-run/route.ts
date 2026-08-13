@@ -145,7 +145,7 @@ export async function POST(req: Request) {
     // traffic yet. Without this the panel would imply the bot is armed.
     botEnabled: account.botEnabled,
     note: account.botEnabled
-      ? "persist=false — nothing was sent or written."
-      : "persist=false — nothing was sent or written. The bot is currently OFF, so live comments and DMs are not being answered yet.",
+      ? "persist=false, so nothing was sent or written."
+      : "persist=false, so nothing was sent or written. The bot is currently OFF, and live comments and DMs are not being answered yet.",
   });
 }

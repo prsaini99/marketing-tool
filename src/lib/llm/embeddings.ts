@@ -19,7 +19,7 @@ import OpenAI from "openai";
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey && process.env.NODE_ENV === "production") {
   // Don't blow up dev (lets tests run without keys), but loudly fail prod.
-  console.error("OPENAI_API_KEY is not set — embeddings will fail at call time");
+  console.error("OPENAI_API_KEY is not set, so embeddings will fail at call time");
 }
 
 const openai = new OpenAI({ apiKey: apiKey ?? "missing-key" });
