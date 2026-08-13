@@ -35,6 +35,7 @@ import {
   validatePlan,
   type CampaignPlan,
   type PlanIssue,
+  type ValidateOptions,
 } from "@/lib/campaign-plan";
 import { COPILOT_TOOLS, runCopilotTool, type ToolContext } from "./copilot-tools";
 import { PLAN_JSON_SCHEMA } from "./plan-schema";
@@ -81,6 +82,16 @@ export interface AgentStep {
 export interface CopilotResult {
   plan: CampaignPlan | null;
   issues: PlanIssue[];
+  /**
+   * The exact options the plan was validated against.
+   *
+   * Returned so the browser can re-run validatePlan on an edited plan and
+   * get identical answers. validatePlan is pure, so live validation while
+   * someone edits costs no round trip; sending the options rather than
+   * letting the client reconstruct them is what stops the two drifting into
+   * different spend ceilings or budget floors.
+   */
+  validateOptions: ValidateOptions;
   executable: boolean;
   dailySpendCents: number;
   currency: string;
@@ -194,6 +205,7 @@ export async function runCopilot(input: CopilotInput): Promise<CopilotResult> {
         executable: false,
         dailySpendCents: 0,
         currency,
+        validateOptions: validateOpts,
         steps,
         message: prose || "The copilot did not produce a plan.",
       };
@@ -235,6 +247,7 @@ export async function runCopilot(input: CopilotInput): Promise<CopilotResult> {
             executable: planIsExecutable(issues),
             dailySpendCents: planDailySpendCents(submitted),
             currency,
+            validateOptions: validateOpts,
             steps,
           };
         }
@@ -277,6 +290,7 @@ export async function runCopilot(input: CopilotInput): Promise<CopilotResult> {
     executable: false,
     dailySpendCents: 0,
     currency,
+    validateOptions: validateOpts,
     steps,
     message:
       "The copilot ran out of steps without settling on a plan. Try a more specific brief.",

@@ -26,7 +26,14 @@ import {
   Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CampaignPlan, PlanIssue } from "@/lib/campaign-plan";
+import {
+  planDailySpendCents,
+  validatePlan,
+  type CampaignPlan,
+  type PlanIssue,
+  type ValidateOptions,
+} from "@/lib/campaign-plan";
+import { PlanEditor } from "./plan-editor";
 
 /** One library asset the operator can pin. Resolved server-side. */
 export interface PickerAsset {
@@ -53,6 +60,7 @@ interface PlanResponse {
   currency: string;
   steps: AgentStep[];
   message?: string;
+  validateOptions: ValidateOptions;
 }
 
 const EXAMPLES = [
@@ -63,11 +71,6 @@ const EXAMPLES = [
 
 function money(cents: number, currency: string): string {
   return `${(cents / 100).toLocaleString("en-IN", { maximumFractionDigits: 0 })} ${currency}`;
-}
-
-/** Issues grouped under the object they belong to. */
-function issuesFor(issues: PlanIssue[], prefix: string): PlanIssue[] {
-  return issues.filter((i) => i.path.startsWith(prefix));
 }
 
 function IssueList({ items }: { items: PlanIssue[] }) {
@@ -109,8 +112,9 @@ export function CampaignCopilot({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PlanResponse | null>(null);
-  const [openSets, setOpenSets] = useState<Record<number, boolean>>({ 0: true });
-  const [showPayload, setShowPayload] = useState(false);
+  // The plan the user is editing. Seeded from the agent's answer and then
+  // owned here, so edits survive re-renders and mode switches.
+  const [edited, setEdited] = useState<CampaignPlan | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   // Keyed "image:hash" / "video:id" so the two id spaces cannot collide.
   const [pinned, setPinned] = useState<Set<string>>(new Set());
@@ -149,8 +153,9 @@ export function CampaignCopilot({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Plan generation failed");
-      setResult(data as PlanResponse);
-      setOpenSets({ 0: true });
+      const parsed = data as PlanResponse;
+      setResult(parsed);
+      setEdited(parsed.plan);
       setBrief("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Plan generation failed");
@@ -159,8 +164,18 @@ export function CampaignCopilot({
     }
   }
 
-  const errorCount = result?.issues.filter((i) => i.severity === "error").length ?? 0;
-  const warnCount = result?.issues.filter((i) => i.severity === "warning").length ?? 0;
+  // Live validation. validatePlan is pure, so the browser runs the same
+  // function the server did, with the same options, on every keystroke. No
+  // round trip, and no chance of the two disagreeing about the rules.
+  const liveIssues =
+    edited && result ? validatePlan(edited, result.validateOptions) : (result?.issues ?? []);
+  const liveSpend = edited ? planDailySpendCents(edited) : (result?.dailySpendCents ?? 0);
+  const dirty =
+    Boolean(edited && result?.plan) &&
+    JSON.stringify(edited) !== JSON.stringify(result?.plan);
+
+  const errorCount = liveIssues.filter((i) => i.severity === "error").length;
+  const warnCount = liveIssues.filter((i) => i.severity === "warning").length;
 
   return (
     <div className="space-y-6">
@@ -381,7 +396,7 @@ export function CampaignCopilot({
                 className="mt-0.5 text-2xl font-bold"
                 style={{ fontFamily: "var(--font-display)" }}
               >
-                {money(result.dailySpendCents, result.currency)}
+                {money(liveSpend, result.currency)}
               </p>
             </div>
             <div className="flex items-center gap-2 text-sm">
@@ -399,7 +414,15 @@ export function CampaignCopilot({
                   {warnCount} to check
                 </span>
               )}
-              
+              {dirty && (
+                <button
+                  type="button"
+                  onClick={() => setEdited(result.plan)}
+                  className="rounded-full border border-border px-3 py-1 text-[13px] font-medium text-muted hover:text-foreground"
+                >
+                  Revert edits
+                </button>
+              )}
             </div>
           </div>
 
@@ -409,127 +432,28 @@ export function CampaignCopilot({
             </p>
           )}
 
-          {/* Campaign */}
-          <div className="rounded-2xl border border-border bg-surface p-5">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3
-                className="text-lg font-semibold"
-                style={{ fontFamily: "var(--font-display)" }}
-              >
-                {result.plan!.campaign.name}
-              </h3>
-              <span className="text-xs font-medium uppercase tracking-wide text-subtle">
-                {result.plan!.campaign.objective}
-              </span>
+          {edited && (
+            <PlanEditor
+              plan={edited}
+              issues={liveIssues}
+              currency={result.currency}
+              onChange={setEdited}
+            />
+          )}
+
+          {liveIssues.length > 0 && (
+            <div className="rounded-2xl border border-border bg-surface p-5">
+              <h4 className="text-[13px] font-semibold uppercase tracking-wide text-subtle">
+                Validation
+              </h4>
+              <IssueList items={liveIssues} />
             </div>
-            <p className="mt-1 text-[13px] text-muted">
-              {result.plan!.campaign.budgetType
-                ? `Campaign budget optimisation on, ${result.plan!.campaign.budgetType} ${money(result.plan!.campaign.budgetCents ?? 0, result.currency)}`
-                : "Budget set per ad set"}
-              {result.plan!.campaign.specialAdCategories.length > 0 &&
-                ` · ${result.plan!.campaign.specialAdCategories.join(", ")}`}
-            </p>
-            <IssueList items={issuesFor(result.issues, "campaign")} />
-            <IssueList items={issuesFor(result.issues, "metaAdAccountId")} />
-          </div>
-
-          {/* Ad sets */}
-          {result.plan!.adSets.map((s, i) => {
-            const open = openSets[i] ?? false;
-            const setIssues = issuesFor(result.issues, `adSets[${i}]`);
-            const setErrors = setIssues.filter((x) => x.severity === "error");
-            return (
-              <div
-                key={i}
-                className="overflow-hidden rounded-2xl border border-border bg-surface"
-              >
-                <button
-                  onClick={() => setOpenSets((p) => ({ ...p, [i]: !open }))}
-                  className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-background"
-                >
-                  {open ? (
-                    <ChevronDown className="h-4 w-4 shrink-0 text-subtle" aria-hidden />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 shrink-0 text-subtle" aria-hidden />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{s.name}</p>
-                    <p className="mt-0.5 text-[13px] text-muted">
-                      {s.optimizationGoal}
-                      {s.budgetCents
-                        ? ` · ${s.budgetType} ${money(s.budgetCents, result.currency)}`
-                        : " · campaign budget"}
-                      {` · ${s.targeting.countries.join(", ")} ${s.targeting.ageMin} to ${s.targeting.ageMax}`}
-                      {` · ${s.ads.length} ${s.ads.length === 1 ? "ad" : "ads"}`}
-                    </p>
-                  </div>
-                  {setErrors.length > 0 && (
-                    <span className="shrink-0 rounded-full bg-danger-subtle px-2.5 py-0.5 text-xs font-semibold text-danger">
-                      {setErrors.length}
-                    </span>
-                  )}
-                </button>
-
-                {open && (
-                  <div className="border-t border-border px-5 py-4">
-                    <IssueList items={setIssues} />
-                    <div className="mt-3 space-y-3">
-                      {s.ads.map((ad, j) => (
-                        <div
-                          key={j}
-                          className="rounded-xl border border-border bg-background p-4"
-                        >
-                          <p className="text-[13px] font-semibold text-subtle">
-                            {ad.name}
-                          </p>
-                          <p className="mt-1.5 text-[15px] font-semibold">
-                            {ad.headline}
-                          </p>
-                          <p className="mt-1 text-[15px] leading-relaxed text-muted">
-                            {ad.primaryText}
-                          </p>
-                          <p className="mt-2 text-xs text-subtle">
-                            {ad.mediaType}
-                            {ad.linkUrl ? ` · ${ad.linkUrl}` : " · messaging destination"}
-                            {ad.callToAction ? ` · ${ad.callToAction}` : ""}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {/* The payload preview. Same discipline as the create forms: the
-              reviewer can audit exactly what would hit Meta. */}
-          <div className="rounded-2xl border border-border bg-surface">
-            <button
-              onClick={() => setShowPayload((v) => !v)}
-              className="flex w-full items-center gap-2 px-5 py-3 text-left text-sm font-medium text-muted hover:text-foreground"
-            >
-              {showPayload ? (
-                <ChevronDown className="h-4 w-4" aria-hidden />
-              ) : (
-                <ChevronRight className="h-4 w-4" aria-hidden />
-              )}
-              Plan JSON
-            </button>
-            {showPayload && (
-              <pre
-                className="max-h-96 overflow-auto border-t border-border px-5 py-4 text-[12px] leading-relaxed"
-                style={{ fontFamily: "var(--font-mono)" }}
-              >
-                {JSON.stringify(result.plan, null, 2)}
-              </pre>
-            )}
-          </div>
+          )}
 
           <p className="rounded-xl border border-border bg-background px-5 py-4 text-[13px] leading-relaxed text-muted">
-            Nothing here has been created. This phase produces and validates a
-            plan only. Execution against Meta is a separate, explicitly
-            approved step that does not exist yet.
+            Nothing here has been created. Edits are re-validated as you type,
+            using the same rules the server applied. Execution against Meta is
+            a separate, explicitly approved step that does not exist yet.
           </p>
         </div>
       )}
