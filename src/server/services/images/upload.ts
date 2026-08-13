@@ -13,6 +13,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import { assetPath, storeFromUrl } from "@/lib/storage/assets";
 import { metaClient } from "@/lib/meta/client";
 
 interface ResolvedAccount {
@@ -120,6 +121,27 @@ export async function uploadLibraryImage(
       syncedAt: new Date(),
     },
   });
+
+  // Capture the bytes now. An uploaded asset never passes through the
+  // images sync, which is where capture normally hooks in, so without this
+  // it would sit with a null storagePath until the next full sync happened
+  // to pick it up. And the URL Meta just handed back is as fresh as it will
+  // ever be.
+  if (url) {
+    const path = assetPath("images", account.metaAdAccountId, hash);
+    const stored = await storeFromUrl(url, path, { skipIfPresent: true });
+    if (stored.ok) {
+      await prisma.adImage.update({
+        where: {
+          adAccountId_metaImageHash: {
+            adAccountId: account.localId,
+            metaImageHash: hash,
+          },
+        },
+        data: { storagePath: stored.path, storedAt: new Date(), storeAttemptedAt: new Date() },
+      });
+    }
+  }
 
   await prisma.auditLog.update({
     where: { id: auditRow.id },

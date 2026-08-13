@@ -279,9 +279,10 @@ export async function describeAccountImages(
 
 export async function analyzeAccountMedia(
   adAccountId: string,
+  opts: DescribeImagesOptions = {},
 ): Promise<MediaAnalysisResult> {
   const v = await transcribeAccountVideos(adAccountId);
-  const i = await describeAccountImages(adAccountId);
+  const i = await describeAccountImages(adAccountId, opts);
   return {
     ...v,
     ...i,

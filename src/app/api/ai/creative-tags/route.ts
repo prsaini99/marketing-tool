@@ -82,7 +82,14 @@ export async function POST(req: Request) {
     const media =
       body.skipMedia === true
         ? null
-        : await analyzeAccountMedia(body.adAccountId);
+        : await analyzeAccountMedia(body.adAccountId, {
+            // Describe the WHOLE library, not only images a creative already
+            // references. The campaign copilot chooses assets from the full
+            // library and sees nothing but a filename for anything
+            // undescribed, so limiting analysis to in-use creatives left most
+            // of the library invisible to it.
+            includeUnreferenced: true,
+          });
     const result = await classifyCreativesForAccount(body.adAccountId, {
       force: body.force === true || media?.producedNew === true,
     });
