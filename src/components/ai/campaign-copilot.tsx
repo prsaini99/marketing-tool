@@ -14,7 +14,7 @@
  * exactly what approving a sequence of tool calls does not give you.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -34,6 +34,12 @@ import {
   type ValidateOptions,
 } from "@/lib/campaign-plan";
 import { PlanEditor } from "./plan-editor";
+import {
+  clearDraft,
+  describeAge,
+  loadDraft,
+  saveDraft,
+} from "@/lib/copilot-draft";
 
 /** One library asset the operator can pin. Resolved server-side. */
 export interface PickerAsset {
@@ -118,6 +124,45 @@ export function CampaignCopilot({
   const [pickerOpen, setPickerOpen] = useState(false);
   // Keyed "image:hash" / "video:id" so the two id spaces cannot collide.
   const [pinned, setPinned] = useState<Set<string>>(new Set());
+  /** When set, we restored a draft and should say so. */
+  const [restoredAt, setRestoredAt] = useState<number | null>(null);
+  // Skips the save on the render that immediately follows a restore, so
+  // reading a draft does not instantly rewrite it with a fresh timestamp.
+  const justRestored = useRef(false);
+
+  // Restore on mount, and whenever the account changes, since drafts are
+  // per account. Reading localStorage has to happen after hydration or the
+  // server and client markup disagree.
+  useEffect(() => {
+    const draft = loadDraft<PlanResponse, CampaignPlan>(adAccountId);
+    if (!draft) {
+      setResult(null);
+      setEdited(null);
+      setPinned(new Set());
+      setRestoredAt(null);
+      return;
+    }
+    justRestored.current = true;
+    setResult(draft.result);
+    setEdited(draft.edited);
+    setPinned(new Set(draft.pinned));
+    setRestoredAt(draft.savedAt);
+  }, [adAccountId]);
+
+  // Persist on every change. Cheap, and it means work survives a refresh, a
+  // navigation, or closing the tab, which is where it was being lost.
+  useEffect(() => {
+    if (justRestored.current) {
+      justRestored.current = false;
+      return;
+    }
+    if (!result) return;
+    saveDraft<PlanResponse, CampaignPlan>(adAccountId, {
+      result,
+      edited,
+      pinned: [...pinned],
+    });
+  }, [adAccountId, result, edited, pinned]);
 
   const pinnedAssets = assets.filter((a) => pinned.has(`${a.kind}:${a.id}`));
 
@@ -156,6 +201,7 @@ export function CampaignCopilot({
       const parsed = data as PlanResponse;
       setResult(parsed);
       setEdited(parsed.plan);
+      setRestoredAt(null);
       setBrief("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Plan generation failed");
@@ -216,6 +262,10 @@ export function CampaignCopilot({
             <button
               onClick={() => {
                 setResult(null);
+                setEdited(null);
+                setPinned(new Set());
+                setRestoredAt(null);
+                clearDraft(adAccountId);
                 setBrief("");
               }}
               className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-muted hover:text-foreground"
@@ -351,6 +401,34 @@ export function CampaignCopilot({
       {error && (
         <div className="rounded-xl border border-danger bg-danger-subtle p-4 text-[15px] text-danger">
           {error}
+        </div>
+      )}
+
+      {/* A restored plan must never be mistaken for one just generated: the
+          account has moved on since, and the assets it references may not
+          all still exist. */}
+      {restoredAt && result && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-surface px-4 py-2.5">
+          <p className="text-[13px] text-muted">
+            Restored your draft from{" "}
+            <span className="font-medium text-foreground">
+              {describeAge(restoredAt)}
+            </span>
+            . The account may have changed since.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setResult(null);
+              setEdited(null);
+              setPinned(new Set());
+              setRestoredAt(null);
+              clearDraft(adAccountId);
+            }}
+            className="text-[13px] font-medium text-accent hover:underline"
+          >
+            Discard
+          </button>
         </div>
       )}
 
