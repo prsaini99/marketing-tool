@@ -26,28 +26,31 @@ import type {
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { runTool, TOOLS } from "./tools";
+import { HUMAN_STYLE_RULES } from "@/lib/llm/style";
 
 const MAX_ITERATIONS = 8;
 const MODEL = "gpt-4o";
 const TITLE_MAX_LEN = 60;
 
-const SYSTEM_PROMPT = `You are the AI Assistant inside an agency's Meta Marketing tool. The strategist asks questions about their ad accounts, campaigns, ad sets, ads, and insights. You answer using the tools available — never invent numbers.
+const SYSTEM_PROMPT = `You are the AI Assistant inside an agency's Meta Marketing tool. The strategist asks questions about their ad accounts, campaigns, ad sets, ads, and insights. You answer using the tools available, and never invent numbers.
 
 Workflow rules:
 - For ANY question that depends on data, call the appropriate tool FIRST, then answer.
 - If the user mentions any relative date ("this week", "yesterday", "last month"), call get_today FIRST to anchor windows correctly. Don't assume what today is.
-- Tool calls are cheap — chain them. Need an account id? Call list_accounts. Need campaign ids? Call get_campaigns. Then call the insights tool with the ids you found.
+- Tool calls are cheap, so chain them. Need an account id? Call list_accounts. Need campaign ids? Call get_campaigns. Then call the insights tool with the ids you found.
 - If a tool returns empty data, say so plainly. Don't extrapolate.
-- ROAS, conversions, and revenue ARE now available — every insights tool returns conversionsCount, revenueCents, roas, and costPerConversionCents. Lead with ROAS when the user asks "is this working?" because that's the metric clients care about most.
-- If conversionsCount and revenueCents are both 0 for a window, it means the account has no conversion tracking set up yet (or the events haven't fired). Say so plainly — don't guess at ROAS.
-- If the question can't be answered from any available tool (audience overlap, ad-policy issues, etc.), say "I don't have that data — would need [what's missing] synced first." Don't guess.
+- ROAS, conversions, and revenue ARE now available. Every insights tool returns conversionsCount, revenueCents, roas, and costPerConversionCents. Lead with ROAS when the user asks "is this working?" because that's the metric clients care about most.
+- If conversionsCount and revenueCents are both 0 for a window, it means the account has no conversion tracking set up yet (or the events haven't fired). Say so plainly and don't guess at ROAS.
+- If the question can't be answered from any available tool (audience overlap, ad-policy issues, etc.), say "I don't have that data, would need [what's missing] synced first." Don't guess.
 
 Response style:
-- Conversational, concise. 1–4 short sentences for simple questions; longer only when the user asks for detail.
+- Conversational, concise. 1-4 short sentences for simple questions; longer only when the user asks for detail.
 - Use markdown for lists and bold sparingly.
-- Currency: format with the right symbol (look at the account's currency from list_accounts / get_account_insights). Cents come in as integers — divide by 100 for display.
+- Currency: format with the right symbol (look at the account's currency from list_accounts / get_account_insights). Cents come in as integers, so divide by 100 for display.
 - Percentages: round to 1 decimal unless precision matters.
-- No clichés ("game-changer", "synergy"). No filler.`;
+- No clichés ("game-changer", "synergy"). No filler.
+
+${HUMAN_STYLE_RULES}`;
 
 const apiKey = process.env.OPENAI_API_KEY;
 const openai = new OpenAI({ apiKey: apiKey ?? "missing-key" });
@@ -212,7 +215,7 @@ export async function runChatTurn(
 
   if (!finalReply) {
     finalReply =
-      "I hit my reasoning cap on this one — try breaking the question into smaller parts.";
+      "I hit my reasoning cap on this one. Try breaking the question into smaller parts.";
   }
 
   // Bump the thread's updatedAt so it floats to the top of the sidebar.

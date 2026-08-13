@@ -20,7 +20,7 @@ export default async function SetupPage({
     <div className="space-y-4 p-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">
-          Setup —{" "}
+          Setup:{" "}
           {account.platform === "FACEBOOK"
             ? account.displayName
             : `@${account.displayName}`}

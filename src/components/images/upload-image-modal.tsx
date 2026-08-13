@@ -97,7 +97,7 @@ export function UploadImageModal({
     }
     if (f.size > MAX_IMAGE_BYTES) {
       setError(
-        `Image is ${formatBytes(f.size)} — limit is ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`,
+        `Image is ${formatBytes(f.size)}. The limit is ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`,
       );
       return;
     }
@@ -154,7 +154,7 @@ export function UploadImageModal({
               Upload image
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              Uploaded to the account&apos;s ad-image library — your token stays
+              Uploaded to the account&apos;s ad-image library. Your token stays
               server-side. Reusable across ads &amp; creatives.
             </p>
           </div>

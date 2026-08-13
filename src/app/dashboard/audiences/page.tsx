@@ -13,6 +13,7 @@
  */
 
 import { Users } from "lucide-react";
+import { SubNav, TARGETING_TABS } from "@/components/layout/sub-nav";
 import { prisma } from "@/lib/db/prisma";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -70,7 +71,7 @@ function statusLooksReady(status: string | null): boolean {
 }
 
 function formatCount(n: number | null): string {
-  if (n === null) return "—";
+  if (n === null) return "-";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
@@ -150,6 +151,7 @@ export default async function AudiencesPage({
 
   return (
     <div className="space-y-4">
+      <SubNav items={TARGETING_TABS} />
       <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Audiences</h1>
@@ -286,7 +288,7 @@ export default async function AudiencesPage({
 
       <p className="text-xs text-subtle">
         Showing up to 500 audiences. Audiences sync from Meta&apos;s
-        /act_X/customaudiences endpoint — only audiences in &ldquo;ready&rdquo;
+        /act_X/customaudiences endpoint. Only audiences in &ldquo;ready&rdquo;
         status can be used as ad-set targeting.
       </p>
     </div>

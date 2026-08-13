@@ -9,11 +9,13 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:migrate": "dotenv -e .env.local -- prisma migrate dev",
     "db:generate": "dotenv -e .env.local -- prisma generate",
     "db:reset": "dotenv -e .env.local -- prisma migrate reset",
     "db:studio": "dotenv -e .env.local -- prisma studio",
-    "cron-worker": "node scripts/cron-worker.mjs"
+    "cron-worker": "dotenv -e .env.local -- node scripts/cron-worker.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -28,6 +30,7 @@
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1",
+    "resend": "^6.19.0",
     "tailwind-merge": "^2.5.5"
   },
   "devDependencies": {
@@ -42,6 +45,7 @@
     "postcss": "^8",
     "prisma": "^5.22.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

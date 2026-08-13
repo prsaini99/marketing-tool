@@ -285,7 +285,7 @@ export function DataChat() {
               AI Assistant
             </div>
             <p className="text-[11px] text-subtle">
-              Asks the database directly — every answer is queried, never
+              Asks the database directly. Every answer is queried, never
               guessed.
             </p>
           </div>

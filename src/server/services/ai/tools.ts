@@ -32,7 +32,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "get_today",
       description:
-        "Return today's date and the standard date windows (this week / last week / this month). Call this FIRST whenever the user mentions any relative date — 'this week', 'yesterday', 'past month', etc. — to anchor the windows correctly.",
+        "Return today's date and the standard date windows (this week / last week / this month). Call this FIRST whenever the user mentions any relative date such as 'this week', 'yesterday' or 'past month', so the windows are anchored correctly.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -41,7 +41,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "list_accounts",
       description:
-        "List every ad account selected for sync — id, name, business, currency. Always the first lookup when the user names a brand or client. Cheap, no date arguments.",
+        "List every ad account selected for sync: id, name, business, currency. Always the first lookup when the user names a brand or client. Cheap, no date arguments.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -50,7 +50,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "get_campaigns",
       description:
-        "List campaigns mirrored for one account, optionally filtered by status. Use this for 'how many campaigns', 'which campaigns are paused', 'what's the roster', etc. Does NOT include performance — call get_campaign_insights for that.",
+        "List campaigns mirrored for one account, optionally filtered by status. Use this for 'how many campaigns', 'which campaigns are paused', 'what's the roster', etc. Does NOT include performance, call get_campaign_insights for that.",
       parameters: {
         type: "object",
         properties: {
@@ -74,7 +74,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "get_account_insights",
       description:
-        "Aggregate account-level totals for a date window. Returns spend, impressions, clicks, CTR, CPM, CPC, conversionsCount, revenueCents, ROAS (= revenue/spend), and costPerConversionCents. Use for 'how did account X perform this week', 'what's the ROAS', 'compare to last week', etc. If conversionsCount and revenueCents are both 0, the account has no conversion tracking — say so rather than guess.",
+        "Aggregate account-level totals for a date window. Returns spend, impressions, clicks, CTR, CPM, CPC, conversionsCount, revenueCents, ROAS (= revenue/spend), and costPerConversionCents. Use for 'how did account X perform this week', 'what's the ROAS', 'compare to last week', etc. If conversionsCount and revenueCents are both 0, the account has no conversion tracking, so say so rather than guess.",
       parameters: {
         type: "object",
         properties: {
@@ -114,7 +114,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "get_adsets_for_campaign",
       description:
-        "Ad sets under one campaign with their insights for a date window. Use when the user wants to drill into a campaign — 'why is X underperforming', 'which ad set is dragging', etc.",
+        "Ad sets under one campaign with their insights for a date window. Use when the user wants to drill into a campaign, for example 'why is X underperforming' or 'which ad set is dragging'.",
       parameters: {
         type: "object",
         properties: {
@@ -132,7 +132,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "get_ads_for_adset",
       description:
-        "Ads under one ad set with their insights. Use for ad-level questions — 'which creative is winning', 'compare ads in adset X'.",
+        "Ads under one ad set with their insights. Use for ad-level questions such as 'which creative is winning' or 'compare ads in adset X'.",
       parameters: {
         type: "object",
         properties: {

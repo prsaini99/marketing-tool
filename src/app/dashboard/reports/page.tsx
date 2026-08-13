@@ -91,7 +91,7 @@ export default async function ReportsPage({
       )}
 
       <p className="text-xs text-subtle">
-        Each generation costs ~₹1–2 (LLM call). Reports are not cached — every
+        Each generation costs ~₹1-2 (LLM call). Reports are not cached, so every
         click pulls fresh data.
       </p>
     </div>

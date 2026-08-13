@@ -233,7 +233,7 @@ export function VideoAssetCard({
         </p>
         {partial && (
           <p className="text-[11px] text-amber-700">
-            Page-uploaded video — Meta only exposes the thumbnail and id to
+            Page-uploaded video. Meta only exposes the thumbnail and id to
             this app, not the source mp4 or length.
           </p>
         )}

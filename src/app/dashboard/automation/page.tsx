@@ -119,7 +119,7 @@ export default async function AutomationHome() {
       {accounts.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
           No Instagram accounts discovered yet. Click &quot;Discover Instagram
-          accounts&quot; — your token needs instagram_basic + a linked Facebook
+          accounts&quot;. Your token needs instagram_basic + a linked Facebook
           Page (see the setup page after discovery).
         </div>
       ) : (

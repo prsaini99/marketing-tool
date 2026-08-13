@@ -27,7 +27,7 @@ function formatBudget(campaign: DisplayCampaign, currency: string) {
   if (campaign.lifetimeBudgetCents != null) {
     return `${formatMoney(campaign.lifetimeBudgetCents / 100, currency)} lifetime`;
   }
-  return "—";
+  return "-";
 }
 
 function statusStyle(status: string) {
@@ -133,21 +133,21 @@ export function CampaignsTable({
                   {c.spend7d != null ? (
                     formatMoney(c.spend7d, currency)
                   ) : (
-                    <span className="font-normal text-subtle">—</span>
+                    <span className="font-normal text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right text-sm tabular-nums">
                   {c.impressions != null ? (
                     c.impressions.toLocaleString()
                   ) : (
-                    <span className="text-subtle">—</span>
+                    <span className="text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right text-sm tabular-nums">
                   {c.ctr != null ? (
                     `${(c.ctr * 100).toFixed(2)}%`
                   ) : (
-                    <span className="text-subtle">—</span>
+                    <span className="text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3">

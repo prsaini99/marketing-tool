@@ -109,14 +109,14 @@ export function AccountsTable({ accounts }: AccountsTableProps) {
                   {a.spend7d != null ? (
                     formatMoney(a.spend7d, a.currency)
                   ) : (
-                    <span className="font-normal text-subtle">—</span>
+                    <span className="font-normal text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right text-sm tabular-nums">
                   {a.activeCampaigns != null ? (
                     a.activeCampaigns
                   ) : (
-                    <span className="text-subtle">—</span>
+                    <span className="text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3">

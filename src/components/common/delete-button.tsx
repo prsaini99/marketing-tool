@@ -193,8 +193,8 @@ export function DeleteButton({ entityType, metaId, name }: DeleteButtonProps) {
                 <p className="text-sm text-muted">
                   Permanently delete{" "}
                   <span className="font-medium text-foreground">{name}</span>?
-                  This <span className="font-medium text-danger">cannot be undone</span>
-                  {" "}— Meta purges deleted objects. (To pause temporarily,
+                  This <span className="font-medium text-danger">cannot be undone</span>.
+                  {" "}Meta purges deleted objects. (To pause temporarily,
                   use Archive instead.)
                 </p>
 

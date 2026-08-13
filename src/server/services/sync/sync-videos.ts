@@ -75,15 +75,28 @@ export async function syncVideosForAccount(
       ),
     );
     if (referencedIds.length > 0) {
+      // A row merely EXISTING is not enough to skip it. Meta's video source
+      // URLs are signed and lapse in days, so a referenced video needs a
+      // re-fetch when it has no source at all (first fetch predates the
+      // field, or Meta withheld it) or when its last sync is old enough
+      // that the stored URL is presumed dead. Skipping on bare existence —
+      // as this did — meant "Sync now" could never heal exactly the rows
+      // the user pressed it for.
+      const STALE_MS = 3 * 24 * 60 * 60 * 1000;
+      const staleCutoff = new Date(Date.now() - STALE_MS);
       const existing = await prisma.adVideo.findMany({
         where: {
           adAccountId: account.id,
           metaVideoId: { in: referencedIds },
         },
-        select: { metaVideoId: true },
+        select: { metaVideoId: true, sourceUrl: true, syncedAt: true },
       });
-      const have = new Set(existing.map((e) => e.metaVideoId));
-      const missing = referencedIds.filter((id) => !have.has(id));
+      const fresh = new Set(
+        existing
+          .filter((e) => e.sourceUrl && e.syncedAt > staleCutoff)
+          .map((e) => e.metaVideoId),
+      );
+      const missing = referencedIds.filter((id) => !fresh.has(id));
 
       // Sequential — N extra calls is fine, parallel would burst the
       // per-token rate limit on accounts with many Page-video ads.

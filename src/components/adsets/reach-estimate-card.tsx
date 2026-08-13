@@ -142,7 +142,7 @@ export function ReachEstimateCard({
             {state.ready ? (
               <p className="text-base font-semibold tabular-nums text-foreground">
                 {formatCompact(state.lowerBound)}
-                <span className="mx-1 text-subtle">–</span>
+                <span className="mx-1 text-subtle">-</span>
                 {formatCompact(state.upperBound)}
                 <span className="ml-1 text-xs font-normal text-muted">
                   people
@@ -150,8 +150,8 @@ export function ReachEstimateCard({
               </p>
             ) : (
               <p className="text-xs text-amber-700">
-                Meta is still computing the estimate for this targeting —
-                try again in a moment.
+                Meta is still computing the estimate for this targeting.
+                Try again in a moment.
               </p>
             )}
             <p

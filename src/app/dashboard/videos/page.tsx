@@ -8,43 +8,14 @@
  * to maintain).
  */
 
-import Image from "next/image";
-import { PlayCircle, Video as VideoIcon } from "lucide-react";
+import { SubNav, LIBRARY_TABS } from "@/components/layout/sub-nav";
+import { Video as VideoIcon } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
-import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
-import { DeleteButton } from "@/components/common/delete-button";
 import { UploadVideoButton } from "@/components/videos/upload-video-button";
-
-// Meta's video status values are lowercase; map the common ones. Anything
-// unknown falls through to a neutral pill.
-const STATUS_STYLE: Record<string, { pill: string; label: string }> = {
-  ready: { pill: "bg-green-50 text-green-700", label: "Ready" },
-  processing: { pill: "bg-blue-50 text-blue-700", label: "Processing" },
-  upload_complete: { pill: "bg-blue-50 text-blue-700", label: "Uploading" },
-  error: { pill: "bg-amber-50 text-amber-700", label: "Error" },
-};
-
-function StatusPill({ status }: { status: string | null }) {
-  if (!status) return null;
-  const key = status.toLowerCase();
-  const s = STATUS_STYLE[key] ?? {
-    pill: "bg-zinc-100 text-zinc-600",
-    label: status,
-  };
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-        s.pill,
-      )}
-    >
-      {s.label}
-    </span>
-  );
-}
+import { VideoGallery, type VideoItem } from "@/components/videos/video-gallery";
 
 // Format a length in seconds as M:SS (e.g. 0:08, 1:23, 12:45). Returns null
 // for null/0 so the caller can omit the badge entirely.
@@ -126,8 +97,21 @@ export default async function VideoLibraryPage({
     businessName: a.business.name,
   }));
 
+  const galleryItems: VideoItem[] = rows.map((v) => ({
+    id: v.id,
+    metaVideoId: v.metaVideoId,
+    title: v.title,
+    description: v.description,
+    status: v.status,
+    length: formatLength(v.lengthSeconds),
+    sourceUrl: v.sourceUrl,
+    transcript: v.transcript || null,
+    accountLabel: `${v.adAccount.business.name} · ${v.adAccount.name}`,
+  }));
+
   return (
     <div className="space-y-4">
+      <SubNav items={LIBRARY_TABS} />
       <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
@@ -174,101 +158,12 @@ export default async function VideoLibraryPage({
           description="Switch clients in the top bar, or sync this client's ad accounts."
         />
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {rows.map((v) => {
-            const length = formatLength(v.lengthSeconds);
-            // Open the mp4 in a new tab when the tile has a sourceUrl —
-            // keeps this page light (no inline <video> elements to manage).
-            const TileWrap = ({ children }: { children: React.ReactNode }) =>
-              v.sourceUrl ? (
-                <a
-                  href={v.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block"
-                >
-                  {children}
-                </a>
-              ) : (
-                <div>{children}</div>
-              );
-            return (
-              <article
-                key={v.id}
-                className="overflow-hidden rounded-lg border border-border bg-background transition-colors hover:bg-surface"
-              >
-                <TileWrap>
-                  <div className="group relative aspect-video w-full bg-surface-2">
-                    {v.thumbnailUrl ? (
-                      <Image
-                        src={v.thumbnailUrl}
-                        alt={v.title ?? v.metaVideoId}
-                        fill
-                        sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 25vw"
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-subtle">
-                        <VideoIcon className="h-10 w-10" />
-                      </div>
-                    )}
-                    {/* Play overlay only when there's a clickable source —
-                        otherwise it'd be a fake affordance. */}
-                    {v.sourceUrl && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/30">
-                        <PlayCircle className="h-12 w-12 text-white opacity-80 drop-shadow" />
-                      </div>
-                    )}
-                    {length && (
-                      <span className="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] font-medium text-white">
-                        {length}
-                      </span>
-                    )}
-                  </div>
-                </TileWrap>
-
-                <div className="space-y-1 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <h3
-                      className="line-clamp-1 text-sm font-medium text-foreground"
-                      title={v.title ?? undefined}
-                    >
-                      {v.title ?? "Untitled video"}
-                    </h3>
-                    <StatusPill status={v.status} />
-                  </div>
-                  {v.description && (
-                    <p className="line-clamp-2 text-xs text-muted">
-                      {v.description}
-                    </p>
-                  )}
-                  <p
-                    className="font-mono text-[10px] text-subtle"
-                    title={v.metaVideoId}
-                  >
-                    {v.metaVideoId}
-                  </p>
-                  <p className="text-[10px] text-subtle">
-                    {v.adAccount.business.name} · {v.adAccount.name}
-                  </p>
-                  <div className="flex justify-end border-t border-border pt-1.5">
-                    <DeleteButton
-                      entityType="video"
-                      metaId={v.metaVideoId}
-                      name={v.title ?? "this video"}
-                    />
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+        <VideoGallery items={galleryItems} />
       )}
 
       <p className="text-xs text-subtle">
         Showing up to 500 most recently synced videos. Source URLs from Meta
-        are short-lived — re-sync if a clip 404s.
+        are short-lived, so re-sync if a clip 404s.
       </p>
     </div>
   );

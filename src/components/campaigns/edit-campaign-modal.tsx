@@ -319,7 +319,7 @@ export function EditCampaignModal({
                     className="w-40 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                   />
                   <p className="text-[11px] text-subtle">
-                    Campaign Budget Optimization is on — this budget is shared
+                    Campaign Budget Optimization is on, so this budget is shared
                     across the campaign&apos;s ad sets.
                   </p>
                 </div>
@@ -355,7 +355,7 @@ export function EditCampaignModal({
               <div className="rounded-md border border-dashed border-border bg-surface px-3 py-2 text-[11px] text-subtle">
                 Objective:{" "}
                 <span className="font-medium text-foreground">
-                  {campaign.objective || "—"}
+                  {campaign.objective || "-"}
                 </span>{" "}
                 · locked by Meta after creation, can&apos;t be changed.
               </div>
@@ -376,7 +376,7 @@ export function EditCampaignModal({
                 </pre>
               ) : (
                 <p className="mt-3 rounded-md border border-dashed border-border bg-background px-3 py-2 text-[11px] text-muted">
-                  No changes yet — edit a field to see the payload.
+                  No changes yet. Edit a field to see the payload.
                 </p>
               )}
               {hasCbo &&

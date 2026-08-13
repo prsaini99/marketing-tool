@@ -15,23 +15,39 @@
 
 import { NextResponse } from "next/server";
 import { detectAnomaliesForAllAccounts } from "@/server/services/ai/detect-anomalies";
+import { sendAllAlertDigests } from "@/server/services/notifications/alert-digest";
+import { requireCronAuth } from "@/lib/cron-auth";
 
 // Anomaly scanning can take 30–60s on accounts with many campaigns + an
 // LLM call per. Disable the default 10s timeout.
 export const maxDuration = 300;
 
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const denied = requireCronAuth(req);
+  if (denied) return denied;
 
   try {
     const result = await detectAnomaliesForAllAccounts();
-    return NextResponse.json(result);
+
+    // Deliver AFTER the scan, and never let delivery fail the scan. The scan
+    // is the expensive, LLM-backed half; its Alert rows are already durable
+    // by this point, so an email vendor outage must degrade to "no email
+    // today", not to a 500 that makes the whole cron look failed. Accounts
+    // without a NotificationSetting row are simply not in the loop.
+    let delivery: Awaited<ReturnType<typeof sendAllAlertDigests>> | null = null;
+    let deliveryError: string | null = null;
+    try {
+      delivery = await sendAllAlertDigests({
+        dashboardUrl: process.env.APP_URL
+          ? `${process.env.APP_URL}/dashboard/alerts`
+          : undefined,
+      });
+    } catch (e) {
+      deliveryError = e instanceof Error ? e.message : "Unknown delivery error";
+      console.error("cron alerts/daily delivery error:", e);
+    }
+
+    return NextResponse.json({ ...result, delivery, deliveryError });
   } catch (err) {
     console.error("cron alerts/daily error:", err);
     return NextResponse.json(

@@ -54,7 +54,7 @@ const SECTIONS: Section[] = [
     number: 1,
     title: "Create / open a Meta Business Manager",
     blurb:
-      "Every Meta API access token attaches to a Business Manager (BM). If your agency already has one, skip to step 2. Otherwise, create one — it's free.",
+      "Every Meta API access token attaches to a Business Manager (BM). If your agency already has one, skip to step 2. Otherwise, create one. It's free.",
     steps: [
       {
         text: "Open business.facebook.com in your browser. You'll land on the entry page below if you're not logged in. Click Create new account.",
@@ -62,7 +62,7 @@ const SECTIONS: Section[] = [
           src: "/setup-guide/01-bm-landing.png",
           alt: "business.facebook.com landing page with Continue with Facebook, Continue with Instagram, and Create new account buttons",
           caption:
-            "Entry point. New users click Create new account. If you're already logged in, Meta takes you straight to your existing BM home — skip to step 4.",
+            "Entry point. New users click Create new account. If you're already logged in, Meta takes you straight to your existing BM home, so skip to step 4.",
         },
       },
       {
@@ -107,21 +107,21 @@ const SECTIONS: Section[] = [
         },
       },
       {
-        text: "App details — fill in the App name (anything, e.g., your agency name + ' ads') and a contact email. Click Next.",
+        text: "App details: fill in the App name (anything, e.g., your agency name + ' ads') and a contact email. Click Next.",
       },
       {
-        text: "Use cases — pick the ones that match the permissions this platform needs. At minimum, Create & manage ads with Marketing API.",
+        text: "Use cases: pick the ones that match the permissions this platform needs. At minimum, Create & manage ads with Marketing API.",
         note:
           "Tick only what you actually need today. Each extra use case Meta later requires its own app-review effort. If a future feature on the platform needs more (e.g., Instagram Graph API, Pages API), come back here and add it then.",
         screenshot: {
           src: "/setup-guide/04-app-use-cases.png",
           alt: "Use cases step of the Create App wizard with multiple use cases checked",
           caption:
-            "Pick the use cases that cover the permissions the platform needs — Marketing API is the must-have; others go on as features expand.",
+            "Pick the use cases that cover the permissions the platform needs. Marketing API is the must-have; others go on as features expand.",
         },
       },
       {
-        text: "Business — pick your Business Manager from the list. The badge should say 'Business verification complete'. Click Next.",
+        text: "Business: pick your Business Manager from the list. The badge should say 'Business verification complete'. Click Next.",
         note:
           "If it doesn't say verification complete, finish Business Verification first under Business Settings → Security Center, then come back.",
         screenshot: {
@@ -132,15 +132,15 @@ const SECTIONS: Section[] = [
         },
       },
       {
-        text: "Requirements — Meta shows the App Review permissions you'll eventually need. Click Next.",
+        text: "Requirements: Meta shows the App Review permissions you'll eventually need. Click Next.",
       },
       {
-        text: "Overview — review everything, then click Create. Meta drops you into the new app's dashboard.",
+        text: "Overview: review everything, then click Create. Meta drops you into the new app's dashboard.",
         screenshot: {
           src: "/setup-guide/06-app-overview.png",
           alt: "Overview step of the Create App wizard showing summary of app details, use cases, and business",
           caption:
-            "Final review. Click Create — you'll land on the app dashboard.",
+            "Final review. Click Create and you'll land on the app dashboard.",
         },
       },
     ],
@@ -156,10 +156,10 @@ const SECTIONS: Section[] = [
     number: 3,
     title: "Verify the Marketing API use case is attached",
     blurb:
-      "Meta's new dashboard doesn't list 'Marketing API' as a separate sidebar product anymore — everything lives under Use cases. Quick check that what you ticked in step 2 actually saved.",
+      "Meta's new dashboard doesn't list 'Marketing API' as a separate sidebar product anymore. Everything lives under Use cases. Quick check that what you ticked in step 2 actually saved.",
     steps: [
       {
-        text: "Open the app from your Apps list — you land on its Dashboard. Look at the main panel: each attached use case appears as a 'Customize the … use case' row. Make sure 'Customize the Create & manage ads with Marketing API use case' is one of them.",
+        text: "Open the app from your Apps list and you land on its Dashboard. Look at the main panel: each attached use case appears as a 'Customize the … use case' row. Make sure 'Customize the Create & manage ads with Marketing API use case' is one of them.",
         screenshot: {
           src: "/setup-guide/07-app-dashboard-use-cases.png",
           alt: "App dashboard showing the list of attached use cases including Create & manage ads with Marketing API",
@@ -170,7 +170,7 @@ const SECTIONS: Section[] = [
       {
         text: "If the Marketing API row is missing, click '+ Add use cases' in the top-right and tick 'Create & manage ads with Marketing API'. Save and come back to the Dashboard.",
         note:
-          "If extra use cases got ticked by accident (App ads, Threads, WhatsApp …), it's safe to remove them from the Use cases page — each one Meta later requires its own review effort.",
+          "If extra use cases got ticked by accident (App ads, Threads, WhatsApp …), it's safe to remove them from the Use cases page. Each one Meta later requires its own review effort.",
       },
     ],
     metaDocs: [
@@ -189,7 +189,7 @@ const SECTIONS: Section[] = [
     number: 4,
     title: "Submit for Advanced Access (production only)",
     blurb:
-      "Standard Access lets you manage only your own ad accounts at limited rate. To manage clients' accounts at production scale you need Advanced Access for the Marketing API permissions — which gates on Business Verification + an App Review submission. Skip this whole step while you're just testing internally; Standard Access is enough for that.",
+      "Standard Access lets you manage only your own ad accounts at limited rate. To manage clients' accounts at production scale you need Advanced Access for the Marketing API permissions, which gates on Business Verification + an App Review submission. Skip this whole step while you're just testing internally; Standard Access is enough for that.",
     steps: [
       {
         text:
@@ -205,13 +205,13 @@ const SECTIONS: Section[] = [
         text:
           "On each permission you need (at minimum ads_management, ads_read, business_management), open Actions → 'Request advanced access'. Meta will prompt you for a short use-case description and a screen-recording proving how your app uses the permission.",
         note:
-          "Meta moves these buttons every few releases — the labels here may read 'Get advanced access' or 'Upgrade' instead. The location stays in the use case's Permissions tab.",
+          "Meta moves these buttons every few releases, so the labels here may read 'Get advanced access' or 'Upgrade' instead. The location stays in the use case's Permissions tab.",
       },
       {
         text:
           "Advanced Access also requires Business Verification on your Business Portfolio. Path: Business Settings → Authorisations and verifications → Verify yourself or an organisation → Business portfolio tab → Start verification. Verification needs legal-name + address + tax-ID proof and can take several business days.",
         note:
-          "Meta moves this page every few releases — it used to live in Security Centre. If the path here looks different, search for 'Business Verification' in Business Settings or check Meta's doc linked below.",
+          "Meta moves this page every few releases. It used to live in Security Centre. If the path here looks different, search for 'Business Verification' in Business Settings or check Meta's doc linked below.",
         screenshot: {
           src: "/setup-guide/09-business-verification.png",
           alt: "Authorisations and verifications page with 'Verify yourself or an organisation' panel open",
@@ -221,9 +221,9 @@ const SECTIONS: Section[] = [
       },
       {
         text:
-          "Once Business Verification is approved AND each permission's App Review submission passes (5–10 business days each), the use case's Permissions tab will show 'Advanced access' on the rows you submitted. At that point your token has production scale.",
+          "Once Business Verification is approved AND each permission's App Review submission passes (5-10 business days each), the use case's Permissions tab will show 'Advanced access' on the rows you submitted. At that point your token has production scale.",
         note:
-          "This step rots faster than any other in this guide — if the screen here looks unfamiliar, jump straight to Meta's docs linked below. They're the authoritative source.",
+          "This step rots faster than any other in this guide. If the screen here looks unfamiliar, jump straight to Meta's docs linked below. They're the authoritative source.",
       },
     ],
     metaDocs: [
@@ -246,7 +246,7 @@ const SECTIONS: Section[] = [
     number: 5,
     title: "Create a System User in Business Manager",
     blurb:
-      "System Users issue tokens that don't expire and don't depend on any human staying logged in. This is the right token type for an agency platform — humans leave, but the System User token keeps the platform running.",
+      "System Users issue tokens that don't expire and don't depend on any human staying logged in. This is the right token type for an agency platform. Humans leave, but the System User token keeps the platform running.",
     steps: [
       {
         text:
@@ -260,7 +260,7 @@ const SECTIONS: Section[] = [
       },
       {
         text:
-          "Name it something obvious and pick role: Admin. The Admin role lets the System User manage every asset (ad account, Page, …) you later assign to it. Meta sometimes rejects certain reserved names — if your first pick is refused, try a different one.",
+          "Name it something obvious and pick role: Admin. The Admin role lets the System User manage every asset (ad account, Page, …) you later assign to it. Meta sometimes rejects certain reserved names. If your first pick is refused, try a different one.",
         note:
           "Don't reuse one System User across multiple unrelated platforms. One purpose-built System User per integration makes it easier to revoke access cleanly later.",
         screenshot: {
@@ -297,7 +297,7 @@ const SECTIONS: Section[] = [
       },
       {
         text:
-          "Asset type defaults to Facebook Pages — tick the Page(s) your ads will run from. On the right, toggle Full control → Everything ON. Also tick Leads under Partial access (Meta gates it separately because it exposes PII, but our platform needs it for lead-gen objective campaigns).",
+          "Asset type defaults to Facebook Pages, so tick the Page(s) your ads will run from. On the right, toggle Full control → Everything ON. Also tick Leads under Partial access (Meta gates it separately because it exposes PII, but our platform needs it for lead-gen objective campaigns).",
         note:
           "Don't tick the bottom 'Everything' toggle if you want the System User to never delete the Page itself. For an internal single-user tool the blast radius is acceptable, so we toggle it on.",
         screenshot: {
@@ -311,7 +311,7 @@ const SECTIONS: Section[] = [
         text:
           "Switch the asset type to Ad accounts (left column). Tick every client ad account this platform should manage. On the right, toggle Full control → Manage ad accounts ON. Click Assign assets at the bottom of the modal to save.",
         note:
-          "If your senior adds new client ad accounts later, come back here and tick them — the System User can't see anything it wasn't explicitly granted.",
+          "If your senior adds new client ad accounts later, come back here and tick them. The System User can't see anything it wasn't explicitly granted.",
         screenshot: {
           src: "/setup-guide/14-assign-ad-accounts.png",
           alt: "Asset assignment modal with Ad accounts selected and Full control (Manage ad accounts) toggled on",
@@ -352,7 +352,7 @@ const SECTIONS: Section[] = [
         text:
           "In the modal, tick your System User from the list and toggle Manage app under Full control. Click Assign.",
         note:
-          "Full control here is the role on the app itself — not on individual ad accounts. Asset-level permissions are still whatever you set in step 6.",
+          "Full control here is the role on the app itself, not on individual ad accounts. Asset-level permissions are still whatever you set in step 6.",
         screenshot: {
           src: "/setup-guide/16-app-add-system-user-modal.png",
           alt: "Add people modal with the System User checked and Manage app (Full control) toggled on",
@@ -371,7 +371,7 @@ const SECTIONS: Section[] = [
         },
       },
       {
-        text: "Select app — pick the app you created in step 2 from the dropdown. Click Next.",
+        text: "Select app: pick the app you created in step 2 from the dropdown. Click Next.",
         screenshot: {
           src: "/setup-guide/18-token-select-app.png",
           alt: "Generate token wizard step 1 with the Select app dropdown open showing the agency's apps",
@@ -380,7 +380,7 @@ const SECTIONS: Section[] = [
       },
       {
         text:
-          "Set expiry — choose Never. Meta recommends 60 days but that's for human-driven flows. Our backend needs a token that doesn't break every two months.",
+          "Set expiry: choose Never. Meta recommends 60 days but that's for human-driven flows. Our backend needs a token that doesn't break every two months.",
         screenshot: {
           src: "/setup-guide/19-token-set-expiry.png",
           alt: "Generate token wizard Set expiry step with Never radio selected",
@@ -390,7 +390,7 @@ const SECTIONS: Section[] = [
       },
       {
         text:
-          "Assign permissions — open the dropdown and tick at minimum: ads_management, business_management, pages_show_list, pages_manage_ads, pages_read_engagement. If you know you'll add catalog / Threads / WhatsApp features later, tick those too — easier to include now than to regenerate the token.",
+          "Assign permissions. Open the dropdown and tick at minimum: ads_management, business_management, pages_show_list, pages_manage_ads, pages_read_engagement. If you know you'll add catalog / Threads / WhatsApp features later, tick those too, since including them now is easier than regenerating the token later.",
         note:
           "The token's scope is exactly what's ticked here. Anything skipped today can't be unlocked tomorrow without revoking and generating a new token.",
         screenshot: {
@@ -402,24 +402,24 @@ const SECTIONS: Section[] = [
       },
       {
         text:
-          "Meta may show an 'Almost finished — verify your account' gate. This is a security check that fires for sensitive token operations independent of how many permissions you picked. Click Verify account and complete the flow (phone OTP or photo ID). Skipping with Close still leaves the token usable for most calls, but some advanced operations will stay blocked until you verify.",
+          "Meta may show an 'Almost finished' gate asking you to verify your account. This is a security check that fires for sensitive token operations independent of how many permissions you picked. Click Verify account and complete the flow (phone OTP or photo ID). Skipping with Close still leaves the token usable for most calls, but some advanced operations will stay blocked until you verify.",
         screenshot: {
           src: "/setup-guide/21-verify-account-popup.png",
           alt: "Almost finished verify your account modal overlay during token generation",
           caption:
-            "Identity verification gate. Independent of the permissions ticked — Meta sometimes triggers it for high-privilege tokens.",
+            "Identity verification gate. Independent of the permissions ticked. Meta sometimes triggers it for high-privilege tokens.",
         },
       },
       {
         text:
-          "Copy the token from the Token created screen. Meta shows this value once and never again — keep it somewhere safe until you paste it into our Connect a Meta business screen (step 8 below).",
+          "Copy the token from the Token created screen. Meta shows this value once and never again, so keep it somewhere safe until you paste it into our Connect a Meta business screen (step 8 below).",
         note:
           "If the token is ever lost or exposed, come back here and click Revoke tokens → Generate token again. You'll then need to re-paste the new value into our platform for it to keep working.",
         screenshot: {
           src: "/setup-guide/22-token-created.png",
           alt: "Token created confirmation screen with the token string and a Copy button",
           caption:
-            "Copy immediately. Meta does not show this string again — only a revoke + regenerate gets you a new one.",
+            "Copy immediately. Meta does not show this string again. Only a revoke + regenerate gets you a new one.",
         },
       },
     ],
@@ -439,7 +439,7 @@ const SECTIONS: Section[] = [
     number: 8,
     title: "Paste the token into our platform",
     blurb:
-      "Last step — the token is what unlocks the rest of the app for you.",
+      "Last step. The token is what unlocks the rest of the app for you.",
     steps: [
       {
         text:
@@ -478,7 +478,7 @@ export default function SetupGuidePage() {
             Getting a Meta access token
           </h1>
           <p className="mt-1 text-sm text-muted">
-            End-to-end walkthrough — from creating a Meta Business Manager to
+            End-to-end walkthrough, from creating a Meta Business Manager to
             pasting a System User token into this app. Meta&apos;s screens
             change every few months; each section links to their official docs
             as the fallback if a screenshot here looks different from yours.
@@ -530,7 +530,7 @@ export default function SetupGuidePage() {
               </span>
               {s.draft && (
                 <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
-                  Draft — screenshots pending
+                  Draft: screenshots pending
                 </span>
               )}
             </div>

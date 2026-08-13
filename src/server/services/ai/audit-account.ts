@@ -27,6 +27,7 @@ import OpenAI from "openai";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db/prisma";
 import { complete } from "@/lib/llm/chat";
+import { HUMAN_STYLE_RULES } from "@/lib/llm/style";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY ?? "missing-key" });
 
@@ -411,7 +412,7 @@ async function checkBudgetAllocation(
       kind: "budget_misallocation",
       severity: a.roas < 0.5 ? "high" : "medium",
       title: `Over-funded ad set: ${a.name}`,
-      body: `Spent ${fmt(a.spendCents)} ${currency} in the last ${AUDIT_WINDOW_DAYS} days (above median ${fmt(medSpend)}) but ROAS is ${a.roas.toFixed(2)}× — below the account median of ${medRoas.toFixed(2)}×. Consider trimming budget or pausing.`,
+      body: `Spent ${fmt(a.spendCents)} ${currency} in the last ${AUDIT_WINDOW_DAYS} days (above median ${fmt(medSpend)}) but ROAS is ${a.roas.toFixed(2)}×, below the account median of ${medRoas.toFixed(2)}×. Consider trimming budget or pausing.`,
       entity: { type: "adset", id: a.metaAdSetId, name: a.name },
       metrics: {
         spendCents: a.spendCents,
@@ -426,7 +427,7 @@ async function checkBudgetAllocation(
       kind: "budget_misallocation",
       severity: "medium",
       title: `Under-funded winner: ${a.name}`,
-      body: `Only spent ${fmt(a.spendCents)} ${currency} in the last ${AUDIT_WINDOW_DAYS} days (below median ${fmt(medSpend)}) but ROAS is ${a.roas.toFixed(2)}× — above the account median of ${medRoas.toFixed(2)}×. Likely worth scaling.`,
+      body: `Only spent ${fmt(a.spendCents)} ${currency} in the last ${AUDIT_WINDOW_DAYS} days (below median ${fmt(medSpend)}) but ROAS is ${a.roas.toFixed(2)}×, above the account median of ${medRoas.toFixed(2)}×. Likely worth scaling.`,
       entity: { type: "adset", id: a.metaAdSetId, name: a.name },
       metrics: {
         spendCents: a.spendCents,
@@ -513,7 +514,7 @@ Flag things like:
 - Ambiguous or test-y names ("test", "abc", "untitled") still active
 
 Rules:
-- ONLY flag genuine inconsistencies — if names look intentional or follow no convention, return an empty array.
+- ONLY flag genuine inconsistencies. If names look intentional or follow no convention, return an empty array.
 - Severity: "high" = blocks campaign management; "medium" = makes reporting hard; "low" = mild cleanup.
 - Use the entityId exactly as given so the UI can link back.
 - Keep "issue" to ONE short sentence.
@@ -629,7 +630,7 @@ async function checkUrlsAndUtms(
       kind: "url_utm",
       severity: "high",
       title: `${withoutUtm} creative${withoutUtm === 1 ? "" : "s"} missing UTM tracking`,
-      body: `Most of this account's creatives (${withUtm}) tag their landing URLs with utm_source — but ${withoutUtm} don't. Those clicks won't show up in GA / your funnel analytics. Examples: ${culprits.map((c) => c.name ?? c.metaCreativeId).join(", ")}.`,
+      body: `Most of this account's creatives (${withUtm}) tag their landing URLs with utm_source, but ${withoutUtm} don't. Those clicks won't show up in GA / your funnel analytics. Examples: ${culprits.map((c) => c.name ?? c.metaCreativeId).join(", ")}.`,
       metrics: {
         withUtm,
         withoutUtm,
@@ -745,7 +746,7 @@ async function checkVoiceDrift(
       kind: "voice_drift",
       severity: s.distance > 0.45 ? "medium" : "low",
       title: `Brand-voice outlier creative`,
-      body: `This creative reads off-brand vs the account's top performers (cosine distance ${s.distance.toFixed(2)}). Worth a sanity check — was it intentional? Excerpt: "${preview}…"`,
+      body: `This creative reads off-brand vs the account's top performers (cosine distance ${s.distance.toFixed(2)}). Worth a sanity check. Was it intentional? Excerpt: "${preview}…"`,
       entity: { type: "creative", id: s.sourceId, name: preview },
       metrics: { distance: s.distance },
     };
@@ -760,7 +761,7 @@ async function generateAuditSummary(input: {
   findings: AuditFinding[];
 }): Promise<string> {
   if (input.findings.length === 0) {
-    return `No issues flagged for ${input.accountName} — naming, budget allocation, URL tracking, and brand voice all look clean.`;
+    return `No issues flagged for ${input.accountName}. Naming, budget allocation, URL tracking, and brand voice all look clean.`;
   }
 
   const block = input.findings
@@ -771,15 +772,17 @@ async function generateAuditSummary(input: {
     )
     .join("\n");
 
-  const system = `You are a senior media buyer writing a one-paragraph executive summary at the top of an account audit. Read the findings list and write 2–3 short sentences for the strategist.
+  const system = `You are a senior media buyer writing a one-paragraph executive summary at the top of an account audit. Read the findings list and write 2-3 short sentences for the strategist.
 
 Rules:
-- Lead with the most important issue. Don't list everything — that's what the findings table below does.
+- Lead with the most important issue. Don't list everything, that's what the findings table below does.
 - Plain English. No clichés ("crushed it", "synergy").
 - If the most severe issue is "high" budget mis-allocation, lead with that.
-- 2–3 sentences max. Tight.`;
+- 2-3 sentences max. Tight.
 
-  const userPrompt = `Account: ${input.businessName} — ${input.accountName}
+${HUMAN_STYLE_RULES}`;
+
+  const userPrompt = `Account: ${input.businessName} / ${input.accountName}
 
 Findings:
 ${block}

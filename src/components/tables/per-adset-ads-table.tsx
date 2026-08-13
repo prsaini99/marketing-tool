@@ -25,7 +25,7 @@ import { DeleteButton } from "@/components/common/delete-button";
  */
 
 function formatRelative(d: Date | null): string {
-  if (!d) return "—";
+  if (!d) return "-";
   const ms = Date.now() - d.getTime();
   if (ms < 60_000) return "just now";
   if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`;
@@ -217,28 +217,28 @@ export function PerAdsetAdsTable({
                   {hasInsights ? (
                     formatMoney(a.spendCents / 100, currency)
                   ) : (
-                    <span className="font-normal text-subtle">—</span>
+                    <span className="font-normal text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right text-sm tabular-nums">
                   {hasInsights ? (
                     a.impressions.toLocaleString()
                   ) : (
-                    <span className="text-subtle">—</span>
+                    <span className="text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right text-sm tabular-nums">
                   {hasInsights ? (
                     a.clicks.toLocaleString()
                   ) : (
-                    <span className="text-subtle">—</span>
+                    <span className="text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right text-sm tabular-nums">
                   {hasInsights ? (
                     `${(ctr * 100).toFixed(2)}%`
                   ) : (
-                    <span className="text-subtle">—</span>
+                    <span className="text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3">

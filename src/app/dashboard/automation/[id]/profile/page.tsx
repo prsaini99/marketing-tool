@@ -21,7 +21,7 @@ export default async function ProfilePage({
     <div className="space-y-4 p-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">
-          Bot profile —{" "}
+          Bot profile:{" "}
           {account.platform === "FACEBOOK"
             ? account.displayName
             : `@${account.displayName}`}

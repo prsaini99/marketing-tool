@@ -27,6 +27,7 @@ import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { KpiCard } from "@/components/insights/kpi-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { AdPreviewButton } from "@/components/ads/ad-preview-button";
+import { ImproveAdButton } from "@/components/ads/improve-ad-button";
 import { SyncNowButton } from "@/components/sync/sync-now-button";
 import { getAdFormatLabel } from "@/lib/display";
 import {
@@ -50,7 +51,7 @@ function formatCompact(n: number) {
 }
 
 function formatRelative(d: Date | null | undefined): string {
-  if (!d) return "—";
+  if (!d) return "-";
   const ms = Date.now() - d.getTime();
   if (ms < 60_000) return "just now";
   if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`;
@@ -291,6 +292,17 @@ export default async function AdDetailPage({
         <div className="flex items-start gap-2">
           <DateRangeDropdown />
           <AdPreviewButton metaAdId={ad.metaAdId} adName={ad.name} />
+          <ImproveAdButton
+            metaAdId={ad.metaAdId}
+            adName={ad.name}
+            currencySymbol={
+              account.currency === "INR"
+                ? "\u20B9"
+                : account.currency === "USD"
+                  ? "$"
+                  : ""
+            }
+          />
           {/* Same chain as the list page so a single sync from here refreshes
               everything needed to render this page accurately. */}
           <SyncNowButton
@@ -309,23 +321,23 @@ export default async function AdDetailPage({
         <div className="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-5">
           <KpiCard
             label="Spend"
-            value={hasInsights ? formatMoney(spendCents / 100, currency) : "—"}
+            value={hasInsights ? formatMoney(spendCents / 100, currency) : "-"}
           />
           <KpiCard
             label="Impressions"
-            value={hasInsights ? formatCompact(impressions) : "—"}
+            value={hasInsights ? formatCompact(impressions) : "-"}
           />
           <KpiCard
             label="Reach"
-            value={hasInsights ? formatCompact(reach) : "—"}
+            value={hasInsights ? formatCompact(reach) : "-"}
           />
           <KpiCard
             label="Clicks"
-            value={hasInsights ? formatCompact(clicks) : "—"}
+            value={hasInsights ? formatCompact(clicks) : "-"}
           />
           <KpiCard
             label="CTR"
-            value={hasInsights ? `${(ctr * 100).toFixed(2)}%` : "—"}
+            value={hasInsights ? `${(ctr * 100).toFixed(2)}%` : "-"}
           />
         </div>
         {hasInsights && avgCpmCents > 0 && (
@@ -348,7 +360,7 @@ export default async function AdDetailPage({
           </p>
         ) : !creative ? (
           <p className="mt-3 text-sm text-muted">
-            Creative not synced yet — click Sync now above.
+            Creative not synced yet. Click Sync now above.
           </p>
         ) : (
           <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">

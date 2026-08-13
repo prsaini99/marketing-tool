@@ -102,7 +102,7 @@ function makeMetaSender(
   function requirePageId(): string {
     if (!pageId) {
       throw new Error(
-        "No linked Facebook Page for this account — re-run Discover so the Page linkage is recorded.",
+        "No linked Facebook Page for this account. Re-run Discover so the Page linkage is recorded.",
       );
     }
     return pageId;
@@ -932,7 +932,7 @@ export async function orchestrateEvent(
 
   const outcomes: ActionOutcome[] = [];
   for (const a of planned) {
-    outcomes.push(await runOne(a, outcomes)); // sequential — never Promise.all
+    outcomes.push(await runOne(a, outcomes)); // sequential, never Promise.all
   }
 
   // NOTE: bot replies are NOT recorded here. Each one is written inside

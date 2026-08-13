@@ -1,31 +1,164 @@
 @import "tailwindcss";
 
 /*
- * Design tokens — Stripe/Linear-inspired neutral palette + single blue accent.
- * Light mode only for v0; dark mode planned post-Phase 0.
+ * "SIGNAL" — the design system.
+ *
+ * A trading desk for attention. Marketers live in this tool all day, so the
+ * aesthetic is a deliberate split:
+ *
+ *   CONTENT FIELD — warm paper, ink text. Dense tables and long sessions
+ *   demand a light, low-glare reading surface; warmth (not #fff) is what
+ *   separates it from the default-Tailwind look. Status pills across ~55
+ *   files assume a light field, so this is also the load-bearing constraint.
+ *
+ *   CHROME — near-black ink with a green undertone. The sidebar is the
+ *   immersive moment on every screen: atmospheric gradient, noise texture,
+ *   ember glow on the active item. Dark rail against paper field is what
+ *   makes the product feel like an instrument rather than a website.
+ *
+ *   ACCENT — ember. Rationed to primary actions and focus; deliberately
+ *   outside the green/red delta channel that fills ads tables, and
+ *   pointedly not the indigo/purple every SaaS defaults to.
+ *
+ * Type: Bricolage Grotesque (display) / Hanken Grotesk (body) /
+ * IBM Plex Mono (data) — loaded in app/layout.tsx via next/font.
  */
 @theme {
-  --color-background: #ffffff;
-  --color-surface: #fafafa;
-  --color-surface-2: #f4f4f5;
-  --color-foreground: #18181b;
-  --color-muted: #71717a;
-  --color-subtle: #a1a1aa;
-  --color-border: #e4e4e7;
-  --color-border-strong: #d4d4d8;
+  /* Paper field — warm, never blue-gray */
+  --color-background: #f6f5f1;
+  --color-surface: #fdfdfb;
+  --color-surface-2: #edebe4;
+  --color-foreground: #191d1b;
+  --color-muted: #68716c;
+  --color-subtle: #a2a89f;
+  --color-border: #e4e2db;
+  --color-border-strong: #d1cfc5;
 
-  --color-accent: #2563eb;
-  --color-accent-hover: #1d4ed8;
-  --color-accent-foreground: #ffffff;
-  --color-accent-subtle: #eff6ff;
+  /* Ember accent — rationed to primary actions, focus, active states.
+     Deliberately OUTSIDE the green/red delta channel that fills ads
+     tables: the buy button must never be the same hue as "ROAS up". */
+  --color-accent: #e8590c;
+  --color-accent-hover: #c94a08;
+  --color-accent-foreground: #fff8f3;
+  --color-accent-subtle: #fdeee3;
 
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-danger: #dc2626;
+  /* Signals + tints (delta chips, alert pills) */
+  --color-success: #0a7d4f;
+  --color-success-subtle: #e4f3ec;
+  --color-warning: #b54708;
+  --color-warning-subtle: #fdf0e1;
+  --color-danger: #d92d20;
+  --color-danger-subtle: #fbeae9;
 
-  --font-sans: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  /* Chrome — near-black with a green undertone, not gray */
+  --color-ink: #0d1210;
+  --color-ink-2: #161d1a;
+  --color-ink-border: #2a332e;
+  --color-ink-muted: #8b948f;
+  --color-ink-subtle: #5b655f;
+  --color-ink-foreground: #e9edea;
+  --color-glow: #fb8f5a;
 
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
+  --font-sans: var(--font-body), system-ui, -apple-system, sans-serif;
+  --font-display: var(--font-display), var(--font-body), sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, monospace;
+
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  --shadow-card: 0 1px 2px rgb(28 30 26 / 0.04), 0 2px 8px rgb(28 30 26 / 0.04);
+  --shadow-lift: 0 2px 4px rgb(28 30 26 / 0.05), 0 8px 24px rgb(28 30 26 / 0.08);
+  --shadow-modal: 0 4px 12px rgb(13 31 26 / 0.12), 0 24px 64px rgb(13 31 26 / 0.22);
+}
+
+/* ── Base refinements ──────────────────────────────────────────────── */
+
+/* Readability floor. The audience includes 40-50+ year old marketers, and
+   dense-dashboard sizing tuned for 25-year-old eyes fails them. Raising the
+   ROOT font-size scales every rem-based Tailwind size proportionally —
+   text-sm becomes ~15.3px, text-xs ~13.1px — one declaration instead of a
+   thousand class edits, and user browser-zoom preferences still compose on
+   top because it's a relative unit chain. */
+html {
+  font-size: 17.5px;
+}
+
+::selection {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent-hover);
+}
+
+/* Headings carry the display voice by default — pages get the designed
+   look without editing forty files. */
+h1, h2 {
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+/* Numbers in tables and KPIs align vertically everywhere. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Focus: a visible ember ring, never the browser default blue. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* Thin, quiet scrollbars that match each surface. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+/* ── Atmosphere ────────────────────────────────────────────────────── */
+
+/* The rail's depth: ink gradient + faint ember glow near the brand +
+   noise texture. Atmosphere lives in the CHROME only — never behind
+   tables, where it would tax eight-hour reading sessions. */
+.chrome-rail {
+  /* NO position here: an unlayered `position: relative` would override the
+     component's layered `sticky` utility and un-stick the rail. sticky is
+     a positioned box, so the ::before below still anchors to it. */
+  background:
+    radial-gradient(140% 50% at 0% 0%, rgb(232 89 12 / 0.10) 0%, transparent 55%),
+    linear-gradient(172deg, var(--color-ink) 0%, var(--color-ink-2) 100%);
+}
+.chrome-rail::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.4;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.03 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── Motion ────────────────────────────────────────────────────────── */
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* One orchestrated entrance per page load — content rises as it streams
+   in. Cheap (compositor-only), and disabled for reduced-motion users. */
+.rise-in {
+  animation: rise-in 0.35s cubic-bezier(0.21, 0.66, 0.32, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise-in {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }

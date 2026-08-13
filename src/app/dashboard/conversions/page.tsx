@@ -15,6 +15,7 @@
  */
 
 import { Target } from "lucide-react";
+import { SubNav, TARGETING_TABS } from "@/components/layout/sub-nav";
 import { prisma } from "@/lib/db/prisma";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -59,7 +60,7 @@ function eventStyle(eventType: string | null): {
 }
 
 function formatRelative(d: Date | null): string {
-  if (!d) return "—";
+  if (!d) return "-";
   const ms = Date.now() - d.getTime();
   if (ms < 60_000) return "just now";
   if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`;
@@ -154,6 +155,7 @@ export default async function ConversionsPage({
 
   return (
     <div className="space-y-4">
+      <SubNav items={TARGETING_TABS} />
       <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Conversions</h1>
@@ -265,7 +267,7 @@ export default async function ConversionsPage({
                       </span>
                     </td>
                     <td className="px-4 py-3 align-top font-mono text-[11px] text-muted">
-                      {c.eventSourceId ?? "—"}
+                      {c.eventSourceId ?? "-"}
                     </td>
                     <td className="px-4 py-3 align-top text-xs text-muted">
                       {formatRelative(c.metaLastFiredTime)}
@@ -295,7 +297,7 @@ export default async function ConversionsPage({
 
       <p className="text-xs text-subtle">
         Showing up to 500 conversions. Conversions sync from Meta&apos;s
-        /act_X/customconversions endpoint — pick one as the optimization
+        /act_X/customconversions endpoint. Pick one as the optimization
         target on conversion-objective ad sets via
         promoted_object.custom_conversion_id.
       </p>

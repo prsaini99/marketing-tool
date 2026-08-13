@@ -168,7 +168,7 @@ export default async function AdSetsPage({
       // attribution windows — deferred for now.
       results: null,
       costPerResultCents: null,
-      lastEdited: formatRelative(s.metaUpdatedTime) ?? "—",
+      lastEdited: formatRelative(s.metaUpdatedTime) ?? "-",
     };
   });
 
@@ -204,7 +204,7 @@ export default async function AdSetsPage({
                 {activeCount} active · {pausedCount} paused
               </>
             ) : (
-              <>Campaign not found locally — try syncing campaigns first</>
+              <>Campaign not found locally. Try syncing campaigns first</>
             )}
             {lastSync?.finishedAt && (
               <> · Last synced {formatRelative(lastSync.finishedAt)}</>

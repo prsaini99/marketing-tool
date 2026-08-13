@@ -161,7 +161,7 @@ export function AiStudioPanel({
     const MAX_BYTES = 10 * 1024 * 1024;
     if (file.size > MAX_BYTES) {
       setProductRefError(
-        `Image is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is 10 MB.`,
+        `Image is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is 10 MB.`,
       );
       return;
     }
@@ -365,7 +365,7 @@ export function AiStudioPanel({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-accent">
           <Sparkles className="h-3.5 w-3.5" />
-          AI Studio — generate copy &amp; image together
+          AI Studio: generate copy &amp; image together
         </div>
         <span className="text-[10px] text-subtle">
           One click · copy via gpt-4o-mini, image via gpt-image-1.5 (run in
@@ -387,7 +387,7 @@ export function AiStudioPanel({
           {productRefB64 && (
             <span className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
               <Package className="h-2.5 w-2.5" />
-              Reference mode — designs a promo creative around your product
+              Reference mode: designs a promo creative around your product
             </span>
           )}
         </div>
@@ -406,7 +406,7 @@ export function AiStudioPanel({
               </div>
               <div className="text-[10px] text-subtle">
                 gpt-image-1.5 reads this photo at high fidelity and designs
-                a complete promo creative around the product — keeping the
+                a complete promo creative around the product, keeping the
                 SAME saree (pattern, border, pallu, colour) while adding
                 your offer headline, discount figure and a SHOP NOW button.
                 The model restages the scene, pose and typography; the
@@ -442,7 +442,7 @@ export function AiStudioPanel({
               className="flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border bg-surface px-3 py-2 text-[11px] text-muted hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Package className="h-3.5 w-3.5 text-subtle" />
-              Upload product photo — model designs a promo creative around it
+              Upload a product photo and the model designs a promo creative around it
             </button>
             <p className="text-[10px] text-subtle">
               Optional. Without a product photo the creative is invented from
@@ -464,7 +464,7 @@ export function AiStudioPanel({
         <label className="text-[11px] font-medium text-foreground">
           Your ad brief{" "}
           <span className="font-normal text-subtle">
-            — drives both copy &amp; creative
+            (drives both copy &amp; creative)
           </span>
         </label>
         <textarea
@@ -473,15 +473,15 @@ export function AiStudioPanel({
           onChange={(e) => setBrief(e.target.value)}
           placeholder={
             productRefB64
-              ? "e.g. Diwali offer, FLAT 50% OFF, SHOP NOW — festive scene, model wearing it, warm golden-hour light, diyas & marigolds"
-              : "e.g. Diwali saree sale, FLAT 50% OFF, SHOP NOW — urgency hook, target 25–45 women, festive warm lighting"
+              ? "e.g. Diwali offer, FLAT 50% OFF, SHOP NOW. Festive scene, model wearing it, warm golden-hour light, diyas & marigolds"
+              : "e.g. Diwali saree sale, FLAT 50% OFF, SHOP NOW. Urgency hook, target 25-45 women, festive warm lighting"
           }
           disabled={disabled || busy}
           className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
         />
         <p className="text-[10px] text-subtle">
           Name the <span className="font-medium text-foreground">offer, discount and CTA</span>{" "}
-          (e.g. &ldquo;Diwali, 50% off, Shop Now&rdquo;) — they get{" "}
+          (e.g. &ldquo;Diwali, 50% off, Shop Now&rdquo;). They get{" "}
           <span className="font-medium text-foreground">designed into the image</span>{" "}
           as a ready-to-publish promo creative. Copy is still grounded in this
           account&rsquo;s past ads + cross-account winners.
@@ -547,7 +547,7 @@ export function AiStudioPanel({
 
           {wantImage && imageQuality === "low" && (
             <span className="text-[10px] text-amber-600">
-              ⚠ baked-in offer text may look mushy at Low — Medium+ recommended
+              ⚠ baked-in offer text may look mushy at Low, so Medium+ is recommended
             </span>
           )}
 
@@ -713,7 +713,7 @@ export function AiStudioPanel({
                 {applied ? (
                   <span className="inline-flex items-center gap-1 text-accent">
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    Applied to the ad form — you can keep tweaking and re-apply
+                    Applied to the ad form. You can keep tweaking and re-apply
                   </span>
                 ) : (
                   "Finalised? Apply to ad fills the form in one click."
@@ -912,7 +912,7 @@ function CopyVariantCard({
             className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           />
           <p className="text-[10px] text-subtle">
-            Tweaks this copy variant only — image variants stay untouched.
+            Tweaks this copy variant only. Image variants stay untouched.
           </p>
           {tweakError && (
             <div className="rounded border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-danger">
@@ -1094,7 +1094,7 @@ function ImageVariantCard({
             className="w-full rounded border border-border bg-background px-1.5 py-0.5 text-[11px] placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           />
           <p className="text-[10px] text-subtle">
-            Tweaks this image variant only — copy variants stay untouched.
+            Only this image variant changes. Copy variants stay untouched.
           </p>
           {tweakError && (
             <div className="rounded border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] text-danger">

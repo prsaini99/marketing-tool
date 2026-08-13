@@ -22,6 +22,7 @@ import {
   type PlaybookEntry,
   type PlaybookStats,
 } from "@/components/ai/playbook-browser";
+import { CreativePatterns } from "@/components/ai/creative-patterns";
 
 export const dynamic = "force-dynamic";
 
@@ -69,14 +70,14 @@ export default async function PlaybookPage({
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Playbook</h1>
           <p className="mt-0.5 text-sm text-muted">
-            What&apos;s working across your portfolio — performance-weighted,
+            What&apos;s working across your portfolio, performance-weighted and
             cross-account. Sync creatives on any account to populate this.
           </p>
         </div>
         <EmptyState
           icon={BookOpen}
           title="No indexed creatives yet"
-          description="Click Sync now on any account's Ads page to index its creatives — winners will show up here once they have real spend or conversions."
+          description="Click Sync now on any account's Ads page to index its creatives. Winners show up here once they have real spend or conversions."
           action={{
             label: "Go to Accounts",
             href: "/dashboard/accounts",
@@ -119,6 +120,20 @@ export default async function PlaybookPage({
     console.error("playbook page initial fetch failed:", err);
   }
 
+  // Creative patterns are computed per ad account (the tags live on that
+  // account's embedding rows), so this panel needs a single account to point
+  // at. Honour the topbar client filter when one is set; otherwise take the
+  // first synced account rather than silently aggregating across clients,
+  // which would mix two brands' creative mixes into one meaningless chart.
+  const patternsAccount = await prisma.metaAdAccount.findFirst({
+    where: {
+      selectedForSync: true,
+      ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
+    },
+    orderBy: { name: "asc" },
+    select: { id: true, currency: true },
+  });
+
   return (
     <div className="space-y-4">
       <div>
@@ -132,13 +147,20 @@ export default async function PlaybookPage({
             </>
           ) : (
             <>
-              What&apos;s working across your portfolio —
-              performance-weighted, cross-account.
+              What&apos;s working across your portfolio,
+              performance-weighted and cross-account.
             </>
           )}{" "}
           Filter by metric, or search for a specific hook.
         </p>
       </div>
+
+      {patternsAccount && (
+        <CreativePatterns
+          adAccountId={patternsAccount.id}
+          currency={patternsAccount.currency}
+        />
+      )}
 
       <PlaybookBrowser
         initialEntries={initialEntries}

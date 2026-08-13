@@ -81,7 +81,7 @@ export async function updateAd(input: UpdateAdInput): Promise<UpdateAdResult> {
     });
     if (!creative) {
       throw new Error(
-        "Selected creative isn't in this ad account — sync creatives and try again",
+        "Selected creative isn't in this ad account. Sync creatives and try again",
       );
     }
     payload.creative = { creative_id: input.metaCreativeId };

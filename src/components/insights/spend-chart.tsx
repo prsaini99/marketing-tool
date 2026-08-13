@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import type { DailyMetric } from "@/lib/display";
 
-const ACCENT = "#2563eb";
+const ACCENT = "#e8590c";
 
 interface SpendChartProps {
   metrics: DailyMetric[];
@@ -103,34 +103,34 @@ export function SpendChart({
             </defs>
             <CartesianGrid
               strokeDasharray="3 3"
-              stroke="#e4e4e7"
+              stroke="#e4e2db"
               vertical={false}
             />
             <XAxis
               dataKey="date"
-              stroke="#a1a1aa"
+              stroke="#a2a89f"
               fontSize={11}
               tickLine={false}
               axisLine={false}
             />
             <YAxis
-              stroke="#a1a1aa"
+              stroke="#a2a89f"
               fontSize={11}
               tickLine={false}
               axisLine={false}
               tickFormatter={formatTick}
             />
             <Tooltip
-              cursor={{ stroke: "#d4d4d8", strokeWidth: 1 }}
+              cursor={{ stroke: "#d1cfc5", strokeWidth: 1 }}
               contentStyle={{
                 background: "white",
-                border: "1px solid #e4e4e7",
+                border: "1px solid #e4e2db",
                 borderRadius: 6,
                 fontSize: 12,
                 padding: "6px 10px",
               }}
               formatter={tooltipFormatter}
-              labelStyle={{ color: "#71717a", fontSize: 11 }}
+              labelStyle={{ color: "#68716c", fontSize: 11 }}
             />
             <Area
               type="monotone"

@@ -34,7 +34,7 @@ const KIND_LABEL: Record<ScheduleKind, string> = {
 };
 
 function formatRelative(iso: string | null, opts: { future?: boolean } = {}) {
-  if (!iso) return "—";
+  if (!iso) return "-";
   const t = new Date(iso).getTime();
   const ms = opts.future ? t - Date.now() : Date.now() - t;
   if (ms < 0) return opts.future ? "due now" : "just now";
@@ -270,7 +270,7 @@ export function SchedulesModal({
                       </span>
                       <span className="text-xs text-muted">
                         {isOff ? (
-                          "—"
+                          "-"
                         ) : (
                           <>
                             Next:{" "}

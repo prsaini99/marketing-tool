@@ -21,7 +21,7 @@ import type { ChatCompletionMessageParam } from "openai/resources/chat/completio
 const apiKey = process.env.OPENAI_API_KEY;
 if (!apiKey && process.env.NODE_ENV === "production") {
   console.error(
-    "OPENAI_API_KEY is not set — LLM calls will fail at call time",
+    "OPENAI_API_KEY is not set, so LLM calls will fail at call time",
   );
 }
 

@@ -95,9 +95,29 @@ export interface NormalizedAdSet {
   campaignMetaId: string; // Meta's parent campaign id, used to look up local FK
   name: string;
   status: string;
+  /**
+   * Meta's REAL delivery state, as distinct from `status` (the operator's
+   * intent). An ad set whose schedule has ended still reports
+   * status="ACTIVE" — only this field says whether it can deliver.
+   */
+  effectiveStatus: string | null;
   optimizationGoal: string | null;
   dailyBudgetCents: number | null;
   lifetimeBudgetCents: number | null;
+  /**
+   * Schedule and remaining spend — the three fields that separate "running"
+   * from "finished".
+   *
+   * Without them an expired ad set is indistinguishable from a live one:
+   * Meta reports a finished lifetime-budget ad set as ACTIVE at every level
+   * (account, campaign, ad), because the OBJECT is enabled — it simply has
+   * no budget left and no schedule left to run in. That is exactly how an
+   * account can sit with "13 active ad sets" and zero delivery for weeks
+   * without anything looking wrong.
+   */
+  startTime: Date | null;
+  endTime: Date | null;
+  budgetRemainingCents: number | null;
   metaUpdatedTime: Date | null;
 }
 

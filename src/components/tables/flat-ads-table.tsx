@@ -49,7 +49,7 @@ const ACTION_META: Record<
     confirmLabel: "Pause ads",
     variant: "neutral",
     impact:
-      "They'll stop delivering on Meta. No data is lost — you can re-activate any time.",
+      "They'll stop delivering on Meta. No data is lost, and you can re-activate any time.",
   },
   activate: {
     verb: "activate",
@@ -337,21 +337,21 @@ export function FlatAdsTable({ ads }: FlatAdsTableProps) {
                     {a.spend != null ? (
                       formatMoney(a.spend, a.currency)
                     ) : (
-                      <span className="font-normal text-subtle">—</span>
+                      <span className="font-normal text-subtle">-</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums">
                     {a.impressions != null ? (
                       a.impressions.toLocaleString()
                     ) : (
-                      <span className="text-subtle">—</span>
+                      <span className="text-subtle">-</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums">
                     {a.ctr != null ? (
                       `${(a.ctr * 100).toFixed(2)}%`
                     ) : (
-                      <span className="text-subtle">—</span>
+                      <span className="text-subtle">-</span>
                     )}
                   </td>
                   <td className="px-4 py-3">

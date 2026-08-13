@@ -27,7 +27,7 @@ function formatBudget(adSet: DisplayAdSet, currency: string) {
   if (adSet.lifetimeBudgetCents != null) {
     return `${formatMoney(adSet.lifetimeBudgetCents / 100, currency)} lifetime`;
   }
-  return "—";
+  return "-";
 }
 
 function statusStyle(status: string) {
@@ -131,21 +131,21 @@ export function AdSetsTable({
                   {s.spend7d != null ? (
                     formatMoney(s.spend7d, currency)
                   ) : (
-                    <span className="font-normal text-subtle">—</span>
+                    <span className="font-normal text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right text-sm tabular-nums">
                   {s.results != null ? (
                     s.results.toLocaleString()
                   ) : (
-                    <span className="text-subtle">—</span>
+                    <span className="text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3 text-right text-sm tabular-nums">
                   {s.costPerResultCents != null && s.costPerResultCents > 0 ? (
                     formatMoney(s.costPerResultCents / 100, currency)
                   ) : (
-                    <span className="text-subtle">—</span>
+                    <span className="text-subtle">-</span>
                   )}
                 </td>
                 <td className="px-4 py-3">

@@ -21,6 +21,7 @@
 
 import { NextResponse } from "next/server";
 import { reindexAllAccountsAdCopy } from "@/server/services/ai/index-ad-copy";
+import { requireCronAuth } from "@/lib/cron-auth";
 
 // Indexing every creative across every account at OpenAI's embeddings
 // endpoint can take a couple of minutes for a busy agency. Lift the
@@ -28,13 +29,8 @@ import { reindexAllAccountsAdCopy } from "@/server/services/ai/index-ad-copy";
 export const maxDuration = 300;
 
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
+  const denied = requireCronAuth(req);
+  if (denied) return denied;
 
   try {
     const result = await reindexAllAccountsAdCopy();

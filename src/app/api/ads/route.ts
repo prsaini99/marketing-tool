@@ -158,7 +158,7 @@ export async function POST(req: Request) {
         return NextResponse.json(
           {
             error:
-              "thumbnailUrl is required for a video ad — Meta needs a poster",
+              "thumbnailUrl is required for a video ad, since Meta needs a poster",
           },
           { status: 400 },
         );

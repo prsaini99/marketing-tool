@@ -186,7 +186,7 @@ export function InboxThread({
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               Outside Meta&apos;s 24-hour window. This sends as a human-agent
               reply, which Meta permits only for messages written by a
-              person — not automated replies.
+              person, not automated replies.
             </div>
           )}
           <textarea

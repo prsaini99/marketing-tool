@@ -9,7 +9,7 @@
  * Pagination via ?page= — 50 rows per page.
  *
  * Names are resolved by looking up the Meta entity (Campaign / AdSet / Ad)
- * by metaId. Some rows may resolve to "—" if the underlying entity was
+ * by metaId. Some rows may resolve to "-" if the underlying entity was
  * deleted from Meta after the audit row was written — the log still tells
  * you what was done, which is the point of an audit log.
  */
@@ -70,7 +70,7 @@ const STATUS_STYLE: Record<string, { pill: string; dot: string; label: string }>
   ok: { pill: "bg-green-50 text-green-700", dot: "bg-green-500", label: "Ok" },
   failed: { pill: "bg-red-50 text-red-700", dot: "bg-red-500", label: "Failed" },
   pending: { pill: "bg-blue-50 text-blue-700", dot: "bg-blue-500", label: "Pending" },
-  unknown: { pill: "bg-zinc-100 text-zinc-600", dot: "bg-zinc-400", label: "—" },
+  unknown: { pill: "bg-zinc-100 text-zinc-600", dot: "bg-zinc-400", label: "-" },
 };
 
 function StatusPill({ status }: { status: string }) {
@@ -255,7 +255,7 @@ export default async function AuditLogPage({
           <h1 className="text-xl font-semibold tracking-tight">Audit log</h1>
           <p className="mt-0.5 text-sm text-muted">
             Every Meta write the platform has performed. Recorded before each
-            call — so failed ones are captured too.
+            call, so failed ones are captured too.
           </p>
         </div>
         <div className="flex items-start gap-2">
@@ -356,7 +356,7 @@ export default async function AuditLogPage({
                             <span className="font-medium">{target.name}</span>
                           )
                         ) : (
-                          <span className="text-subtle">— (deleted)</span>
+                          <span className="text-subtle">(deleted)</span>
                         )}
                         <div className="text-xs text-subtle">{r.targetId}</div>
                       </td>
@@ -368,7 +368,7 @@ export default async function AuditLogPage({
                             <span className="text-foreground">{change.to}</span>
                           </span>
                         ) : (
-                          <span className="text-subtle">—</span>
+                          <span className="text-subtle">-</span>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -391,7 +391,7 @@ export default async function AuditLogPage({
 
           <div className="flex items-center justify-between text-xs text-muted">
             <span>
-              Showing <span className="text-foreground">{showingFrom}</span>–
+              Showing <span className="text-foreground">{showingFrom}</span>-
               <span className="text-foreground">{showingTo}</span> of{" "}
               <span className="text-foreground">{total}</span>
             </span>

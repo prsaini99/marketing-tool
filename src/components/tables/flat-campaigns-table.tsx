@@ -47,7 +47,7 @@ const ACTION_META: Record<
     confirmLabel: "Pause campaigns",
     variant: "neutral",
     impact:
-      "They'll stop delivering ads on Meta. No data is lost — you can re-activate any time.",
+      "They'll stop delivering ads on Meta. No data is lost, and you can re-activate any time.",
   },
   activate: {
     verb: "activate",
@@ -80,7 +80,7 @@ function formatBudget(campaign: DisplayCampaign) {
   if (campaign.lifetimeBudgetCents != null) {
     return `${formatMoney(campaign.lifetimeBudgetCents / 100, campaign.currency)} lifetime`;
   }
-  return "—";
+  return "-";
 }
 
 function statusStyle(status: string) {
@@ -381,21 +381,21 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
                     {c.spend7d != null ? (
                       formatMoney(c.spend7d, c.currency)
                     ) : (
-                      <span className="font-normal text-subtle">—</span>
+                      <span className="font-normal text-subtle">-</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums">
                     {c.impressions != null ? (
                       c.impressions.toLocaleString()
                     ) : (
-                      <span className="text-subtle">—</span>
+                      <span className="text-subtle">-</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums">
                     {c.ctr != null ? (
                       `${(c.ctr * 100).toFixed(2)}%`
                     ) : (
-                      <span className="text-subtle">—</span>
+                      <span className="text-subtle">-</span>
                     )}
                   </td>
                   <td className="px-4 py-3">

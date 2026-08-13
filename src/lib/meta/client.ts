@@ -379,7 +379,7 @@ class MetaClient {
       accessToken,
       {
         fields:
-          "id,name,status,optimization_goal,daily_budget,lifetime_budget,updated_time,campaign_id",
+          "id,name,status,effective_status,optimization_goal,daily_budget,lifetime_budget,budget_remaining,start_time,end_time,updated_time,campaign_id",
         limit: "200",
       },
     );
@@ -413,6 +413,12 @@ class MetaClient {
       {
         fields:
           "id,name,body,title,link_url,image_url,image_hash,thumbnail_url,video_id,call_to_action_type,status,effective_object_story_id,object_type,object_story_spec",
+        // Meta serves thumbnail_url at 64x64 unless told otherwise — the
+        // root cause of every blurry card. 1080 returns the largest
+        // rendition available for post-based creatives, which carry no
+        // image_hash and therefore have no full-res fallback of their own.
+        thumbnail_width: "1080",
+        thumbnail_height: "1080",
         limit: "200",
       },
     );
@@ -1878,6 +1884,22 @@ function parseBudgetCents(v: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/**
+ * Like parseBudgetCents, but PRESERVES ZERO.
+ *
+ * Use for amounts where 0 is a real, meaningful reading rather than "unset"
+ * — `budget_remaining` above all. Running the remaining balance through
+ * parseBudgetCents turns "this ad set has spent its entire lifetime budget"
+ * into `null`, which downstream reads as "unknown, don't judge" — exactly
+ * inverting the signal. An exhausted ad set would then never be detected as
+ * exhausted.
+ */
+function parseAmountCents(v: string | undefined): number | null {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 function normalizeCampaign(raw: RawCampaign): NormalizedCampaign {
   return {
     id: raw.id,
@@ -1895,9 +1917,13 @@ interface RawAdSet {
   id: string;
   name: string;
   status: string;
+  effective_status?: string;
   optimization_goal?: string;
   daily_budget?: string;
   lifetime_budget?: string;
+  budget_remaining?: string;
+  start_time?: string;
+  end_time?: string;
   updated_time?: string;
   campaign_id: string;
 }
@@ -1908,9 +1934,13 @@ function normalizeAdSet(raw: RawAdSet): NormalizedAdSet {
     campaignMetaId: raw.campaign_id,
     name: raw.name,
     status: raw.status,
+    effectiveStatus: raw.effective_status ?? null,
     optimizationGoal: raw.optimization_goal ?? null,
     dailyBudgetCents: parseBudgetCents(raw.daily_budget),
     lifetimeBudgetCents: parseBudgetCents(raw.lifetime_budget),
+    budgetRemainingCents: parseAmountCents(raw.budget_remaining),
+    startTime: raw.start_time ? new Date(raw.start_time) : null,
+    endTime: raw.end_time ? new Date(raw.end_time) : null,
     metaUpdatedTime: raw.updated_time ? new Date(raw.updated_time) : null,
   };
 }

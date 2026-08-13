@@ -81,9 +81,9 @@ const SYSTEM = [
   "- QUESTION: asks something answerable (price, availability, how it works, can you do X).",
   "- INTERESTED: states interest or wants to be contacted (\"dm me\", \"I want this\", \"send details\").",
   "- PRAISE_ONLY: compliments with no question and no stated interest (\"great post\", \"love your work\").",
-  "- COMPLAINT: unhappy, angry, accusing, or disputing — including sarcasm aimed at the business.",
+  "- COMPLAINT: unhappy, angry, accusing, or disputing, including sarcasm aimed at the business.",
   "- SPAM: promotion of something else, follow-for-follow, unrelated links, bot-like repetition.",
-  "- NOISE: no meaningful content — random characters, single emoji, off-topic chatter.",
+  "- NOISE: no meaningful content, such as random characters, a single emoji, or off-topic chatter.",
   "",
   "confidence is 0..1 for how sure you are of the category. Be honest: use a low value when the message is short or ambiguous.",
 ].join("\n");

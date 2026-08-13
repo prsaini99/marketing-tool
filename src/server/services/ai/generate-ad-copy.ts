@@ -22,6 +22,7 @@
 
 import { prisma } from "@/lib/db/prisma";
 import { completeJson } from "@/lib/llm/chat";
+import { HUMAN_STYLE_RULES } from "@/lib/llm/style";
 import {
   formatHitsForPrompt,
   search,
@@ -88,7 +89,7 @@ const VARIANTS_SCHEMA = {
             primaryText: {
               type: "string",
               description:
-                "Body copy above the image. 1–3 short sentences, lead-with-hook.",
+                "Body copy above the image. 1-3 short sentences, lead-with-hook.",
             },
             description: {
               type: "string",
@@ -108,22 +109,24 @@ const VARIANTS_SCHEMA = {
 
 const SYSTEM_PROMPT = `You are a senior Meta Ads copywriter for a digital marketing agency. You're given two kinds of reference material:
 
-1. THIS BRAND'S PAST ADS — these set the voice (tone, vocabulary, rhythm). Your output must SOUND like these.
-2. CROSS-ACCOUNT WINNERS — high-ROAS / high-engagement ads from OTHER accounts in the same agency portfolio, semantically similar to the brief. These show which hooks, angles, and structures have actually performed for similar briefs in this agency's hands.
+1. THIS BRAND'S PAST ADS. These set the voice (tone, vocabulary, rhythm). Your output must SOUND like these.
+2. CROSS-ACCOUNT WINNERS. High-ROAS or high-engagement ads from OTHER accounts in the same agency portfolio, semantically similar to the brief. These show which hooks, angles, and structures have actually performed for similar briefs in this agency's hands.
 
 How to combine them:
-- VOICE comes from #1 (this brand's past ads). Tone, word choice, sentence rhythm, emoji use, capitalisation — all match this brand.
-- HOOKS and OFFER STRUCTURES can be inspired by #2 (cross-account winners). Notice patterns: "limited edition", "free shipping over X", "the [N] who use this", "save your spot", etc. Don't COPY the wording — translate the winning angle into this brand's voice.
+- VOICE comes from #1 (this brand's past ads). Tone, word choice, sentence rhythm, emoji use and capitalisation all match this brand.
+- HOOKS and OFFER STRUCTURES can be inspired by #2 (cross-account winners). Notice patterns: "limited edition", "free shipping over X", "the [N] who use this", "save your spot", etc. Don't COPY the wording. Translate the winning angle into this brand's voice.
 - If a winner uses a hook that contradicts this brand's voice, skip it.
 
 Rules for every variant:
-- Each variant should take a distinct angle, hook, or framing — vary the lead, the emotion, or the offer angle.
-- Headlines under ~40 characters where possible; primary text 1–3 short sentences max.
+- Each variant should take a distinct angle, hook, or framing. Vary the lead, the emotion, or the offer angle.
+- Headlines under ~40 characters where possible; primary text 1-3 short sentences max.
 - No emojis unless the brand's past ads use them. No hashtags. No clichés ("game-changer", "revolutionary", "unlock").
-- Description is optional — emit "" if there's nothing meaningful to add.
+- Description is optional. Emit "" if there's nothing meaningful to add.
 
-If NO brand voice reference is provided, write neutral, well-crafted direct-response copy — and you can lean more on the cross-account winners since voice isn't yet anchored.
-If NO cross-account winners are provided, stay close to this brand's voice with strong direct-response fundamentals.`;
+If NO brand voice reference is provided, write neutral, well-crafted direct-response copy, and lean more on the cross-account winners since voice isn't yet anchored.
+If NO cross-account winners are provided, stay close to this brand's voice with strong direct-response fundamentals.
+
+${HUMAN_STYLE_RULES}`;
 
 export async function generateAdCopy(
   input: GenerateAdCopyInput,
@@ -197,7 +200,7 @@ export async function generateAdCopy(
       })
       .join("\n\n");
     sections.push(
-      `CROSS-ACCOUNT WINNERS from this agency's portfolio (hook / angle inspiration — DO NOT copy wording, translate into this brand's voice):\n${winnersBlock}`,
+      `CROSS-ACCOUNT WINNERS from this agency's portfolio (hook and angle inspiration, DO NOT copy wording, translate into this brand's voice):\n${winnersBlock}`,
     );
   }
   const context = sections.length > 0 ? sections.join("\n\n---\n\n") : undefined;
@@ -253,14 +256,16 @@ export interface TweakAdCopyInput {
   instruction: string;
 }
 
-const TWEAK_SYSTEM_PROMPT = `You are refining ONE ad-copy variant for an agency strategist who already picked it. They want a small change, not a full rewrite. Apply the instruction precisely and preserve everything else from the original — same hook, same length feel, same brand voice (shown in retrieved context if any).
+const TWEAK_SYSTEM_PROMPT = `You are refining ONE ad-copy variant for an agency strategist who already picked it. They want a small change, not a full rewrite. Apply the instruction precisely and preserve everything else from the original: same hook, same length feel, same brand voice (shown in retrieved context if any).
 
 Rules:
 - Treat the instruction as a surgical edit, not a brief. Don't reframe the variant unless the instruction explicitly says to.
 - Keep word count similar to the original unless the instruction calls for shorter/longer.
 - Stay in the brand voice from the retrieved past ads. Don't drift toward a generic AI tone.
 - All three fields stay populated: headline, primaryText, description (empty string is OK only if it was empty in the original).
-- No clichés ("game-changer", "revolutionary", "unlock"). No emojis unless the brand uses them.`;
+- No clichés ("game-changer", "revolutionary", "unlock"). No emojis unless the brand uses them.
+
+${HUMAN_STYLE_RULES}`;
 
 const SINGLE_VARIANT_SCHEMA = {
   name: "ad_copy_single_variant",
@@ -307,7 +312,7 @@ export async function tweakAdCopy(
       query: brief || input.original.primaryText,
       namespace: "ads",
       adAccountId: account.id,
-      topK: 5, // smaller than full-generate — the brand-voice anchor is the
+      topK: 5, // smaller than full-generate; the brand-voice anchor is the
       // original variant itself, retrieval is just supporting reference.
     });
   } catch (err) {

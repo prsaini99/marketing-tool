@@ -204,7 +204,7 @@ export function CreateCreativeModal({
     if (pages && pages.length === 0) return "This account has no pages.";
     if (!pageId) return "Pick a Facebook Page.";
     if (images && images.length === 0)
-      return "No images synced — sync images first.";
+      return "No images synced. Sync images first.";
     if (!imageHash) return "Pick an image.";
     if (!linkUrl.trim()) return "Enter a website URL.";
     if (!/^https?:\/\//i.test(linkUrl.trim()))
@@ -282,7 +282,7 @@ export function CreateCreativeModal({
               New creative
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              A reusable image creative — page post with image, copy, link and
+              A reusable image creative: page post with image, copy, link and
               a call-to-action.
             </p>
           </div>

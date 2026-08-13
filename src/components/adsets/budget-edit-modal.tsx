@@ -264,7 +264,7 @@ export function AdSetBudgetEditModal({
                   disabled={mixedCurrencies}
                   title={
                     mixedCurrencies
-                      ? "Selection spans multiple currencies — use % mode"
+                      ? "Selection spans multiple currencies, so use % mode"
                       : undefined
                   }
                   className={cn(
@@ -359,7 +359,7 @@ export function AdSetBudgetEditModal({
                             {formatMoney(p.toCents / 100, p.adSet.currency)}
                           </span>
                         ) : (
-                          <span className="text-subtle">—</span>
+                          <span className="text-subtle">-</span>
                         )}
                       </span>
                     </li>
@@ -377,7 +377,7 @@ export function AdSetBudgetEditModal({
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
                     Some ad sets will change by more than 5×. Double-check
-                    before confirming — money spent on Meta cannot be recovered.
+                    before confirming. Money spent on Meta cannot be recovered.
                   </span>
                 </div>
               )}

@@ -72,7 +72,7 @@ export function AlertsRulesInfo() {
                     What we look for
                   </h2>
                   <p className="mt-0.5 text-xs text-muted">
-                    The exact rules the daily scanner applies — so &ldquo;0
+                    The exact rules the daily scanner applies, so &ldquo;0
                     alerts&rdquo; isn&apos;t ambiguous.
                   </p>
                 </div>
@@ -92,7 +92,7 @@ export function AlertsRulesInfo() {
                   For each account, yesterday&apos;s totals are compared
                   against the prior 7-day mean. An alert fires only when the
                   shift clears both a percentage <em>and</em> a base-size
-                  threshold — that combination kills the noise tiny-base
+                  threshold. That combination kills the noise tiny-base
                   accounts would otherwise generate.
                 </p>
 
@@ -170,8 +170,8 @@ export function AlertsRulesInfo() {
                           ROAS spike / drop
                         </td>
                         <td className="border border-border px-2 py-1 text-muted">
-                          ROAS changed ≥ 30% (baseline revenue &gt; 0 — skips
-                          accounts with no conversion tracking)
+                          ROAS changed ≥ 30% (baseline revenue &gt; 0, which
+                          skips accounts with no conversion tracking)
                         </td>
                         <td className="border border-border px-2 py-1 text-amber-700">
                           Medium · <span className="text-red-700">High</span>{" "}
@@ -268,7 +268,7 @@ export function AlertsRulesInfo() {
                   Ad-set scans take only the top 5 anomalies per account to
                   avoid inbox spam. Policy alerts capped at 10 per account.
                   Audience overlap checks the 5 most recently synced
-                  audiences pairwise (lookalikes skipped as anchors —
+                  audiences pairwise (lookalikes skipped as anchors, per
                   Meta&apos;s rules).
                 </div>
               </div>

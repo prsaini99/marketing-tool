@@ -47,7 +47,7 @@ const SYSTEM = [
   "You extract sales-lead facts from a conversation between a customer and a business's assistant.",
   "",
   "Return null for any field the customer has NOT actually stated. Never guess, never infer from tone, and never carry over an example.",
-  "Only use what the CUSTOMER said — ignore anything the assistant said.",
+  "Only use what the CUSTOMER said, and ignore anything the assistant said.",
   "",
   "- name: the person's own name.",
   "- email / phone: contact details they gave.",

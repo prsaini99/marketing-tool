@@ -19,43 +19,40 @@ export default async function DashboardLayout({
   const cookieStore = await cookies();
   const role = await getSessionRole(cookieStore.get(SESSION_COOKIE)?.value);
 
-  // Businesses with at least one ad account selected for sync.
-  // The switcher uses this to populate the dropdown; pages filter by it.
-  const businesses = await prisma.metaBusiness.findMany({
-    where: {
-      connection: { status: { not: "REVOKED" } },
-      adAccounts: { some: { selectedForSync: true } },
-    },
-    select: { id: true, name: true },
-    orderBy: { name: "asc" },
-  });
-
-  // Lookup map for derive-business-from-path. Only selected accounts —
-  // drilling into a non-selected account should not change the switcher.
-  const selectedAccounts = await prisma.metaAdAccount.findMany({
-    where: { selectedForSync: true },
-    select: { metaAdAccountId: true, businessId: true },
-  });
+  // The four reads below fire on EVERY navigation (force-dynamic layout).
+  // They are independent, so they run as one parallel batch — sequential
+  // awaits here meant four database round trips stacked end-to-end before
+  // any page could even begin rendering, which was the single largest
+  // constant tax on navigation.
+  const [businesses, selectedAccounts, alertCount, needsAttentionCount] =
+    await Promise.all([
+      // Switcher dropdown: businesses with at least one synced account.
+      prisma.metaBusiness.findMany({
+        where: {
+          connection: { status: { not: "REVOKED" } },
+          adAccounts: { some: { selectedForSync: true } },
+        },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+      // Lookup map for derive-business-from-path. Only selected accounts —
+      // drilling into a non-selected account should not change the switcher.
+      prisma.metaAdAccount.findMany({
+        where: { selectedForSync: true },
+        select: { metaAdAccountId: true, businessId: true },
+      }),
+      // Undismissed-alerts badge. Re-runs per navigation so it is fresh
+      // after a dismiss without client polling.
+      prisma.alert.count({ where: { dismissedAt: null } }),
+      // "Needs attention" badge — flagged, unresolved bot threads.
+      prisma.botThread.count({
+        where: { flagReason: { not: null }, resolvedAt: null },
+      }),
+    ]);
   const accountToBusiness: Record<string, string> = {};
   for (const a of selectedAccounts) {
     accountToBusiness[a.metaAdAccountId] = a.businessId;
   }
-
-  // Undismissed-alerts badge in the sidebar. Layout is force-dynamic so this
-  // re-runs on every navigation — fresh count after dismissing without
-  // needing client polling.
-  const alertCount = await prisma.alert.count({
-    where: { dismissedAt: null },
-  });
-
-  // "Needs attention" badge on the Automation entry — flagged bot threads,
-  // across all accounts, that haven't been resolved yet. Layout is
-  // force-dynamic so this re-runs on every navigation; the inbox page's
-  // router.refresh() after resolving/flagging a thread re-renders this
-  // layout too, so the badge stays current without any client polling.
-  const needsAttentionCount = await prisma.botThread.count({
-    where: { flagReason: { not: null }, resolvedAt: null },
-  });
 
   // A reviewer can reach only two pages, and two links stranded at the top of
   // a full-height sidebar make the product look half-built — which is the
@@ -79,7 +76,11 @@ export default async function DashboardLayout({
           accountToBusiness={accountToBusiness}
           role={role ?? undefined}
         />
-        <main className="flex-1 px-6 py-5">{children}</main>
+        <main className="flex-1 px-6 py-5">
+          {/* keyed remount per navigation is unnecessary — loading.tsx swaps
+              in between routes, so the rise plays on each page stream-in. */}
+          <div className="rise-in mx-auto w-full max-w-[1400px]">{children}</div>
+        </main>
       </div>
     </div>
   );

@@ -87,7 +87,7 @@ export default async function ActivityPage({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
-            Activity —{" "}
+            Activity:{" "}
             {account.platform === "FACEBOOK"
               ? account.displayName
               : `@${account.displayName}`}
