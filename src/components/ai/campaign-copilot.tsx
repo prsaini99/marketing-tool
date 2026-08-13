@@ -17,13 +17,27 @@
 import { useState } from "react";
 import {
   AlertTriangle,
+  Check,
   ChevronDown,
   ChevronRight,
+  ImageIcon,
   Loader2,
   Sparkles,
   Wand2,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { CampaignPlan, PlanIssue } from "@/lib/campaign-plan";
+
+/** One library asset the operator can pin. Resolved server-side. */
+export interface PickerAsset {
+  kind: "image" | "video";
+  /** imageHash for an image, metaVideoId for a video. */
+  id: string;
+  name: string;
+  thumb: string | null;
+  /** Vision description or transcript excerpt. Null means unanalysed. */
+  insight: string | null;
+}
 
 interface AgentStep {
   tool: string;
@@ -85,9 +99,11 @@ function IssueList({ items }: { items: PlanIssue[] }) {
 export function CampaignCopilot({
   adAccountId,
   accountName,
+  assets,
 }: {
   adAccountId: string;
   accountName: string;
+  assets: PickerAsset[];
 }) {
   const [brief, setBrief] = useState("");
   const [loading, setLoading] = useState(false);
@@ -95,6 +111,21 @@ export function CampaignCopilot({
   const [result, setResult] = useState<PlanResponse | null>(null);
   const [openSets, setOpenSets] = useState<Record<number, boolean>>({ 0: true });
   const [showPayload, setShowPayload] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // Keyed "image:hash" / "video:id" so the two id spaces cannot collide.
+  const [pinned, setPinned] = useState<Set<string>>(new Set());
+
+  const pinnedAssets = assets.filter((a) => pinned.has(`${a.kind}:${a.id}`));
+
+  function togglePin(a: PickerAsset) {
+    const key = `${a.kind}:${a.id}`;
+    setPinned((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   async function generate(refine: boolean) {
     if (!brief.trim() || loading) return;
@@ -108,6 +139,12 @@ export function CampaignCopilot({
           adAccountId,
           brief,
           priorPlan: refine ? result?.plan : undefined,
+          pinnedImageHashes: pinnedAssets
+            .filter((a) => a.kind === "image")
+            .map((a) => a.id),
+          pinnedVideoIds: pinnedAssets
+            .filter((a) => a.kind === "video")
+            .map((a) => a.id),
         }),
       });
       const data = await res.json();
@@ -170,6 +207,110 @@ export function CampaignCopilot({
             >
               Start over
             </button>
+          )}
+        </div>
+
+        {/* Pin creatives. A pinned asset is a HARD constraint: a plan that
+            fails to use one is rejected by the validator, because pinning is
+            an act of having already decided. How they spread across ad sets
+            is left to the brief. */}
+        <div className="mt-4 border-t border-border pt-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPickerOpen((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[13px] font-medium text-muted hover:text-foreground"
+            >
+              <ImageIcon className="h-3.5 w-3.5" aria-hidden />
+              {pinnedAssets.length > 0
+                ? `${pinnedAssets.length} creative${pinnedAssets.length === 1 ? "" : "s"} pinned`
+                : "Pin creatives"}
+              {pickerOpen ? (
+                <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+              )}
+            </button>
+            {pinnedAssets.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setPinned(new Set())}
+                className="text-[13px] text-subtle hover:text-foreground"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {pinnedAssets.length > 0 && (
+            <p className="mt-2 text-[13px] text-muted">
+              The plan must use {pinnedAssets.length === 1 ? "this" : "these"}.
+              A draft that leaves {pinnedAssets.length === 1 ? "it" : "one"} out
+              is rejected.
+            </p>
+          )}
+
+          {pickerOpen && (
+            <div className="mt-3">
+              {assets.length === 0 ? (
+                <p className="text-[13px] text-subtle">
+                  Nothing in this account&apos;s library yet. Upload from the
+                  Creative library, or let a sync bring assets in.
+                </p>
+              ) : (
+                <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-5">
+                  {assets.map((a) => {
+                    const key = `${a.kind}:${a.id}`;
+                    const on = pinned.has(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => togglePin(a)}
+                        title={a.insight ?? `${a.name} (not analysed yet)`}
+                        className={cn(
+                          "group relative aspect-square overflow-hidden rounded-lg border bg-surface-2 transition-all",
+                          on
+                            ? "border-accent ring-2 ring-accent"
+                            : "border-border hover:border-border-strong",
+                        )}
+                      >
+                        {a.thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={a.thumb}
+                            alt={a.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center text-subtle">
+                            <ImageIcon className="h-5 w-5" aria-hidden />
+                          </span>
+                        )}
+                        {on && (
+                          <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent text-accent-foreground">
+                            <Check className="h-2.5 w-2.5" aria-hidden />
+                          </span>
+                        )}
+                        {a.kind === "video" && (
+                          <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[9px] font-medium text-white">
+                            Video
+                          </span>
+                        )}
+                        {/* An unanalysed asset is one the agent can only
+                            identify by filename, which is worth knowing
+                            before pinning it. */}
+                        {!a.insight && (
+                          <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[9px] text-white">
+                            ?
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           )}
         </div>
 

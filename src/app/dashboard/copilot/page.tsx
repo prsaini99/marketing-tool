@@ -10,7 +10,11 @@ import Link from "next/link";
 import { Sparkles } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
 import { EmptyState } from "@/components/ui/empty-state";
-import { CampaignCopilot } from "@/components/ai/campaign-copilot";
+import {
+  CampaignCopilot,
+  type PickerAsset,
+} from "@/components/ai/campaign-copilot";
+import { mediaUrl } from "@/lib/media-url";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +49,57 @@ export default async function CopilotPage({
   }
 
   const active = accounts.find((a) => a.id === account) ?? accounts[0];
+
+  // Library for the pin picker. Fetched server-side and passed down rather
+  // than exposed as another endpoint: the page already renders per account,
+  // and mediaUrl() needs storagePath, which is a server concern.
+  //
+  // Analysed assets sort first because those are the ones the agent can
+  // actually reason about; an undescribed image is one it would pick by
+  // filename.
+  const [libImages, libVideos] = await Promise.all([
+    prisma.adImage.findMany({
+      where: { adAccountId: active.id },
+      select: {
+        metaImageHash: true,
+        name: true,
+        aiDescription: true,
+        storagePath: true,
+        url: true,
+      },
+      orderBy: [{ aiDescription: { sort: "desc", nulls: "last" } }, { syncedAt: "desc" }],
+      take: 60,
+    }),
+    prisma.adVideo.findMany({
+      where: { adAccountId: active.id, status: "ready" },
+      select: {
+        metaVideoId: true,
+        title: true,
+        transcript: true,
+        storagePath: true,
+        thumbnailUrl: true,
+      },
+      orderBy: [{ transcript: { sort: "desc", nulls: "last" } }, { syncedAt: "desc" }],
+      take: 60,
+    }),
+  ]);
+
+  const assets: PickerAsset[] = [
+    ...libImages.map((i) => ({
+      kind: "image" as const,
+      id: i.metaImageHash,
+      name: i.name ?? "Untitled image",
+      thumb: mediaUrl(i),
+      insight: i.aiDescription?.slice(0, 140) ?? null,
+    })),
+    ...libVideos.map((v) => ({
+      kind: "video" as const,
+      id: v.metaVideoId,
+      name: v.title ?? "Untitled video",
+      thumb: mediaUrl(v),
+      insight: v.transcript?.slice(0, 140) ?? null,
+    })),
+  ];
 
   return (
     <div className="mx-auto w-full max-w-5xl px-5 py-10">
@@ -85,6 +140,7 @@ export default async function CopilotPage({
         <CampaignCopilot
           adAccountId={active.id}
           accountName={active.name ?? active.business.name}
+          assets={assets}
         />
       </div>
     </div>
