@@ -173,7 +173,7 @@ export function RulesManager({
                     r.aiIntentGuard ? "−AI guard" : null,
                   ]
                     .filter(Boolean)
-                    .join(" · ") || "—"}
+                    .join(" · ") || "-"}
                 </td>
                 <td className="py-2 pr-3">
                   <input
@@ -780,14 +780,14 @@ function RuleEditorModal({
               {testResult.map((o, i) => (
                 <div key={i} className="rounded bg-surface p-2">
                   <b>{o.action}</b>
-                  {o.text ? ` — "${o.text}"` : ""}
+                  {o.text ? `: "${o.text}"` : ""}
                   {o.skipReason ? ` (${o.skipReason})` : ""}
-                  {o.metaError ? ` — ${o.metaError}` : ""}
+                  {o.metaError ? ` (error: ${o.metaError})` : ""}
                 </div>
               ))}
               {testBotOff && (
                 <div className="rounded bg-amber-50 p-2 text-amber-800">
-                  This is a preview only — the bot is currently{" "}
+                  This is a preview only. The bot is currently{" "}
                   <b>OFF</b>, so real comments and DMs are not being answered
                   yet. Turn it on from the Automation page when you&apos;re
                   ready.

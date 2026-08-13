@@ -122,7 +122,7 @@ export function UploadVideoModal({
       const ready =
         (!status.status || status.status.toLowerCase() === "ready") &&
         Boolean(status.thumbnailUrl);
-      setPhase(ready ? "Ready" : "Still processing — will appear after Sync");
+      setPhase(ready ? "Ready" : "Still processing. Will appear after Sync");
       router.refresh();
       setTimeout(() => onClose(), ready ? 700 : 1500);
     } catch (err) {
@@ -154,7 +154,7 @@ export function UploadVideoModal({
               Upload video
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              Uploaded in chunks through our server — your token stays
+              Uploaded in chunks through our server. Your token stays
               server-side. Meta encodes it after upload.
             </p>
           </div>

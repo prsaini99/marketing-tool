@@ -1,4 +1,5 @@
 import { AccountSwitcher } from "./account-switcher";
+import { BackButton } from "./back-button";
 import { UserMenu } from "./user-menu";
 import type { AccountBusinessMap } from "@/lib/active-business";
 
@@ -21,8 +22,9 @@ export function Topbar({ businesses, accountToBusiness, role }: TopbarProps) {
   const isReviewer = role === "reviewer";
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-4">
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center justify-between border-b border-border bg-background/85 px-4 backdrop-blur-md">
       <div className="flex items-center gap-3">
+        {!isReviewer && <BackButton />}
         {isReviewer ? (
           /* No nav for reviewers — no sidebar, no top links. They can reach
              only two pages, and the Automation cards already link straight to
@@ -32,7 +34,7 @@ export function Topbar({ businesses, accountToBusiness, role }: TopbarProps) {
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-sm font-semibold text-accent-foreground">
               M
             </div>
-            <span className="text-sm font-semibold">Meta Tool</span>
+            <span className="text-sm font-semibold" style={{ fontFamily: "var(--font-display)" }}>adsboys</span>
           </div>
         ) : (
           /* Hidden for reviewers: it switches ad-account/business context,

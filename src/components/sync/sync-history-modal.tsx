@@ -44,7 +44,7 @@ function formatRelative(iso: string): string {
 }
 
 function formatDuration(startIso: string, endIso: string | null): string {
-  if (!endIso) return "—";
+  if (!endIso) return "-";
   const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
   if (ms < 1_000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1_000).toFixed(1)}s`;
@@ -181,7 +181,7 @@ export function SyncHistoryModal({ open, logs, onClose }: SyncHistoryModalProps)
                             {l.error}
                           </span>
                         ) : (
-                          <span className="text-subtle">—</span>
+                          <span className="text-subtle">-</span>
                         )}
                       </td>
                     </tr>

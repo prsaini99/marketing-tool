@@ -56,11 +56,11 @@ const SUBTYPE_OPTIONS: Array<{ value: Subtype; label: string }> = [
 
 const RETENTION_PRESETS = [7, 14, 30, 60, 90, 180];
 const RATIO_PRESETS = [
-  { value: 0.01, label: "1% — most similar" },
+  { value: 0.01, label: "1% (most similar)" },
   { value: 0.02, label: "2%" },
   { value: 0.03, label: "3%" },
   { value: 0.05, label: "5%" },
-  { value: 0.1, label: "10% — broadest" },
+  { value: 0.1, label: "10% (broadest)" },
 ];
 const ENGAGEMENT_EVENTS: Array<{ value: string; label: string }> = [
   { value: "page_engaged", label: "Engaged with the Page (any)" },
@@ -247,7 +247,7 @@ export function CreateAudienceModal({
         return "Enter the URL fragment to match.";
     } else if (subtype === "lookalike") {
       if (sources && sources.length === 0)
-        return "No source audiences — create one first.";
+        return "No source audiences. Create one first.";
       if (!originAudienceId) return "Pick a source audience.";
       if (!country.trim()) return "Enter a country code.";
     } else if (subtype === "engagement") {
@@ -329,7 +329,7 @@ export function CreateAudienceModal({
               New custom audience
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              Pick a source type — each builds a different kind of targetable
+              Pick a source type. Each builds a different kind of targetable
               audience.
             </p>
           </div>
@@ -454,7 +454,7 @@ export function CreateAudienceModal({
                     loading={resourceLoading}
                     error={resourceError}
                     empty={pixels?.length === 0}
-                    emptyHint="No pixels on this account — create one in Events Manager."
+                    emptyHint="No pixels on this account. Create one in Events Manager."
                     value={pixelId}
                     onChange={setPixelId}
                     options={(pixels ?? []).map((p) => ({
@@ -516,7 +516,7 @@ export function CreateAudienceModal({
                     loading={resourceLoading}
                     error={resourceError}
                     empty={sources?.length === 0}
-                    emptyHint="No source audiences yet — create a customer-list or website audience first."
+                    emptyHint="No source audiences yet. Create a customer-list or website audience first."
                     value={originAudienceId}
                     onChange={setOriginAudienceId}
                     options={(sources ?? []).map((s) => ({
@@ -575,7 +575,7 @@ export function CreateAudienceModal({
                     loading={resourceLoading}
                     error={resourceError}
                     empty={pages?.length === 0}
-                    emptyHint="No promotable pages — assign a Page to the System User (setup guide step 6)."
+                    emptyHint="No promotable pages. Assign a Page to the System User (setup guide step 6)."
                     value={pageId}
                     onChange={setPageId}
                     options={(pages ?? []).map((p) => ({
@@ -646,7 +646,7 @@ export function CreateAudienceModal({
                     </span>{" "}
                     lookalike in{" "}
                     <span className="font-semibold text-foreground">
-                      {country.toUpperCase() || "—"}
+                      {country.toUpperCase() || "-"}
                     </span>{" "}
                     of the chosen source.
                   </p>

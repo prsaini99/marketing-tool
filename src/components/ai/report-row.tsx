@@ -103,7 +103,7 @@ export function ReportRow({
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      setError("Couldn't copy — your browser blocked clipboard access.");
+      setError("Couldn't copy. Your browser blocked clipboard access.");
     }
   }
 
@@ -276,7 +276,7 @@ export function ReportRow({
                                 <span className="font-mono">
                                   {(c.spendCents / 100).toFixed(2)} {currency}
                                 </span>{" "}
-                                — {c.name}{" "}
+                                · {c.name}{" "}
                                 <span className="text-subtle">
                                   ({c.status})
                                 </span>

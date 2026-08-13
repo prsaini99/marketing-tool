@@ -32,6 +32,17 @@ import { SchedulesButton } from "@/components/schedules/schedules-button";
 import { NewCampaignButton } from "@/components/campaigns/new-campaign-button";
 import { CampaignsTable } from "@/components/tables/campaigns-table";
 import type { DisplayCampaign } from "@/lib/display";
+import { RulesManager } from "@/components/rules/rules-manager";
+import { DiagnosisButtons } from "@/components/ai/diagnosis-buttons";
+
+/** Currency symbol for the rules UI, which formats cents itself. */
+function currencySymbolFor(currency: string): string {
+  if (currency === "INR") return "\u20B9";
+  if (currency === "USD") return "$";
+  if (currency === "EUR") return "\u20AC";
+  if (currency === "GBP") return "\u00A3";
+  return "";
+}
 
 function formatMoney(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -56,27 +67,27 @@ function formatMoneyExact(amount: number, currency: string) {
 // kept terse so they fit inside a banner without wrapping on narrow screens.
 const DISABLE_REASON_LABEL: Record<string, { label: string; hint: string }> = {
   ADS_INTEGRITY_POLICY: {
-    label: "Disabled — ads policy violation",
+    label: "Disabled: ads policy violation",
     hint: "Review Meta's ads policy; appeal from Business Settings → Account quality.",
   },
   ADS_IP_REVIEW: {
-    label: "Disabled — IP review",
+    label: "Disabled: IP review",
     hint: "Meta is reviewing intellectual-property concerns. No action needed until they reach out.",
   },
   RISK_PAYMENT: {
-    label: "Disabled — payment risk",
+    label: "Disabled: payment risk",
     hint: "Add or verify a funding source in Meta Ads Manager → Billing.",
   },
   GRAY_ACCOUNT_SHUT_DOWN: {
-    label: "Disabled — gray account",
+    label: "Disabled: gray account",
     hint: "Account inactivity / fraud signal. Contact Meta support.",
   },
   ADS_AFC_REVIEW: {
-    label: "Disabled — AFC review",
+    label: "Disabled: AFC review",
     hint: "Automated fraud check in progress. Wait for Meta's verdict.",
   },
   BUSINESS_INTEGRITY_RAR: {
-    label: "Disabled — business integrity",
+    label: "Disabled: business integrity",
     hint: "Business Manager flagged for review. Check Account quality.",
   },
   PERMANENT_CLOSE: {
@@ -172,7 +183,7 @@ export default async function AccountDetailPage({
         <EmptyState
           icon={Building2}
           title="Ad account not found"
-          description="This ad account isn't currently selected for sync — or has been removed since this page was bookmarked."
+          description="This ad account isn't currently selected for sync, or it has been removed since this page was bookmarked."
           action={{
             label: "Manage connections",
             href: "/dashboard/connect-business",
@@ -266,7 +277,7 @@ export default async function AccountDetailPage({
       impressions: hasInsights ? imps : null,
       clicks: hasInsights ? clks : null,
       ctr: hasInsights ? (imps > 0 ? clks / imps : 0) : null,
-      lastEdited: formatRelative(c.metaUpdatedTime) ?? "—",
+      lastEdited: formatRelative(c.metaUpdatedTime) ?? "-",
     };
   });
 
@@ -401,7 +412,7 @@ export default async function AccountDetailPage({
                 <div>
                   <p className="font-medium text-amber-900">
                     {DISABLE_REASON_LABEL[account.disableReason]?.label ??
-                      `Disabled — ${account.disableReason}`}
+                      `Disabled: ${account.disableReason}`}
                   </p>
                   <p className="mt-0.5 text-amber-800">
                     {DISABLE_REASON_LABEL[account.disableReason]?.hint ??
@@ -468,7 +479,7 @@ export default async function AccountDetailPage({
                 <p className="text-xs text-subtle">Min daily budget</p>
                 <p className="mt-1 text-base font-semibold tracking-tight text-foreground">
                   {account.minDailyBudgetCents === null
-                    ? "—"
+                    ? "-"
                     : formatMoneyExact(
                         account.minDailyBudgetCents / 100,
                         currency,
@@ -506,19 +517,19 @@ export default async function AccountDetailPage({
         <div className="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard
             label="Spend"
-            value={hasInsights ? formatMoney(spendCents / 100, currency) : "—"}
+            value={hasInsights ? formatMoney(spendCents / 100, currency) : "-"}
           />
           <KpiCard
             label="Impressions"
-            value={hasInsights ? formatCompact(impressions) : "—"}
+            value={hasInsights ? formatCompact(impressions) : "-"}
           />
           <KpiCard
             label="Clicks"
-            value={hasInsights ? formatCompact(clicks) : "—"}
+            value={hasInsights ? formatCompact(clicks) : "-"}
           />
           <KpiCard
             label="Avg CTR"
-            value={hasInsights ? `${(ctr * 100).toFixed(2)}%` : "—"}
+            value={hasInsights ? `${(ctr * 100).toFixed(2)}%` : "-"}
           />
         </div>
       </section>
@@ -554,6 +565,20 @@ export default async function AccountDetailPage({
           insights snapshots.
         </p>
       </section>
+
+      {/* One-click diagnosis. Sits above rules deliberately: understand the
+          account before automating actions on it. */}
+      <DiagnosisButtons metaAdAccountId={account.metaAdAccountId} />
+
+      {/* Automated rules — the only unattended write path in the product, so
+          it lives on the account it acts on rather than a global screen. */}
+      {/* account.id, NOT the route's `id` — this page's param is the
+          UNPREFIXED Meta ad-account id (it builds `act_${id}` above), while
+          the rules API keys on the local MetaAdAccount cuid. */}
+      <RulesManager
+        adAccountId={account.id}
+        currencySymbol={currencySymbolFor(currency)}
+      />
     </div>
   );
 }

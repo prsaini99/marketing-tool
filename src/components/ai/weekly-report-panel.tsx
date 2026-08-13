@@ -100,7 +100,7 @@ export function WeeklyReportPanel({
       setTimeout(() => setCopied(false), 1500);
     } catch {
       // older browsers / iframe context — surface an error inline
-      setError("Couldn't copy — your browser blocked clipboard access.");
+      setError("Couldn't copy. Your browser blocked clipboard access.");
     }
   }
 
@@ -125,7 +125,7 @@ export function WeeklyReportPanel({
             Weekly performance report
           </div>
           <p className="text-xs text-muted">
-            Last 7 days vs the prior week — narrated, client-ready, copy-able.
+            Last 7 days vs the prior week: narrated, client-ready, copy-able.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -263,7 +263,7 @@ export function WeeklyReportPanel({
                         <span className="font-mono">
                           {(c.spendCents / 100).toFixed(2)} {currency}
                         </span>{" "}
-                        — {c.name} <span className="text-subtle">({c.status})</span>
+                        · {c.name} <span className="text-subtle">({c.status})</span>
                       </li>
                     ))}
                   </ul>

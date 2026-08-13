@@ -240,7 +240,7 @@ export function AlertsList({
         <div className="rounded-md border border-dashed border-border bg-surface px-6 py-10 text-center">
           <Sparkles className="mx-auto h-8 w-8 text-subtle" />
           <p className="mt-2 text-sm font-medium text-foreground">
-            {showDismissed ? "No alerts" : "All clear — no active alerts"}
+            {showDismissed ? "No alerts" : "All clear, no active alerts"}
           </p>
           <p className="mt-1 text-xs text-muted">
             {showDismissed

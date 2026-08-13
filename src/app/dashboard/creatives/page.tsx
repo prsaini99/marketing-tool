@@ -11,15 +11,15 @@
  * /campaigns, /adsets, /ads.
  */
 
-import Image from "next/image";
-import { Image as ImageIcon, Video } from "lucide-react";
+import { SubNav, LIBRARY_TABS } from "@/components/layout/sub-nav";
+import { Image as ImageIcon } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
-import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
 import { NewCreativeButton } from "@/components/creatives/new-creative-button";
-import { DeleteButton } from "@/components/common/delete-button";
+import { CreativeGallery, type GalleryItem } from "@/components/creatives/creative-gallery";
+import { HOOK_LABELS, ANGLE_LABELS, type HookType, type CreativeAngle } from "@/lib/creative-taxonomy";
 
 // Map Meta's call_to_action_type enum to readable labels.
 const CTA_LABEL: Record<string, string> = {
@@ -38,33 +38,6 @@ const CTA_LABEL: Record<string, string> = {
   INSTALL_APP: "Install app",
   USE_APP: "Use app",
 };
-
-// Meta returns 4 status values for creatives; map each to a pill color +
-// human label. Anything unknown falls through to a neutral pill.
-const STATUS_STYLE: Record<string, { pill: string; label: string }> = {
-  ACTIVE: { pill: "bg-green-50 text-green-700", label: "Active" },
-  IN_PROCESS: { pill: "bg-blue-50 text-blue-700", label: "In review" },
-  WITH_ISSUES: { pill: "bg-amber-50 text-amber-700", label: "With issues" },
-  DELETED: { pill: "bg-zinc-100 text-zinc-500", label: "Deleted" },
-};
-
-function StatusPill({ status }: { status: string | null }) {
-  if (!status) return null;
-  const s = STATUS_STYLE[status] ?? {
-    pill: "bg-zinc-100 text-zinc-600",
-    label: status,
-  };
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-        s.pill,
-      )}
-    >
-      {s.label}
-    </span>
-  );
-}
 
 export default async function CreativesFlatPage({
   searchParams,
@@ -101,8 +74,10 @@ export default async function CreativesFlatPage({
     include: {
       adAccount: {
         select: {
+          id: true,
           metaAdAccountId: true,
           name: true,
+          currency: true,
           business: { select: { name: true } },
         },
       },
@@ -140,8 +115,109 @@ export default async function CreativesFlatPage({
   const activeCount = rows.filter((r) => r.status === "ACTIVE").length;
   const issuesCount = rows.filter((r) => r.status === "WITH_ISSUES").length;
 
+  // The intelligence layer: AI tags + performance live on each creative's
+  // embedding row (written by classify-creatives), transcripts on AdVideo.
+  // Fetched here in two batch queries so the gallery cards can surface what
+  // the platform actually knows instead of a raw CTA enum.
+  const creativeIds = rows.map((r) => r.metaCreativeId);
+  const videoIds = rows.map((r) => r.videoId).filter(Boolean) as string[];
+  const imageHashes = rows.map((r) => r.imageHash).filter(Boolean) as string[];
+  const [embRows, videoRows, imageRows] = await Promise.all([
+    creativeIds.length
+      ? (prisma.embedding.findMany({
+          where: {
+            namespace: "ads",
+            sourceType: "AdCreative",
+            sourceId: { in: creativeIds },
+          },
+          select: { sourceId: true, metadata: true },
+        }) as unknown as Promise<Array<{ sourceId: string; metadata: Record<string, unknown> | null }>>)
+      : Promise.resolve([]),
+    videoIds.length
+      ? prisma.adVideo.findMany({
+          where: { metaVideoId: { in: videoIds } },
+          select: {
+            metaVideoId: true,
+            sourceUrl: true,
+            transcript: true,
+            thumbnailUrl: true,
+          },
+        })
+      : Promise.resolve([]),
+    // Full-resolution originals. The creative row only carries Meta's t45
+    // AD THUMBNAIL — a ~64px preview that upscales into mush — while the
+    // image library holds the same asset at full size (1080px+), keyed by
+    // the identical content hash. Joining here is the whole image-quality
+    // fix: cards and the detail view render the original, never the thumb.
+    imageHashes.length
+      ? prisma.adImage.findMany({
+          where: { metaImageHash: { in: imageHashes }, url: { not: null } },
+          select: { metaImageHash: true, url: true },
+        })
+      : Promise.resolve([]),
+  ]);
+  const metaBySource = new Map(embRows.map((e) => [e.sourceId, e.metadata ?? {}]));
+  const videoById = new Map(videoRows.map((v) => [v.metaVideoId, v]));
+  const fullImageByHash = new Map(imageRows.map((i) => [i.metaImageHash, i.url]));
+
+  const symbolFor = (c: string) =>
+    c === "INR" ? "₹" : c === "USD" ? "$" : c === "EUR" ? "€" : c === "GBP" ? "£" : "";
+
+  const galleryItems: GalleryItem[] = rows.map((c) => {
+    const md = metaBySource.get(c.metaCreativeId);
+    const video = c.videoId ? videoById.get(c.videoId) : null;
+    const spendCents = Number(md?.spendCents ?? 0);
+    const conversions = Number(md?.conversionsCount ?? 0);
+    const hook = typeof md?.hookType === "string" ? (HOOK_LABELS[md.hookType as HookType] ?? null) : null;
+    const angle = typeof md?.angle === "string" ? (ANGLE_LABELS[md.angle as CreativeAngle] ?? null) : null;
+    return {
+      id: c.id,
+      metaCreativeId: c.metaCreativeId,
+      name: c.name,
+      title: c.title,
+      body: c.body,
+      ctaLabel: c.callToActionType ? (CTA_LABEL[c.callToActionType] ?? c.callToActionType) : null,
+      linkUrl: c.linkUrl,
+      status: c.status,
+      // Fallback chain deliberately EXCLUDES AdVideo.thumbnailUrl: those
+      // t15 assets expire per-sync and hotlink-block in browsers even while
+      // curl sees 200s. Fresh-source videos render as <video> (sharpest
+      // possible); everything else uses the creative's own t45 thumb, which
+      // is small but reliably served.
+      thumb:
+        (c.imageHash ? fullImageByHash.get(c.imageHash) : null) ??
+        c.imageUrl ??
+        c.thumbnailUrl ??
+        null,
+      isVideo: Boolean(c.videoId),
+      videoSourceUrl: video?.sourceUrl ?? null,
+      transcript: video?.transcript || null,
+      accountLabel: `${c.adAccount.business.name} · ${c.adAccount.name}`,
+      tags: md
+        ? {
+            hook,
+            angle,
+            funnel: typeof md.funnelStage === "string" ? md.funnelStage : null,
+            usp: typeof md.usp === "string" && md.usp ? md.usp : null,
+            persona: typeof md.persona === "string" && md.persona ? md.persona : null,
+            mediaUsed: md.mediaUsed === true,
+          }
+        : null,
+      perf: md
+        ? {
+            spendCents,
+            ctr: Number(md.ctr ?? 0),
+            conversions,
+            cpaCents: conversions > 0 ? Math.round(spendCents / conversions) : null,
+          }
+        : null,
+      currencySymbol: symbolFor(c.adAccount.currency),
+    };
+  });
+
   return (
     <div className="space-y-4">
+      <SubNav items={LIBRARY_TABS} />
       <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Creatives</h1>
@@ -194,91 +270,7 @@ export default async function CreativesFlatPage({
           description="Switch clients in the top bar, or sync this client's ad accounts."
         />
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {rows.map((c) => {
-            const ctaLabel = c.callToActionType
-              ? (CTA_LABEL[c.callToActionType] ?? c.callToActionType)
-              : null;
-            const thumb = c.thumbnailUrl ?? c.imageUrl;
-            const isVideo = Boolean(c.videoId);
-            return (
-              <article
-                key={c.id}
-                className="overflow-hidden rounded-lg border border-border bg-background transition-colors hover:bg-surface"
-              >
-                {/* Thumbnail (or fallback). 16:9 keeps the grid uniform even
-                    when Meta gives us portrait or square images. */}
-                <div className="relative aspect-video w-full bg-surface-2">
-                  {thumb ? (
-                    <Image
-                      src={thumb}
-                      alt={c.title ?? c.name ?? "Creative thumbnail"}
-                      fill
-                      sizes="(max-width: 640px) 100vw, (max-width: 1280px) 33vw, 25vw"
-                      className="object-cover"
-                      unoptimized
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-subtle">
-                      {isVideo ? (
-                        <Video className="h-8 w-8" />
-                      ) : (
-                        <ImageIcon className="h-8 w-8" />
-                      )}
-                    </div>
-                  )}
-                  {isVideo && thumb && (
-                    <span className="absolute right-1.5 top-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                      Video
-                    </span>
-                  )}
-                </div>
-
-                <div className="space-y-1.5 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <h3
-                      className="line-clamp-1 text-sm font-medium text-foreground"
-                      title={c.name ?? undefined}
-                    >
-                      {c.name ?? c.title ?? "Untitled creative"}
-                    </h3>
-                    <StatusPill status={c.status} />
-                  </div>
-
-                  {c.title && c.title !== c.name && (
-                    <p
-                      className="line-clamp-1 text-xs text-foreground"
-                      title={c.title}
-                    >
-                      {c.title}
-                    </p>
-                  )}
-                  {c.body && (
-                    <p className="line-clamp-2 text-xs text-muted">{c.body}</p>
-                  )}
-
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    {ctaLabel && (
-                      <span className="inline-flex items-center rounded-full border border-border bg-surface px-1.5 py-0.5 text-[10px] font-medium text-foreground">
-                        {ctaLabel}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-subtle">
-                      {c.adAccount.business.name} · {c.adAccount.name}
-                    </span>
-                  </div>
-                  <div className="flex justify-end border-t border-border pt-1.5">
-                    <DeleteButton
-                      entityType="creative"
-                      metaId={c.metaCreativeId}
-                      name={c.name ?? c.title ?? "this creative"}
-                    />
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+        <CreativeGallery items={galleryItems} />
       )}
 
       <p className="text-xs text-subtle">

@@ -152,7 +152,7 @@ export function DuplicateButton({ level, metaId, name }: DuplicateButtonProps) {
                         Also duplicate its {childLabel}
                       </span>
                       <span className="mt-0.5 block text-subtle">
-                        Deep copy — recreates the full structure underneath.
+                        Deep copy: recreates the full structure underneath.
                         Off = just the {LEVEL_LABEL[level]} shell.
                       </span>
                     </span>

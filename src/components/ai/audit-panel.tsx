@@ -107,7 +107,7 @@ function severityStyles(s: AuditFinding["severity"]) {
 
 function findingsToMarkdown(r: AuditResult): string {
   const lines: string[] = [];
-  lines.push(`# Audit · ${r.businessName} — ${r.accountName}`);
+  lines.push(`# Audit · ${r.businessName} / ${r.accountName}`);
   lines.push("");
   lines.push(
     `_Generated ${new Date(r.generatedAt).toLocaleString()} · window: last ${r.windowDays} days_`,
@@ -168,7 +168,7 @@ export function AuditPanel({
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      setError("Couldn't copy — your browser blocked clipboard access.");
+      setError("Couldn't copy. Your browser blocked clipboard access.");
     }
   }
 
@@ -207,7 +207,7 @@ export function AuditPanel({
                 reference.
               </>
             ) : (
-              "Scans budget allocation, naming, URL/UTM tracking, and brand-voice drift. ~5–30 s · costs ~₹0.50–1 per run."
+              "Scans budget allocation, naming, URL/UTM tracking, and brand-voice drift. ~5-30 s · costs ~₹0.50-1 per run."
             )}
           </p>
         </div>
@@ -340,7 +340,7 @@ export function AuditPanel({
             <div className="rounded-md border border-green-200 bg-green-50 px-4 py-6 text-center">
               <Check className="mx-auto h-6 w-6 text-green-700" />
               <p className="mt-1 text-sm font-medium text-green-800">
-                All clear — no issues flagged
+                All clear, no issues flagged
               </p>
               <p className="mt-0.5 text-xs text-green-700">
                 Naming, budget, tracking, and brand voice all look healthy.

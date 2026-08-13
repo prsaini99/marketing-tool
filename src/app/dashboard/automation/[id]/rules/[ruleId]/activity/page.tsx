@@ -80,7 +80,7 @@ export default async function RuleActivityPage({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
-            Rule activity —{" "}
+            Rule activity:{" "}
             {account.platform === "FACEBOOK"
               ? account.displayName
               : `@${account.displayName}`}

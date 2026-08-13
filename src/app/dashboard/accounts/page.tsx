@@ -86,7 +86,7 @@ export default async function AccountsPage({
   );
 
   // Has an insights sync ever finished for this account? Used to distinguish
-  // "—" (never synced) from "₹0" (synced, no spend last 7d).
+  // "-" (never synced) from "₹0" (synced, no spend last 7d).
   const insightsSyncedAccountIds = new Set(
     (
       await prisma.syncLog.findMany({

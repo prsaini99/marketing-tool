@@ -255,7 +255,7 @@ export function CreateCampaignModal({
             </h2>
             <p className="mt-0.5 text-xs text-muted">
               Created as <span className="font-medium text-foreground">PAUSED</span>{" "}
-              by default — won&apos;t spend until you activate it.
+              by default, so it won&apos;t spend until you activate it.
             </p>
           </div>
           <button
@@ -314,7 +314,7 @@ export function CreateCampaignModal({
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Q4 Sales Push — Diwali 2026"
+                  placeholder="e.g. Q4 Sales Push / Diwali 2026"
                   disabled={submitting}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                 />
@@ -380,7 +380,7 @@ export function CreateCampaignModal({
                       Advantage Campaign Budget (CBO)
                     </div>
                     <p className="mt-0.5 text-[11px] text-subtle">
-                      Set budget at the campaign level — Meta distributes it
+                      Set budget at the campaign level. Meta distributes it
                       across ad sets automatically.{" "}
                       {cboOn
                         ? "Recommended."

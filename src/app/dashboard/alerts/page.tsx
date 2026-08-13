@@ -10,6 +10,7 @@
 import { prisma } from "@/lib/db/prisma";
 import { AlertsList, type AlertWithAccount } from "@/components/ai/alerts-list";
 import { AlertsRulesInfo } from "@/components/ai/alerts-rules-info";
+import { DeliverySettingsModal } from "@/components/notifications/delivery-settings-modal";
 
 export const dynamic = "force-dynamic";
 
@@ -73,23 +74,44 @@ export default async function AlertsPage({
     },
   }));
 
+  // Email delivery is configured per ad account, so the header button needs
+  // exactly one account to target. When the topbar client filter narrows to a
+  // single account we can offer it inline; otherwise the button is omitted
+  // rather than guessing which account the operator meant.
+  const deliveryTarget = await prisma.metaAdAccount.findFirst({
+    where: {
+      selectedForSync: true,
+      ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
+    },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
   return (
     <div className="space-y-4">
       <div>
         <div className="flex items-center gap-1.5">
           <h1 className="text-xl font-semibold tracking-tight">Alerts</h1>
           <AlertsRulesInfo />
+          {deliveryTarget && (
+            <div className="ml-auto">
+              <DeliverySettingsModal
+                adAccountId={deliveryTarget.id}
+                accountName={deliveryTarget.name}
+              />
+            </div>
+          )}
         </div>
         <p className="mt-0.5 text-sm text-muted">
           {selectedBusiness ? (
             <>
               Daily anomaly digest for{" "}
               <span className="text-foreground">{selectedBusiness.name}</span>
-              &apos;s ad accounts —
+              &apos;s ad accounts:
             </>
           ) : (
             <>
-              Daily anomaly digest across every connected account —
+              Daily anomaly digest across every connected account:
             </>
           )}{" "}
           what shifted, why, and what to look at first. Generated

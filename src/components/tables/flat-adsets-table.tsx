@@ -44,7 +44,7 @@ const ACTION_META: Record<
     confirmLabel: "Pause ad sets",
     variant: "neutral",
     impact:
-      "They'll stop delivering on Meta. No data is lost — you can re-activate any time.",
+      "They'll stop delivering on Meta. No data is lost, and you can re-activate any time.",
   },
   activate: {
     verb: "activate",
@@ -77,7 +77,7 @@ function formatBudget(s: FlatDisplayAdSet) {
   if (s.lifetimeBudgetCents != null) {
     return `${formatMoney(s.lifetimeBudgetCents / 100, s.currency)} lifetime`;
   }
-  return "—";
+  return "-";
 }
 
 function statusStyle(status: string) {
@@ -355,21 +355,21 @@ export function FlatAdSetsTable({ adSets }: FlatAdSetsTableProps) {
                     {s.spend != null ? (
                       formatMoney(s.spend, s.currency)
                     ) : (
-                      <span className="font-normal text-subtle">—</span>
+                      <span className="font-normal text-subtle">-</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums">
                     {s.impressions != null ? (
                       s.impressions.toLocaleString()
                     ) : (
-                      <span className="text-subtle">—</span>
+                      <span className="text-subtle">-</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm tabular-nums">
                     {s.ctr != null ? (
                       `${(s.ctr * 100).toFixed(2)}%`
                     ) : (
-                      <span className="text-subtle">—</span>
+                      <span className="text-subtle">-</span>
                     )}
                   </td>
                   <td className="px-4 py-3">

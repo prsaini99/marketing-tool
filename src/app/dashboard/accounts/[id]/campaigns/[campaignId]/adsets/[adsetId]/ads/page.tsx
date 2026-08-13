@@ -12,7 +12,7 @@ import {
 import { resolveDateRange } from "@/lib/date-range";
 
 function formatRelative(d: Date | null | undefined): string {
-  if (!d) return "—";
+  if (!d) return "-";
   const ms = Date.now() - d.getTime();
   if (ms < 60_000) return "just now";
   if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`;
@@ -160,7 +160,7 @@ export default async function AdsPage({
                 {activeCount} active · {pausedCount} paused
               </>
             ) : (
-              <>Ad set not found locally — try syncing ad sets first</>
+              <>Ad set not found locally. Try syncing ad sets first</>
             )}
             {lastSync?.finishedAt && (
               <> · Last synced {formatRelative(lastSync.finishedAt)}</>
@@ -211,7 +211,7 @@ export default async function AdsPage({
       )}
 
       <p className="text-xs text-subtle">
-        Click any row to open the ad&apos;s detail — creative, image, video and
+        Click any row to open the ad&apos;s detail: creative, image, video and
         per-ad insights. Per-ad metrics aggregate {dateRange.label.toLowerCase()}.
       </p>
     </div>

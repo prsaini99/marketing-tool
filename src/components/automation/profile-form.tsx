@@ -72,7 +72,7 @@ export function ProfileForm({
       const url = row.url.trim();
       if (!key || !url) continue;
       if (Object.prototype.hasOwnProperty.call(links, key)) {
-        return { error: `Duplicate link key "${key}" — keys must be unique.` };
+        return { error: `Duplicate link key "${key}". Keys must be unique.` };
       }
       links[key] = url;
     }

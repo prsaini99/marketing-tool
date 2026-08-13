@@ -43,18 +43,32 @@ export function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-surface px-4">
-      <div className="w-full max-w-sm">
+    // The one screen with no tables, so the chrome goes full-bleed: the
+    // same ink-and-ember atmosphere as the rail, at cinema scale.
+    <div className="chrome-rail flex min-h-screen items-center justify-center px-4">
+      <div className="rise-in relative w-full max-w-sm">
         {/* Brand */}
-        <div className="mb-8 flex flex-col items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent text-accent-foreground text-base font-semibold">
-            M
+        <div className="mb-8 flex flex-col items-center gap-3">
+          <div className="flex h-12 w-12 items-end justify-center gap-1 rounded-xl bg-glow/15 p-3">
+            <span className="h-3 w-1.5 rounded-full bg-glow/50" />
+            <span className="h-6 w-1.5 rounded-full bg-glow" />
+            <span className="h-4 w-1.5 rounded-full bg-glow/75" />
           </div>
-          <span className="text-sm font-semibold tracking-tight">Meta Tool</span>
+          <div className="text-center">
+            <div
+              className="text-2xl font-bold tracking-tight text-ink-foreground"
+              style={{ fontFamily: "var(--font-display)" }}
+            >
+              adsboys
+            </div>
+            <p className="mt-1 text-xs text-ink-muted">
+              Command deck for Meta ads
+            </p>
+          </div>
         </div>
 
-        {/* Card */}
-        <div className="rounded-lg border border-border bg-background p-6 shadow-sm">
+        {/* Card — paper on ink, the product's two worlds in one frame */}
+        <div className="rounded-xl border border-ink-border bg-background p-6 shadow-modal">
           <div className="mb-5">
             <h1 className="text-base font-semibold tracking-tight">
               Sign in to your account
@@ -116,7 +130,7 @@ export function LoginForm() {
             </div>
 
             {error && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-danger">
+              <div className="rounded-md border border-danger/25 bg-danger-subtle px-3 py-2 text-sm text-danger">
                 {error}
               </div>
             )}
@@ -132,8 +146,8 @@ export function LoginForm() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-xs text-subtle">
-          Internal tool — invite only.
+        <p className="mt-6 text-center text-xs text-ink-subtle">
+          Internal tool, invite only.
         </p>
       </div>
     </div>

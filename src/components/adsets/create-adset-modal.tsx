@@ -301,13 +301,13 @@ export function CreateAdSetModal({
       return "Age range must be between 13 and 65 (min ≤ max).";
     }
     if (!campaign.hasCbo) {
-      if (!budgetCents) return "Parent campaign has no CBO — set a budget here.";
+      if (!budgetCents) return "Parent campaign has no CBO, so set a budget here.";
       if (budgetType === "lifetime" && !endTimeIso) {
         return "Lifetime budget needs an end date.";
       }
     } else if (budgetCents) {
       // Defensive — UI hides the budget input when CBO is on.
-      return "Parent campaign uses CBO — remove the ad set budget.";
+      return "Parent campaign uses CBO. Remove the ad set budget.";
     }
     if (placementMode === "manual") {
       if (fbPositions.size === 0 && igPositions.size === 0) {
@@ -539,7 +539,7 @@ export function CreateAdSetModal({
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. India 25-45 women — Diwali Saree"
+                  placeholder="e.g. India 25-45 women / Diwali Saree"
                   disabled={submitting}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                 />
@@ -668,7 +668,7 @@ export function CreateAdSetModal({
                             disabled={submitting}
                             className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                           >
-                            <option value="">— Pick a conversion —</option>
+                            <option value="">Pick a conversion…</option>
                             {conversions.map((c) => (
                               <option key={c.id} value={c.id}>
                                 {c.name}
@@ -1299,7 +1299,7 @@ function AudienceSubpicker({
       >
         <option value="">
           {available.length === 0
-            ? "— All audiences chosen —"
+            ? "All audiences chosen"
             : `+ Add audience to ${kind.toLowerCase()}…`}
         </option>
         {available.map((a) => (

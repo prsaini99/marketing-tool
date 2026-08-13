@@ -71,7 +71,7 @@ export default async function AuditPage({
           One-click housekeeping audit for{" "}
           <span className="text-foreground">{account.name}</span> ·{" "}
           {account.business.name}. Scans budget allocation, naming, URL/UTM
-          tracking, and brand-voice drift — the things humans skim past.
+          tracking, and brand-voice drift (the things humans skim past).
         </p>
       </div>
 

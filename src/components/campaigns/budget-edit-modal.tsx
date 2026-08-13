@@ -288,7 +288,7 @@ export function BudgetEditModal({
                   disabled={mixedCurrencies}
                   title={
                     mixedCurrencies
-                      ? "Selection spans multiple currencies — use % mode"
+                      ? "Selection spans multiple currencies, so use % mode"
                       : undefined
                   }
                   className={cn(
@@ -385,7 +385,7 @@ export function BudgetEditModal({
                             {formatMoney(p.toCents / 100, p.campaign.currency)}
                           </span>
                         ) : (
-                          <span className="text-subtle">—</span>
+                          <span className="text-subtle">-</span>
                         )}
                       </span>
                     </li>
@@ -403,7 +403,7 @@ export function BudgetEditModal({
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
                     Some campaigns will change by more than 5×. Double-check
-                    before confirming — money spent on Meta cannot be recovered.
+                    before confirming. Money spent on Meta cannot be recovered.
                   </span>
                 </div>
               )}

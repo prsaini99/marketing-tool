@@ -149,7 +149,7 @@ export function AdPreviewModal({
       if (toFetch.length === 0) {
         if (process.env.NODE_ENV !== "production") {
           console.debug(
-            `[ad-preview] skip — already in-flight/loaded:`,
+            `[ad-preview] skip, already in-flight/loaded:`,
             formats.join(","),
           );
         }
@@ -352,7 +352,7 @@ export function AdPreviewModal({
                               {isLoaded && !isActive && (
                                 <span
                                   className="text-[10px] text-subtle"
-                                  title="Already fetched — no extra API call"
+                                  title="Already fetched, no extra API call"
                                 >
                                   cached
                                 </span>
@@ -411,8 +411,8 @@ export function AdPreviewModal({
 
         <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-3 text-[11px] text-subtle">
           <span>
-            Previews are rendered by Meta — the actual creative as it appears
-            on each placement.
+            Previews are rendered by Meta, so this is the actual creative as
+            it appears on each placement.
           </span>
           <button
             type="button"

@@ -12,6 +12,7 @@
  */
 
 import Image from "next/image";
+import { SubNav, LIBRARY_TABS } from "@/components/layout/sub-nav";
 import { Image as ImageIcon } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
 import { cn } from "@/lib/utils";
@@ -116,6 +117,7 @@ export default async function ImageLibraryPage({
 
   return (
     <div className="space-y-4">
+      <SubNav items={LIBRARY_TABS} />
       <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">
@@ -212,7 +214,7 @@ export default async function ImageLibraryPage({
                     {shortHash}
                   </p>
                   <p className="text-[10px] text-subtle">
-                    {dims ?? "—"} · {img.adAccount.business.name}
+                    {dims ?? "-"} · {img.adAccount.business.name}
                   </p>
                   <div className="flex justify-end border-t border-border pt-1.5">
                     <DeleteButton
@@ -230,7 +232,7 @@ export default async function ImageLibraryPage({
 
       <p className="text-xs text-subtle">
         Showing up to 500 most recently synced images. Image URLs from Meta
-        are short-lived — re-sync if thumbnails 404.
+        are short-lived, so re-sync if thumbnails 404.
       </p>
     </div>
   );

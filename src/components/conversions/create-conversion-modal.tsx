@@ -243,7 +243,7 @@ export function CreateConversionModal({
               New custom conversion
             </h2>
             <p className="mt-0.5 text-xs text-muted">
-              A rule on top of a pixel&apos;s events — used as an
+              A rule on top of a pixel&apos;s events, used as an
               optimization target on conversion ad sets.
             </p>
           </div>
@@ -312,7 +312,7 @@ export function CreateConversionModal({
                 ) : (
                   <p className="rounded-md border border-dashed border-border bg-surface px-3 py-2 text-[11px] text-muted">
                     No pixels on this account. Create one in Meta Events
-                    Manager first — a custom conversion needs a pixel.
+                    Manager first, because a custom conversion needs a pixel.
                   </p>
                 )}
               </div>

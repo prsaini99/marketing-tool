@@ -47,7 +47,7 @@ function ConnectionStatusPill({ status }: { status: ConnectionStatus }) {
 }
 
 function formatDate(d: Date | null) {
-  if (!d) return "—";
+  if (!d) return "-";
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",

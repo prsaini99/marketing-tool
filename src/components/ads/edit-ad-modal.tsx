@@ -356,7 +356,7 @@ export function EditAdModal({ open, ad, onClose }: EditAdModalProps) {
                 </pre>
               ) : (
                 <p className="mt-3 rounded-md border border-dashed border-border bg-background px-3 py-2 text-[11px] text-muted">
-                  No changes yet — edit a field to see the payload.
+                  No changes yet. Edit a field to see the payload.
                 </p>
               )}
               <div className="mt-3 text-[11px] text-subtle">

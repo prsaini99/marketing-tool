@@ -103,7 +103,7 @@ export function SetupChecklist({ accountId }: { accountId: string }) {
           label="Required scopes"
           detail={
             status.scopes.missing.length > 0
-              ? `Missing: ${status.scopes.missing.join(", ")} — regenerate the system-user token in Business Manager with these checked.`
+              ? `Missing: ${status.scopes.missing.join(", ")}. Regenerate the system-user token in Business Manager with these checked.`
               : "All present"
           }
         />
@@ -128,7 +128,7 @@ export function SetupChecklist({ accountId }: { accountId: string }) {
       </div>
 
       <div className="space-y-2 rounded-lg border border-border bg-surface p-4 text-sm">
-        <div className="font-medium">Meta App Dashboard — one-time setup</div>
+        <div className="font-medium">Meta App Dashboard: one-time setup</div>
         <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
           <li>
             Add the <b>Webhooks</b> product →{" "}
@@ -154,7 +154,7 @@ export function SetupChecklist({ accountId }: { accountId: string }) {
               ? "feed and messages."
               : "comments and messages."}
           </li>
-          <li>Switch the app to <b>Live mode</b> — webhooks are not delivered in Dev mode.</li>
+          <li>Switch the app to <b>Live mode</b>. Webhooks are not delivered in Dev mode.</li>
         </ol>
       </div>
 

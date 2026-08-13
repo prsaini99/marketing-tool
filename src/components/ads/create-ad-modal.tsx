@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { pollVideoUntilReady, uploadVideoChunked } from "@/lib/upload-video";
 import { AiStudioPanel } from "./ai-studio-panel";
+import { PreflightPanel } from "./preflight-panel";
 
 interface ParentAdSet {
   metaAdSetId: string;
@@ -293,7 +294,7 @@ export function CreateAdModal({
     }
     if (file.size > MAX_IMAGE_BYTES) {
       setError(
-        `Image is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`,
+        `Image is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is ${MAX_IMAGE_BYTES / 1024 / 1024} MB.`,
       );
       return;
     }
@@ -325,7 +326,7 @@ export function CreateAdModal({
     } else {
       if (!selectedVideo) return "Pick a video from the library.";
       if (!isVideoUsable(selectedVideo)) {
-        return "Selected video isn't ready — pick one that's processed.";
+        return "Selected video isn't ready. Pick one that's processed.";
       }
     }
     return null;
@@ -344,7 +345,7 @@ export function CreateAdModal({
       imageSource === "library"
         ? (selectedImage?.hash ?? "(no image)")
         : imageFile
-          ? `[uploaded — ${imageFile.name}]`
+          ? `[uploaded: ${imageFile.name}]`
           : "(no image)";
     const previewLinkData: Record<string, unknown> = {
       link: link || "(empty)",
@@ -486,7 +487,7 @@ export function CreateAdModal({
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Diwali Saree — Hero image v1"
+                  placeholder="e.g. Diwali Saree / Hero image v1"
                   disabled={submitting}
                   className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                 />
@@ -778,7 +779,7 @@ export function CreateAdModal({
                     type="text"
                     value={headline}
                     onChange={(e) => setHeadline(e.target.value)}
-                    placeholder="e.g. Diwali Saree Sale — 50% off"
+                    placeholder="e.g. Diwali Saree Sale: 50% off"
                     disabled={submitting}
                     className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                   />
@@ -834,6 +835,20 @@ export function CreateAdModal({
                   </select>
                 </div>
               </div>
+
+              {/* Pre-flight — advisory scoring before this reaches Meta.
+                  Rendered as its own component so this file doesn't grow;
+                  it never gates submit. */}
+              <PreflightPanel
+                draft={{
+                  adAccountId: metaAdAccountId,
+                  primaryText: message,
+                  headline,
+                  description,
+                  callToAction,
+                  linkUrl: link,
+                }}
+              />
 
               {/* Advanced — status */}
               <div>
@@ -1311,7 +1326,7 @@ function VideoUploadPanel({
         </button>
       )}
       <p className="text-[10px] text-subtle">
-        Uploaded in chunks through our server. Meta encodes after upload — this
+        Uploaded in chunks through our server. Meta encodes after upload, which
         can take up to a minute before the video is usable.
       </p>
     </div>
@@ -1385,7 +1400,7 @@ function VideoPicker({
         const selected = v.videoId === selectedVideoId;
         const length = formatLength(v.lengthSeconds);
         const reason = !v.thumbnailUrl
-          ? "No poster — re-sync"
+          ? "No poster, re-sync"
           : v.status && v.status.toLowerCase() !== "ready"
             ? "Processing"
             : null;

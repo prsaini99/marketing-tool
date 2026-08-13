@@ -1,4 +1,5 @@
 import { Download, Megaphone } from "lucide-react";
+import { SubNav, MANAGE_TABS } from "@/components/layout/sub-nav";
 import { prisma } from "@/lib/db/prisma";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FlatCampaignsTable } from "@/components/tables/flat-campaigns-table";
@@ -10,7 +11,7 @@ import { resolveDateRange } from "@/lib/date-range";
 import type { DisplayCampaign } from "@/lib/display";
 
 function formatRelative(d: Date | null): string {
-  if (!d) return "—";
+  if (!d) return "-";
   const ms = Date.now() - d.getTime();
   if (ms < 60_000) return "just now";
   if (ms < 3_600_000) return `${Math.floor(ms / 60_000)} min ago`;
@@ -170,6 +171,7 @@ export default async function CampaignsFlatPage({
 
   return (
     <div className="space-y-4">
+      <SubNav items={MANAGE_TABS} />
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Campaigns</h1>
