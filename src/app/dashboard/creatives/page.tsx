@@ -14,6 +14,7 @@
 import { SubNav, LIBRARY_TABS } from "@/components/layout/sub-nav";
 import { Image as ImageIcon } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
+import { mediaUrl } from "@/lib/media-url";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
@@ -152,13 +153,17 @@ export default async function CreativesFlatPage({
     imageHashes.length
       ? prisma.adImage.findMany({
           where: { metaImageHash: { in: imageHashes }, url: { not: null } },
-          select: { metaImageHash: true, url: true },
+          select: { metaImageHash: true, url: true, storagePath: true },
         })
       : Promise.resolve([]),
   ]);
   const metaBySource = new Map(embRows.map((e) => [e.sourceId, e.metadata ?? {}]));
   const videoById = new Map(videoRows.map((v) => [v.metaVideoId, v]));
-  const fullImageByHash = new Map(imageRows.map((i) => [i.metaImageHash, i.url]));
+  // mediaUrl prefers the captured bytes; Meta's URL is only the fallback,
+  // because it stops resolving within about a day.
+  const fullImageByHash = new Map(
+    imageRows.map((i) => [i.metaImageHash, mediaUrl(i)]),
+  );
 
   const symbolFor = (c: string) =>
     c === "INR" ? "₹" : c === "USD" ? "$" : c === "EUR" ? "€" : c === "GBP" ? "£" : "";
@@ -186,8 +191,10 @@ export default async function CreativesFlatPage({
       // is small but reliably served.
       thumb:
         (c.imageHash ? fullImageByHash.get(c.imageHash) : null) ??
+        // The creative's own captured thumbnail, then whatever Meta still
+        // serves. Stored bytes always win.
+        mediaUrl(c) ??
         c.imageUrl ??
-        c.thumbnailUrl ??
         null,
       isVideo: Boolean(c.videoId),
       videoSourceUrl: video?.sourceUrl ?? null,

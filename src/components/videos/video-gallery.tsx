@@ -31,6 +31,8 @@ export interface VideoItem {
   status: string | null;
   length: string | null;
   sourceUrl: string | null;
+  /** Captured poster, served from our own storage. Stable, unlike Meta's. */
+  posterUrl: string | null;
   transcript: string | null;
   accountLabel: string;
 }
@@ -93,6 +95,7 @@ export function VideoGallery({ items }: { items: VideoItem[] }) {
                 <>
                   <video
                     src={`${v.sourceUrl}#t=0.15`}
+                    poster={v.posterUrl ?? undefined}
                     preload="metadata"
                     muted
                     playsInline
@@ -103,6 +106,21 @@ export function VideoGallery({ items }: { items: VideoItem[] }) {
                       e.currentTarget.pause();
                       e.currentTarget.currentTime = 0.15;
                     }}
+                  />
+                  <span className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm">
+                    <Play className="h-3 w-3 fill-current" />
+                  </span>
+                </>
+              ) : v.posterUrl ? (
+                /* No downloadable source (Page-owned reels have none), but we
+                   captured the poster, so show the frame rather than an
+                   apology. */
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={v.posterUrl}
+                    alt={v.title ?? "Video poster"}
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
                   />
                   <span className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-sm">
                     <Play className="h-3 w-3 fill-current" />
@@ -180,6 +198,7 @@ export function VideoGallery({ items }: { items: VideoItem[] }) {
                 <div className="bg-ink">
                   <video
                     src={open.sourceUrl}
+                    poster={open.posterUrl ?? undefined}
                     controls
                     autoPlay
                     playsInline

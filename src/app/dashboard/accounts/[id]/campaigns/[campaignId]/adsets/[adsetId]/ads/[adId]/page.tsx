@@ -21,6 +21,7 @@
 import Link from "next/link";
 import { ChevronRight, Megaphone } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
+import { mediaUrl } from "@/lib/media-url";
 import { cn } from "@/lib/utils";
 import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
@@ -370,9 +371,10 @@ export default async function AdDetailPage({
               body={creative.body}
               ctaType={creative.callToActionType}
               status={creative.status}
-              thumbnailUrl={
-                creative.thumbnailUrl ?? ad.creativeThumbnailUrl ?? null
-              }
+              // Captured bytes first. ad.creativeThumbnailUrl is a Meta CDN
+              // URL copied onto the Ad row at sync time and dies with the
+              // rest, so it stays last in the chain.
+              thumbnailUrl={mediaUrl(creative) ?? ad.creativeThumbnailUrl ?? null}
               metaCreativeId={creative.metaCreativeId}
             />
             {creative.imageHash && (
@@ -381,7 +383,7 @@ export default async function AdDetailPage({
                 hash={creative.imageHash}
                 width={image?.width ?? null}
                 height={image?.height ?? null}
-                url={image?.url ?? null}
+                url={mediaUrl(image) ?? null}
               />
             )}
             {creative.videoId && (
@@ -389,8 +391,8 @@ export default async function AdDetailPage({
                 title={video?.title ?? null}
                 videoId={creative.videoId}
                 thumbnailUrl={
-                  video?.thumbnailUrl ??
-                  creative.thumbnailUrl ??
+                  mediaUrl(video) ??
+                  mediaUrl(creative) ??
                   ad.creativeThumbnailUrl ??
                   null
                 }

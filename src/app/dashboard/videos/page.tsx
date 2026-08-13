@@ -11,6 +11,7 @@
 import { SubNav, LIBRARY_TABS } from "@/components/layout/sub-nav";
 import { Video as VideoIcon } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
+import { mediaUrl } from "@/lib/media-url";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
@@ -105,6 +106,10 @@ export default async function VideoLibraryPage({
     status: v.status,
     length: formatLength(v.lengthSeconds),
     sourceUrl: v.sourceUrl,
+    // Captured poster. Meta's own thumbnailUrl was excluded before because
+    // those assets expire per sync; now that the bytes are ours, the poster
+    // is stable and worth rendering.
+    posterUrl: mediaUrl(v),
     transcript: v.transcript || null,
     accountLabel: `${v.adAccount.business.name} · ${v.adAccount.name}`,
   }));

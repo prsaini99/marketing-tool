@@ -15,6 +15,7 @@ import Image from "next/image";
 import { SubNav, LIBRARY_TABS } from "@/components/layout/sub-nav";
 import { Image as ImageIcon } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
+import { mediaUrl } from "@/lib/media-url";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
@@ -181,9 +182,9 @@ export default async function ImageLibraryPage({
                     images are wildly varied in aspect, so we object-cover
                     rather than letterbox. */}
                 <div className="relative aspect-square w-full bg-surface-2">
-                  {img.url ? (
+                  {mediaUrl(img) ? (
                     <Image
-                      src={img.url}
+                      src={mediaUrl(img)!}
                       alt={img.name ?? img.metaImageHash}
                       fill
                       sizes="(max-width: 640px) 50vw, (max-width: 1280px) 25vw, 16vw"
