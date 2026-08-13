@@ -88,8 +88,10 @@ interface AccountContext {
   pixels: Array<{ id: string; name: string }>;
   customConversions: Array<{ id: string; name: string }>;
   audiences: Array<{ id: string; name: string; approximateCount: number | null }>;
-  images: Array<{ hash: string; name: string }>;
-  videos: Array<{ id: string; name: string }>;
+  images: Array<{ hash: string; name: string; description: string | null }>;
+  videos: Array<{ id: string; name: string; transcript: string | null }>;
+  /** How much of the library the model can actually see into. */
+  analysed: { images: number; videos: number };
 }
 
 async function loadAccountContext(adAccountId: string): Promise<AccountContext> {
@@ -115,16 +117,22 @@ async function loadAccountContext(adAccountId: string): Promise<AccountContext> 
       select: { metaAudienceId: true, name: true, approximateCount: true },
       take: 40,
     }),
+    // aiDescription and transcript are what make asset selection possible at
+    // all. Without them the model sees "IMG_8580.PNG_105" and is choosing a
+    // creative by filename, which is to say at random. Described assets sort
+    // first so they survive the take() when a library is larger than the
+    // slice, since an asset the model can actually reason about is worth
+    // more prompt budget than one it cannot.
     prisma.adImage.findMany({
       where: { adAccountId },
-      select: { metaImageHash: true, name: true },
-      orderBy: { syncedAt: "desc" },
+      select: { metaImageHash: true, name: true, aiDescription: true },
+      orderBy: [{ aiDescription: { sort: "desc", nulls: "last" } }, { syncedAt: "desc" }],
       take: 30,
     }),
     prisma.adVideo.findMany({
       where: { adAccountId, status: "ready" },
-      select: { metaVideoId: true, title: true },
-      orderBy: { syncedAt: "desc" },
+      select: { metaVideoId: true, title: true, transcript: true },
+      orderBy: [{ transcript: { sort: "desc", nulls: "last" } }, { syncedAt: "desc" }],
       take: 30,
     }),
     prisma.socialAccount.findFirst({
@@ -167,8 +175,17 @@ async function loadAccountContext(adAccountId: string): Promise<AccountContext> 
     images: images.map((i) => ({
       hash: i.metaImageHash,
       name: i.name ?? "",
+      description: i.aiDescription,
     })),
-    videos: videos.map((v) => ({ id: v.metaVideoId, name: v.title ?? "" })),
+    videos: videos.map((v) => ({
+      id: v.metaVideoId,
+      name: v.title ?? "",
+      transcript: v.transcript,
+    })),
+    analysed: {
+      images: images.filter((i) => i.aiDescription).length,
+      videos: videos.filter((v) => v.transcript).length,
+    },
   };
 }
 
@@ -303,11 +320,13 @@ ${list(ctx.pixels, (p) => `- ${p.id} "${p.name}"`, "- none")}
 Custom conversions:
 ${list(ctx.customConversions, (c) => `- ${c.id} "${c.name}"`, "- none")}
 
-Library images (use imageHash):
-${list(ctx.images, (i) => `- ${i.hash} "${i.name}"`, "- none")}
+Library images (use imageHash). A description means the image has been analysed and you know what is in it. A bare filename means it has not, so choosing it is a guess:
+${list(ctx.images, (i) => `- ${i.hash} "${i.name}"${i.description ? `\n    shows: ${i.description.replace(/\s+/g, " ").slice(0, 220)}` : ""}`, "- none")}
 
-Library videos (use videoId):
-${list(ctx.videos, (v) => `- ${v.id} "${v.name}"`, "- none")}
+Library videos (use videoId). A transcript means the audio has been analysed:
+${list(ctx.videos, (v) => `- ${v.id} "${v.name}"${v.transcript ? `\n    says: ${v.transcript.replace(/\s+/g, " ").slice(0, 220)}` : ""}`, "- none")}
+
+ASSET SELECTION: prefer an asset whose description or transcript actually matches the brief. If nothing matches, say so in the rationale and pick the closest described asset rather than an undescribed one. Never claim in ad copy that a creative shows something its description does not.
 
 STRUCTURAL RULES, which Meta enforces and rejects with unhelpful messages:
 - Budget lives EITHER on the campaign (campaign budget optimisation on) OR on every ad set, never both and never neither.
