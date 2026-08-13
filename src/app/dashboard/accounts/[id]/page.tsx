@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
 import { cn } from "@/lib/utils";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
 import {
   assessAccountDelivery,
   campaignBlockReason,
@@ -164,11 +164,11 @@ export default async function AccountDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string; }>;
 }) {
   const { id } = await params;
-  const { range } = await searchParams;
-  const dateRange = resolveDateRange(range);
+  const { range, from, to } = await searchParams;
+  const dateRange = resolveDateRange(range, from, to);
   const fullAccountId = `act_${id}`;
 
   const account = await prisma.metaAdAccount.findFirst({
@@ -199,7 +199,7 @@ export default async function AccountDetailPage({
     );
   }
 
-  const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
+  const dateFilter = insightsDateFilter(dateRange);
 
   const [
     accountTotals,
@@ -232,7 +232,7 @@ export default async function AccountDetailPage({
       where: {
         adAccountId: account.id,
         level: "campaign",
-        ...(dateRange.since ? { date: { gte: dateRange.since } } : {}),
+        ...(insightsDateFilter(dateRange)),
       },
       _sum: { spendCents: true, impressions: true, clicks: true },
     }),

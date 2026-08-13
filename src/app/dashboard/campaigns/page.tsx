@@ -7,7 +7,7 @@ import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { NewCampaignButton } from "@/components/campaigns/new-campaign-button";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
 import {
   assessAccountDelivery,
   campaignBlockReason,
@@ -32,10 +32,10 @@ function formatRelative(d: Date | null): string {
 export default async function CampaignsFlatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; range?: string; q?: string }>;
+  searchParams: Promise<{ client?: string; range?: string; from?: string; to?: string; q?: string }>;
 }) {
-  const { client, range, q } = await searchParams;
-  const dateRange = resolveDateRange(range);
+  const { client, range, from, to, q } = await searchParams;
+  const dateRange = resolveDateRange(range, from, to);
   const query = q?.trim();
   const selectedBusiness = client
     ? await prisma.metaBusiness.findUnique({
@@ -44,7 +44,7 @@ export default async function CampaignsFlatPage({
       })
     : null;
 
-  const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
+  const dateFilter = insightsDateFilter(dateRange);
 
   const scopeFilter = {
     selectedForSync: true as const,

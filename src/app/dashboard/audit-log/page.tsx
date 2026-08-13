@@ -107,7 +107,7 @@ export default async function AuditLogPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    range?: string;
+    range?: string; from?: string; to?: string;
     target?: string;
     action?: string;
     page?: string;

@@ -4,7 +4,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { AccountsTable } from "@/components/tables/accounts-table";
 import { SyncAllInsightsButton } from "@/components/sync/sync-all-insights-button";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
 import type { DisplayAdAccount } from "@/lib/display";
 
 function formatRelative(d: Date | null | undefined): string | null {
@@ -23,10 +23,10 @@ function formatRelative(d: Date | null | undefined): string | null {
 export default async function AccountsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; range?: string }>;
+  searchParams: Promise<{ client?: string; range?: string; from?: string; to?: string; }>;
 }) {
-  const { client, range } = await searchParams;
-  const dateRange = resolveDateRange(range);
+  const { client, range, from, to } = await searchParams;
+  const dateRange = resolveDateRange(range, from, to);
 
   const selectedBusiness = client
     ? await prisma.metaBusiness.findUnique({
@@ -58,7 +58,7 @@ export default async function AccountsPage({
       where: {
         adAccountId: { in: accountIds },
         level: "account",
-        ...(dateRange.since ? { date: { gte: dateRange.since } } : {}),
+        ...(insightsDateFilter(dateRange)),
       },
       _sum: { spendCents: true },
     }),

@@ -9,7 +9,7 @@ import {
   PerAdsetAdsTable,
   type AdRow,
 } from "@/components/tables/per-adset-ads-table";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
 
 function formatRelative(d: Date | null | undefined): string {
   if (!d) return "-";
@@ -29,11 +29,11 @@ export default async function AdsPage({
   searchParams,
 }: {
   params: Promise<{ id: string; campaignId: string; adsetId: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string; }>;
 }) {
   const { id, campaignId, adsetId } = await params;
-  const { range } = await searchParams;
-  const dateRange = resolveDateRange(range);
+  const { range, from, to } = await searchParams;
+  const dateRange = resolveDateRange(range, from, to);
   const fullAccountId = `act_${id}`;
 
   const account = await prisma.metaAdAccount.findFirst({
@@ -85,7 +85,7 @@ export default async function AdsPage({
       where: {
         adAccountId: account.id,
         level: "ad",
-        ...(dateRange.since ? { date: { gte: dateRange.since } } : {}),
+        ...(insightsDateFilter(dateRange)),
       },
       _sum: { spendCents: true, impressions: true, clicks: true },
     }),

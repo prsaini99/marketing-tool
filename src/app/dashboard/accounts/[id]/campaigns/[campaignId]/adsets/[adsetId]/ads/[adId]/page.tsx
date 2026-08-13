@@ -22,7 +22,7 @@ import Link from "next/link";
 import { ChevronRight, Megaphone } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
 import { cn } from "@/lib/utils";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { KpiCard } from "@/components/insights/kpi-card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -118,11 +118,11 @@ export default async function AdDetailPage({
     adsetId: string;
     adId: string;
   }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string; }>;
 }) {
   const { id, campaignId, adsetId, adId } = await params;
-  const { range } = await searchParams;
-  const dateRange = resolveDateRange(range);
+  const { range, from, to } = await searchParams;
+  const dateRange = resolveDateRange(range, from, to);
   const fullAccountId = `act_${id}`;
 
   const account = await prisma.metaAdAccount.findFirst({
@@ -208,7 +208,7 @@ export default async function AdDetailPage({
     : null;
 
   // Aggregate insights for this ad over the date range.
-  const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
+  const dateFilter = insightsDateFilter(dateRange);
   const totals = await prisma.insightsSnapshot.aggregate({
     where: {
       adAccountId: account.id,
