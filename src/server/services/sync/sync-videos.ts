@@ -14,6 +14,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import { captureVideosForAccount } from "./capture-assets";
 import { metaClient } from "@/lib/meta/client";
 import type { NormalizedAdVideo } from "@/lib/meta/types";
 
@@ -114,6 +115,16 @@ export async function syncVideosForAccount(
       where: { id: syncLog.id },
       data: { status: "success", finishedAt: new Date() },
     });
+
+    // Capture the bytes while Meta's URLs are still live. Best effort: this
+    // cannot fail the sync, and anything it misses is retried next run.
+    const captured = await captureVideosForAccount(account.id, account.metaAdAccountId);
+    if (captured.attempted > 0) {
+      console.log(
+        `[sync-videos] assets: ${captured.stored} stored, ${captured.skipped} already present, ${captured.failed} failed` +
+          (captured.errors.length ? ` (${captured.errors[0]})` : ""),
+      );
+    }
 
     return { adAccountId: account.id, upserted, syncLogId: syncLog.id };
   } catch (err) {
