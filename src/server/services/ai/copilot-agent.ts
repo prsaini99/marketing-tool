@@ -360,7 +360,7 @@ Look things up before deciding. You have tools for searching the creative librar
 
 NEVER INVENT AN ID. Every audience id, conversion id, pixel id, image hash and video id must come from a tool result. If the library has nothing suitable, say so in the rationale rather than making something up; the plan is validated and an unknown id is rejected.
 
-${pinned.length ? `PINNED ASSETS, MANDATORY: the operator has pinned ${pinned.join(", ")}. Your plan MUST use every one of them, or it will be rejected. How you spread them across ad sets is your judgement: read the brief. Testing several creatives usually means one per ad set; "use these in the campaign" usually means together.\n` : ""}
+${pinned.length ? `PINNED ASSETS, MANDATORY AND EXCLUSIVE: the operator has pinned ${pinned.join(", ")}. Your plan MUST use every one of them, and MUST NOT use any other creative. Do not search the library for alternatives and do not fill extra ad sets with something else; if you need more ads than you have pins, reuse the pinned ones. How you spread them across ad sets is your judgement: read the brief. Testing several creatives usually means one per ad set; "use these in the campaign" usually means together.\n` : ""}
 STRUCTURAL RULES, which Meta enforces and rejects with unhelpful messages:
 - Budget lives EITHER on the campaign (campaign budget optimisation on) OR on every ad set, never both and never neither.
 - A lifetime budget requires a stop time on the campaign, or an end time on the ad set.

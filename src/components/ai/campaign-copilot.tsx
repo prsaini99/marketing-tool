@@ -259,9 +259,10 @@ export function CampaignCopilot({
 
           {pinnedAssets.length > 0 && (
             <p className="mt-2 text-[13px] text-muted">
-              The plan must use {pinnedAssets.length === 1 ? "this" : "these"}.
-              A draft that leaves {pinnedAssets.length === 1 ? "it" : "one"} out
-              is rejected.
+              The plan will use only {pinnedAssets.length === 1 ? "this" : "these"}
+              . Nothing else from the library, and a draft that leaves{" "}
+              {pinnedAssets.length === 1 ? "it" : "one"} out is rejected. Pin
+              nothing to let the copilot choose.
             </p>
           )}
 

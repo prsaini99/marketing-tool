@@ -497,9 +497,17 @@ export function validatePlan(
     });
   });
 
-  // Pinned assets. Checked across the whole plan rather than per ad set,
-  // because "use this creative" means somewhere in this campaign, not in
-  // every ad set. Distribution is the brief's business, not the validator's.
+  // Pinned assets, enforced in BOTH directions.
+  //
+  // Every pin must appear somewhere in the plan, and nothing outside the
+  // pinned set may be used at all. The second half is the one that matters
+  // in practice: a one-directional check let the agent honour your pin and
+  // then quietly fill the other ad sets from the rest of the library, which
+  // is not what "I chose this creative" means to anyone.
+  //
+  // Inclusion is checked across the whole plan rather than per ad set,
+  // because "use this creative" means somewhere in this campaign. How it is
+  // distributed is the brief's business, not the validator's.
   const usedImages = new Set<string>();
   const usedVideos = new Set<string>();
   for (const s2 of plan.adSets) {
@@ -523,6 +531,31 @@ export function validatePlan(
         `Pinned video ${id} does not appear in any ad. It was pinned deliberately, so the plan must use it.`,
       );
     }
+  }
+
+  // Exclusivity. Only applies when something is pinned; pinning nothing
+  // leaves the whole library available, which is the default behaviour.
+  const anyPinned =
+    (opts.pinnedImageHashes?.length ?? 0) + (opts.pinnedVideoIds?.length ?? 0) > 0;
+  if (anyPinned) {
+    const allowedImages = new Set(opts.pinnedImageHashes ?? []);
+    const allowedVideos = new Set(opts.pinnedVideoIds ?? []);
+    plan.adSets.forEach((s3, i) => {
+      (s3.ads ?? []).forEach((ad, j) => {
+        if (ad.imageHash && !allowedImages.has(ad.imageHash)) {
+          err(
+            `adSets[${i}].ads[${j}].imageHash`,
+            `Image ${ad.imageHash} was not pinned. When you pin creatives, the plan may only use those.`,
+          );
+        }
+        if (ad.videoId && !allowedVideos.has(ad.videoId)) {
+          err(
+            `adSets[${i}].ads[${j}].videoId`,
+            `Video ${ad.videoId} was not pinned. When you pin creatives, the plan may only use those.`,
+          );
+        }
+      });
+    });
   }
 
   // The guardrail. Checked last so the message can report the real total.

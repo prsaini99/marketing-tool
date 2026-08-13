@@ -666,9 +666,81 @@ describe("pinned assets", () => {
     expect(issues.some((i) => i.message.includes("vid_9"))).toBe(true);
   });
 
-  it("is satisfied by use anywhere in the plan, not in every ad set", () => {
-    // "Use this creative" means somewhere in this campaign. How it is spread
-    // across ad sets is the brief's business, not the validator's.
+  it("checks inclusion across the plan, not per ad set", () => {
+    // Two pins, one used in each ad set. Neither appears in both, and that
+    // is fine: "use this creative" means somewhere in this campaign. How it
+    // is spread is the brief's business, not the validator's.
+    const p = plan({
+      adSets: [
+        adSet({ name: "A" }), // uses abc123
+        adSet({
+          name: "B",
+          ads: [
+            {
+              name: "Ad B",
+              primaryText: "x",
+              headline: "y",
+              linkUrl: "https://e.com",
+              mediaType: "image",
+              imageHash: "pinned-two",
+            },
+          ],
+        }),
+      ],
+    });
+    const issues = validatePlan(p, {
+      ...OPTS,
+      pinnedImageHashes: ["abc123", "pinned-two"],
+    });
+    expect(issues.filter((i) => i.severity === "error")).toEqual([]);
+  });
+
+  it("does nothing when nothing is pinned", () => {
+    expect(errors(withAd({}))).toEqual([]);
+  });
+});
+
+describe("pinned assets are exclusive", () => {
+  it("rejects an ad using a creative that was not pinned", () => {
+    // The failure this catches: the agent honours the pin in ad set one and
+    // then fills ad set two from the rest of the library, which is not what
+    // "I chose this creative" means.
+    const p = plan({
+      adSets: [
+        adSet({ name: "A" }), // uses abc123
+        adSet({
+          name: "B",
+          ads: [
+            {
+              name: "Ad B",
+              primaryText: "x",
+              headline: "y",
+              linkUrl: "https://e.com",
+              mediaType: "image",
+              imageHash: "something-else",
+            },
+          ],
+        }),
+      ],
+    });
+    const issues = validatePlan(p, { ...OPTS, pinnedImageHashes: ["abc123"] });
+    expect(
+      issues.some((i) => i.path === "adSets[1].ads[0].imageHash"),
+    ).toBe(true);
+  });
+
+  it("allows a pinned creative to be reused across ad sets", () => {
+    // Exclusivity restricts WHICH creatives, not how many times each appears.
+    const p = plan({ adSets: [adSet({ name: "A" }), adSet({ name: "B" })] });
+    const issues = validatePlan(p, { ...OPTS, pinnedImageHashes: ["abc123"] });
+    expect(issues.filter((i) => i.severity === "error")).toEqual([]);
+  });
+
+  it("leaves the whole library available when nothing is pinned", () => {
+    expect(errors(plan())).toEqual([]);
+  });
+
+  it("allows a pinned video alongside a pinned image", () => {
     const p = plan({
       adSets: [
         adSet({ name: "A" }),
@@ -680,18 +752,18 @@ describe("pinned assets", () => {
               primaryText: "x",
               headline: "y",
               linkUrl: "https://e.com",
-              mediaType: "image",
-              imageHash: "pinned-one",
+              mediaType: "video",
+              videoId: "vid_7",
             },
           ],
         }),
       ],
     });
-    const issues = validatePlan(p, { ...OPTS, pinnedImageHashes: ["pinned-one"] });
+    const issues = validatePlan(p, {
+      ...OPTS,
+      pinnedImageHashes: ["abc123"],
+      pinnedVideoIds: ["vid_7"],
+    });
     expect(issues.filter((i) => i.severity === "error")).toEqual([]);
-  });
-
-  it("does nothing when nothing is pinned", () => {
-    expect(errors(withAd({}))).toEqual([]);
   });
 });
