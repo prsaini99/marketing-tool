@@ -34,13 +34,44 @@ import {
   type SessionRole,
 } from "@/lib/auth";
 import { verifyUserCredentials } from "@/server/services/auth/users";
+import { clientIpFrom, createRateLimiter } from "@/lib/rate-limit";
 
 interface Body {
   email?: unknown;
   password?: unknown;
 }
 
+/**
+ * Brute-force guard. This route is exempt from the session middleware by
+ * necessity, so it is the one publicly reachable endpoint that guards a
+ * credential, and until now it accepted unlimited guesses.
+ *
+ * 10 attempts per IP per 15 minutes: high enough that nobody fat-fingering a
+ * password notices, low enough that guessing is hopeless. A successful login
+ * clears the counter, so a user who mistypes twice and then gets it right
+ * starts fresh.
+ *
+ * Module scope means the counter is per serverless instance. See the note in
+ * src/lib/rate-limit.ts about what that does and does not buy.
+ */
+const loginLimiter = createRateLimiter({
+  limit: 10,
+  windowMs: 15 * 60 * 1000,
+});
+
 export async function POST(req: Request) {
+  const ip = clientIpFrom(req.headers);
+  const gate = loginLimiter.check(ip, Date.now());
+  if (!gate.allowed) {
+    return NextResponse.json(
+      { error: "Too many attempts. Try again shortly." },
+      {
+        status: 429,
+        headers: { "retry-after": String(gate.retryAfterSeconds) },
+      },
+    );
+  }
+
   let body: Body;
   try {
     body = (await req.json()) as Body;
@@ -85,6 +116,10 @@ export async function POST(req: Request) {
       { status: 401 },
     );
   }
+
+  // Correct credentials, so this IP is not an attacker. Clear its counter so
+  // earlier typos do not eat into a later window.
+  loginLimiter.reset(ip);
 
   const sessionValue =
     role === "owner"
