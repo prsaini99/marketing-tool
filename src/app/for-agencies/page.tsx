@@ -92,12 +92,22 @@ export default function Page() {
           <FeatureCard title="Alerts that reach a human">
             Daily scanning across every account for spend drops,
             disapprovals, audience overlap, and accounts where nothing can
-            deliver at all. Sent by email, so problems find you.
+            deliver at all. A campaign whose ad sets have all ended reads
+            &quot;not delivering&quot; rather than a green &quot;active&quot;,
+            which is the difference between spotting a dead account and
+            trusting a dashboard that looks fine.
           </FeatureCard>
           <FeatureCard title="Client-ready reporting">
             Weekly narrative reports per account, generated from real numbers
             with plain-English explanation. Five minutes of editing instead of
             two hours of writing.
+          </FeatureCard>
+          <FeatureCard title="Briefs instead of build-outs">
+            Describe a campaign and the copilot drafts it from that
+            client&apos;s own account: their creatives, their audiences, their
+            past performance. Budgets and Meta&apos;s structural rules are
+            checked before you see it, so a junior brief cannot produce a
+            launch that fails halfway through. You edit any field and approve.
           </FeatureCard>
           <FeatureCard title="A portfolio-wide playbook">
             Winning hooks and angles from every account you run, ranked by

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   Bot,
+  Wand2,
   Gauge,
   Inbox,
   ShieldCheck,
@@ -109,9 +110,10 @@ export default function HomePage() {
             Every ad you run makes the next one better.
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-muted">
-            adsboys is one place to run Meta campaigns, learn what worked from
-            your own results, and answer the people your ads bring in. We set
-            it up and operate it. Your team makes the calls.
+            Describe a campaign and get a plan built from your own account.
+            Launch it, learn what worked, and answer the people it brings in,
+            all in one place. We set it up and operate it. Your team makes the
+            calls.
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <DemoCta />
@@ -124,7 +126,7 @@ export default function HomePage() {
           </div>
           <dl className="mt-14 grid max-w-3xl grid-cols-2 gap-6 sm:grid-cols-4">
             {[
-              ["Audit-first", "every change is logged before it reaches Meta"],
+              ["Plan in English", "the copilot drafts, you approve"],
               ["Governed AI", "replies checked for links and prices"],
               ["Human inbox", "take over any conversation in one click"],
               ["Dedicated", "your own instance, your own database"],
@@ -150,6 +152,17 @@ export default function HomePage() {
         title="Plan, launch, measure and reply in one platform"
       >
         <div className="grid gap-4 md:grid-cols-3">
+          <FeatureCard title="Describe it, get a plan">
+            <Wand2 className="mb-2 h-5 w-5 text-accent" aria-hidden />
+            Say what you want in plain English and the copilot researches your
+            account before answering. It searches your creative library by what
+            each asset actually shows or says, reads how your past campaigns
+            performed, and comes back with a full campaign: ad sets, budgets,
+            targeting and copy. Every plan is checked against Meta&apos;s rules
+            first, so the incompatible pairings that fail halfway through a
+            launch are caught before you see them. You edit any field, or the
+            raw JSON, and approve.
+          </FeatureCard>
           <FeatureCard title="Know before you launch">
             <Gauge className="mb-2 h-5 w-5 text-accent" aria-hidden />
             adsboys scores a draft ad before you spend anything on it. It
@@ -161,11 +174,12 @@ export default function HomePage() {
           </FeatureCard>
           <FeatureCard title="AI that studies your winners">
             <Sparkles className="mb-2 h-5 w-5 text-accent" aria-hidden />
-            Every creative gets classified by hook, angle and funnel stage,
-            using the copy plus video transcripts and image analysis. Those
-            tags are joined to real spend and CPA, so you can see which shapes
-            of ad actually earn their budget in your account. One click
-            rewrites a weak ad in the style of the ones that worked.
+            Every image is described by a vision model and every video with a
+            downloadable file is transcribed, so the platform knows what your
+            creatives actually show and say rather than their filenames. Those
+            descriptions drive classification by hook, angle and funnel stage,
+            joined to real spend and CPA. One click rewrites a weak ad in the
+            style of the ones that worked.
           </FeatureCard>
           <FeatureCard title="Rules that watch the budget">
             <Zap className="mb-2 h-5 w-5 text-accent" aria-hidden />
