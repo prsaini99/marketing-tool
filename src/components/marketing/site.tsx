@@ -149,6 +149,21 @@ export function SiteFooter() {
                 Client sign in
               </Link>
             </li>
+            <li>
+              <Link href="/privacy" className="text-ink-muted hover:text-ink-foreground">
+                Privacy policy
+              </Link>
+            </li>
+            <li>
+              <Link href="/terms" className="text-ink-muted hover:text-ink-foreground">
+                Terms of service
+              </Link>
+            </li>
+            <li>
+              <Link href="/data-deletion" className="text-ink-muted hover:text-ink-foreground">
+                Data deletion
+              </Link>
+            </li>
           </ul>
         </div>
       </div>

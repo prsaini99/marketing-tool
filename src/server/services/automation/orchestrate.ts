@@ -47,6 +47,11 @@ import type {
   PlannedAction,
   RuleLike,
 } from "./types";
+import {
+  applyDisclosure,
+  DEFAULT_BOT_DISCLOSURE,
+  needsDisclosure,
+} from "./disclosure";
 
 /**
  * Each send method resolves to the Meta message id of what was just sent
@@ -301,9 +306,24 @@ export async function orchestrateEvent(
         where: {
           igAccountId_igsid: { igAccountId: ig.id, igsid: event.fromIgsid },
         },
-        include: { lead: true },
+        include: {
+          lead: true,
+          // Has this person already been told they are talking to a bot?
+          // `take: 1` because only existence matters, and it rides the
+          // thread read that was happening anyway rather than costing a
+          // second round trip. Read-only, so it stays safe on the dry-run
+          // path for the same reason the lead include is.
+          messages: {
+            where: { role: "BOT", channel: "DM" },
+            select: { id: true },
+            take: 1,
+          },
+        },
       })
     : null;
+  // Drives the automated-experience disclosure. See disclosure.ts for why it
+  // is once per conversation and private messages only.
+  const hasPriorBotDm = (threadWithLead?.messages.length ?? 0) > 0;
   let thread: BotThread | null = threadWithLead;
   // Reused by the extraction block at the bottom as `existingLead`, so there
   // is still exactly ONE BotLead read per event.
@@ -568,6 +588,14 @@ export async function orchestrateEvent(
         });
       }
       return { ...a, action: "SKIPPED", skipReason: "empty_render", status: "SKIPPED" };
+    }
+
+    // Automated-experience disclosure, applied AFTER the empty-render check
+    // above so a blank reply is still skipped rather than rescued into a
+    // message that is nothing but a disclaimer, and BEFORE the audit row
+    // below so what we log is exactly what we send.
+    if (needsDisclosure(a.action, hasPriorBotDm)) {
+      text = applyDisclosure(text, DEFAULT_BOT_DISCLOSURE);
     }
 
     // Audit-first: PENDING row before the Meta call.
