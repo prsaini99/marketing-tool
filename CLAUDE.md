@@ -66,7 +66,31 @@ To rotate a token **without** data loss, re-paste it: `createConnectionFromToken
 
 Ten sync services exist, but `ScheduleKind` (`src/lib/schedule.ts`) is only `campaigns | adsets | ads | insights`. Those four are the only ones the cron tick can run. **`creatives`, `images`, `videos`, `audiences`, `conversions`, and `account-detail` are manual-trigger only** and will never refresh on their own.
 
-This matters because Meta CDN URLs (`*.fbcdn.net`) are signed and expire in roughly four days. `AdImage.url`, `AdVideo.thumbnailUrl`, and creative thumbnails go dead with `403 URL signature expired`, and images silently stop rendering. Blank thumbnails almost always mean "that asset kind hasn't been synced recently", not a rendering bug. Adding a schedulable kind means touching `ScheduleKind`, `SCHEDULE_KINDS`, `CALLS_PER_RUN`, and the `runByKind` switch in `src/app/api/cron/tick/route.ts`.
+Adding a schedulable kind means touching `ScheduleKind`, `SCHEDULE_KINDS`, `CALLS_PER_RUN`, and the `runByKind` switch in `src/app/api/cron/tick/route.ts`.
+
+### Asset URLs die, so the bytes are stored
+
+**Do not trust any `*.fbcdn.net` URL in the database.** An earlier version of this file said they were signed and expired in roughly four days with a `403 URL signature expired`. That is wrong in both the timing and the failure mode, and believing it sends you looking in the wrong place.
+
+What actually happens: Meta serves assets from `fna.fbcdn.net` edge appliances hosted inside ISP networks, and rotates which one you get. When an appliance is retired its hostname is removed from **global DNS**, so the browser gets a failed lookup rather than an HTTP error. Measured on `act_848772841278761`: URLs synced one day had no A record from Cloudflare, Google or Quad9 the next. Lifetime is about a day, not four.
+
+Two consequences. Proxying cannot work, because a proxy replays the same dead hostname. And re-syncing does not "fix" a blank thumbnail so much as buy another day.
+
+So the bytes are captured instead, in `src/server/services/sync/capture-assets.ts`, which runs at the end of the images, videos and creatives syncs. That is the one moment the URL is reliably live. Storage is Supabase (`src/lib/storage/assets.ts`), bucket `meta-assets`, **private**, content-addressed paths, served through `/api/media/*` which inherits the session check middleware applies to `/api/*`. Requires `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`; without them capture is skipped and the UI falls back to Meta's URLs, i.e. the old broken behaviour.
+
+Render assets via `mediaUrl()` (`src/lib/media-url.ts`), never a raw `url` or `thumbnailUrl` column. It prefers `storagePath` and falls back to Meta.
+
+`storedAt` and `storeAttemptedAt` are separate columns on purpose: that pair is what lets a sync retry only the assets that failed rather than re-downloading the library every run.
+
+**Videos: only some have a file.** `AdVideo.sourceUrl` is populated only for videos uploaded to the ad account. Page-owned videos (boosted posts, reels) have no downloadable file on Meta at all, so they get a stored poster and no player, and they can never be transcribed. On the reference account that is 13 of 37. A still frame in the video library is not a sync failure.
+
+### Incremental syncs, and why a full pull still runs
+
+`campaigns`, `adsets` and `ads` filter on Meta's `updated_time` since the last successful sync, so a routine pull on a quiet account returns nothing. `decideSyncMode` (`src/server/services/sync/watermark.ts`) owns the policy.
+
+**An `updated_time` filter can never report a deletion.** A deleted object simply stops appearing in the list, so an incremental-only mirror silently accumulates campaigns that no longer exist on Meta, and the stale rows look completely normal. A full unfiltered pull is therefore forced every `FULL_SYNC_INTERVAL_MS` (24h), and `SyncLog.fullPull` records which runs were unfiltered. That interval is the longest a deleted object can survive in the dashboard. Pass `{ forceFull: true }` to reconcile on demand.
+
+The watermark is rewound 10 minutes before use (`INCREMENTAL_REWIND_MS`) because Meta's clock skews against ours; re-fetching a few unchanged rows is free since every write is an idempotent upsert.
 
 ### Instagram + Facebook Page automation (webhook-driven, not mirrored)
 
@@ -81,6 +105,14 @@ The automation setup panel calls `/debug_token` and writes the result onto `Conn
 ### Cron topology
 
 `vercel.json` schedules only two crons: `/api/cron/reindex/ad-copy` (02:00 UTC) and `/api/cron/alerts/daily` (02:30 UTC). **`/api/cron/tick` — the endpoint that runs all scheduled syncs — has no production trigger**: in dev `npm run cron-worker` polls it; in prod nothing does (the route comment says "prod TBD"). Scheduled syncs silently don't run in production until a Vercel Cron entry or external poller is added.
+
+### The insights window loses history if you let it
+
+`sync-insights.ts` pulls a rolling `WINDOW_DAYS` (90). Anything older than that **on the day of the first sync** is never collected, and every later run moves the window further past it. On `act_848772841278761` the first sync ran mid-May, so our history began 14 February while Meta's delivery began 12 January: 14,276.15 of real spend across 16 campaigns, rendered as a confident zero on every screen.
+
+Nothing looks broken when this happens. The sync logs success, the arithmetic is internally consistent, and a rolling window cannot report data it never asked for. `syncInsightsForAccount` takes an optional `{ since, until }` for backfilling; Meta retains insights for roughly 37 months.
+
+**Reconcile against Meta rather than trusting the mirror.** `GET /act_X/insights?date_preset=maximum` gives the account lifetime total; compare it to the sum of `InsightsSnapshot`. Any gap is history that was never captured.
 
 ### Writes: audit first, then Meta
 
@@ -123,6 +155,6 @@ Every public table has RLS **enabled with zero policies**, blocking PostgREST/Re
 - **Rule #5 claims all Meta calls go through a retry wrapper. They don't.** `src/lib/meta/retry.ts` exports `withRetry` and *nothing imports it* — it is dead code. There is currently no retry or backoff on any Meta call. `rate-limit.ts` is likewise an explicit no-op stub.
 - Both files say **"Create ad — not yet built"**. It shipped, along with creatives, images, videos, audiences, conversions, alerts, audits, playbook, reports, chat, and the whole AI/RAG stack. The folder listing in PROJECT.md predates all of it.
 - README's setup instructions reference `.env.local`, which is now correct. Earlier revisions of this file claimed the repo used `.env`; it does not.
-- PROJECT.md says "Production cron handled by Vercel Cron once deployed" — only the reindex and alerts crons exist in `vercel.json`; the sync tick has no prod trigger (see Cron topology).
+- PROJECT.md says "Production cron handled by Vercel Cron once deployed". `vercel.json` now schedules four crons including `/api/cron/tick` hourly, so the sync tick does have a prod trigger; the PROJECT.md wording predates it.
 
 Update these when you touch the relevant area rather than adding another layer on top.

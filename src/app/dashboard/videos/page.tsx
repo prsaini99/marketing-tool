@@ -167,8 +167,10 @@ export default async function VideoLibraryPage({
       )}
 
       <p className="text-xs text-subtle">
-        Showing up to 500 most recently synced videos. Source URLs from Meta
-        are short-lived, so re-sync if a clip 404s.
+        Showing up to 500 most recently synced videos. Posters are stored by
+        adsboys, so they keep working. Clips uploaded to the ad account play
+        on hover; Page-owned videos (boosted posts and reels) show a still,
+        because Meta exposes no downloadable file for them.
       </p>
     </div>
   );
