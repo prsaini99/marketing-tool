@@ -13,11 +13,13 @@
  * verbatim. `[id]` is the Meta video id.
  */
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { MetaApiError, metaClient } from "@/lib/meta/client";
 import { deleteEntity } from "@/server/services/delete";
 import { resolveUploadAccount } from "@/server/services/videos/upload";
+import { captureVideosForAccount } from "@/server/services/sync/capture-assets";
+import { transcribeAccountVideos } from "@/server/services/ai/analyze-media";
 
 export async function GET(
   req: Request,
@@ -71,6 +73,28 @@ export async function GET(
         syncedAt: new Date(),
       },
     });
+
+    // Once Meta finishes encoding, this is the first moment the poster and
+    // the mp4 exist. Capture the bytes and transcribe, so a freshly uploaded
+    // video arrives in the library with the metadata the campaign copilot
+    // needs instead of waiting for the next account sync.
+    //
+    // Both helpers skip anything that already has what they produce, so the
+    // repeated polls this route serves cost one pass, not one per poll. In
+    // after() because the client is waiting on a status, not on analysis.
+    if (video.status === "ready") {
+      after(async () => {
+        try {
+          await captureVideosForAccount(account.localId, account.metaAdAccountId);
+          await transcribeAccountVideos(account.localId);
+        } catch (e) {
+          console.error(
+            "[videos/poll] post-ready analysis failed:",
+            e instanceof Error ? e.message : e,
+          );
+        }
+      });
+    }
 
     return NextResponse.json({
       videoId: video.id,

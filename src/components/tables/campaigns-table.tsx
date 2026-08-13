@@ -47,7 +47,26 @@ function statusStyle(status: string) {
   }
 }
 
-function StatusPill({ status }: { status: string }) {
+function StatusPill({
+  status,
+  blockedDetail,
+}: {
+  status: string;
+  blockedDetail?: string | null;
+}) {
+  // See the note in flat-campaigns-table: operator intent does not get to
+  // claim delivery the ad sets cannot achieve.
+  if (blockedDetail) {
+    return (
+      <span
+        title={blockedDetail}
+        className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        Not delivering
+      </span>
+    );
+  }
   const s = statusStyle(status);
   return (
     <span
@@ -151,7 +170,7 @@ export function CampaignsTable({
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  <StatusPill status={c.status} />
+                  <StatusPill status={c.status} blockedDetail={c.deliveryBlockedDetail} />
                 </td>
                 <td className="px-4 py-3 text-sm text-muted">{c.lastEdited}</td>
                 <td className="px-4 py-3">

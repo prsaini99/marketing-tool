@@ -15,10 +15,11 @@
  * Response: { hash, url }
  */
 
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { MetaApiError } from "@/lib/meta/client";
 import { uploadLibraryImage } from "@/server/services/images/upload";
+import { describeAccountImages } from "@/server/services/ai/analyze-media";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -115,6 +116,35 @@ export async function POST(req: Request) {
       imageBlob: imageField,
       imageFilename,
     });
+
+    // Describe the new image so the campaign copilot can reason about it
+    // rather than choosing by filename. describeAccountImages skips anything
+    // that already has a description, so this costs exactly one vision call
+    // for the image just uploaded.
+    //
+    // In after() because a vision call takes seconds and the uploader is
+    // waiting on a hash, not on analysis.
+    after(async () => {
+      try {
+        const account = await prisma.metaAdAccount.findFirst({
+          where: {
+            metaAdAccountId: accountId.trim().startsWith("act_")
+              ? accountId.trim()
+              : `act_${accountId.trim()}`,
+          },
+          select: { id: true },
+        });
+        if (account) {
+          await describeAccountImages(account.id, { includeUnreferenced: true });
+        }
+      } catch (e) {
+        console.error(
+          "[images/upload] description failed:",
+          e instanceof Error ? e.message : e,
+        );
+      }
+    });
+
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof MetaApiError) {

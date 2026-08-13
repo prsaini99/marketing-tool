@@ -11,7 +11,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
 
 function csvCell(v: unknown): string {
   if (v === null || v === undefined) return "";
@@ -60,7 +60,7 @@ export async function GET(req: Request) {
 
   // Pull campaign-level insights for the same scope in one query, then bucket
   // by (adAccountInternalId, metaCampaignId) so each row gets the right metrics.
-  const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
+  const dateFilter = insightsDateFilter(dateRange);
   const perCampaign = await prisma.insightsSnapshot.groupBy({
     by: ["adAccountId", "entityId"],
     where: {

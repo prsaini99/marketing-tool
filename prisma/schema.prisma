@@ -287,6 +287,15 @@ model AdCreative {
   syncedAt         DateTime      @default(now())
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
+  /// Path in the meta-assets bucket once the bytes are captured. Null means
+  /// not stored, so the UI falls back to the (short-lived) Meta URL.
+  storagePath      String?
+  storedAt         DateTime?
+  /// When a capture was last ATTEMPTED, successful or not. Distinguishing
+  /// this from storedAt is what lets a sync retry only the assets that
+  /// failed, instead of re-attempting the whole library every run.
+  storeAttemptedAt DateTime?
+  storeError       String?
 
   @@unique([adAccountId, metaCreativeId])
 }
@@ -297,22 +306,31 @@ model AdCreative {
 // instead of re-uploading. Meta's `hash` field is the natural id (it's
 // content-addressed), so we make (adAccountId, hash) the unique key.
 model AdImage {
-  id              String        @id @default(cuid())
-  metaImageHash   String // Meta's `hash` — content-addressed image fingerprint
-  adAccountId     String
-  adAccount       MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  url             String? // Direct CDN URL — short-lived; refetch if 404s
-  name            String? // Original filename if Meta retained it
-  width           Int?
-  height          Int?
-  status          String? // ACTIVE | DELETED | INTERNAL
-  metaCreatedTime DateTime?
+  id               String        @id @default(cuid())
+  metaImageHash    String // Meta's `hash` — content-addressed image fingerprint
+  adAccountId      String
+  adAccount        MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  url              String? // Direct CDN URL — short-lived; refetch if 404s
+  name             String? // Original filename if Meta retained it
+  width            Int?
+  height           Int?
+  status           String? // ACTIVE | DELETED | INTERNAL
+  metaCreatedTime  DateTime?
   // One-paragraph vision-model description of the image, cached for
   // classification. null = not attempted; "" = attempted, unusable.
-  aiDescription   String?
-  syncedAt        DateTime      @default(now())
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  aiDescription    String?
+  syncedAt         DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  /// Path in the meta-assets bucket once the bytes are captured. Null means
+  /// not stored, so the UI falls back to the (short-lived) Meta URL.
+  storagePath      String?
+  storedAt         DateTime?
+  /// When a capture was last ATTEMPTED, successful or not. Distinguishing
+  /// this from storedAt is what lets a sync retry only the assets that
+  /// failed, instead of re-attempting the whole library every run.
+  storeAttemptedAt DateTime?
+  storeError       String?
 
   @@unique([adAccountId, metaImageHash])
 }
@@ -322,23 +340,32 @@ model AdImage {
 // `video_id`, and one video can back many creatives. We mirror the metadata
 // (not the file) so the UI can show a browse grid with thumbnails.
 model AdVideo {
-  id              String        @id @default(cuid())
-  metaVideoId     String // Meta's `id` for the video object
-  adAccountId     String
-  adAccount       MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
-  title           String?
-  description     String?
-  thumbnailUrl    String? // Meta's `picture` field — single-frame poster
-  sourceUrl       String? // Direct mp4 URL — short-lived; refetch if 404s
-  lengthSeconds   Float?
-  status          String? // ready | processing | error | …
-  metaCreatedTime DateTime?
+  id               String        @id @default(cuid())
+  metaVideoId      String // Meta's `id` for the video object
+  adAccountId      String
+  adAccount        MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  title            String?
+  description      String?
+  thumbnailUrl     String? // Meta's `picture` field — single-frame poster
+  sourceUrl        String? // Direct mp4 URL — short-lived; refetch if 404s
+  lengthSeconds    Float?
+  status           String? // ready | processing | error | …
+  metaCreatedTime  DateTime?
   // Whisper transcript of the video's audio, cached here so classification
   // never re-transcribes. null = not attempted yet; "" = attempted, no speech.
-  transcript      String?
-  syncedAt        DateTime      @default(now())
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  transcript       String?
+  syncedAt         DateTime      @default(now())
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  /// Path in the meta-assets bucket once the bytes are captured. Null means
+  /// not stored, so the UI falls back to the (short-lived) Meta URL.
+  storagePath      String?
+  storedAt         DateTime?
+  /// When a capture was last ATTEMPTED, successful or not. Distinguishing
+  /// this from storedAt is what lets a sync retry only the assets that
+  /// failed, instead of re-attempting the whole library every run.
+  storeAttemptedAt DateTime?
+  storeError       String?
 
   @@unique([adAccountId, metaVideoId])
 }
@@ -449,6 +476,16 @@ model SyncLog {
   error       String?
   startedAt   DateTime
   finishedAt  DateTime?
+  /// True when this run pulled EVERYTHING rather than filtering on
+  /// updated_time. Only a full pull can notice that an object was deleted on
+  /// Meta, so this is what the reconcile schedule keys off.
+  ///
+  /// Defaults true because every run predating incremental sync was a full
+  /// pull, which makes the backfilled value factually correct rather than
+  /// merely convenient.
+  fullPull    Boolean       @default(true)
+
+  @@index([adAccountId, kind, status, finishedAt])
 }
 
 // Every write operation we perform on Meta. Empty in Phase 0.5 (read-only),

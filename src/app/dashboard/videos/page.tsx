@@ -11,6 +11,7 @@
 import { SubNav, LIBRARY_TABS } from "@/components/layout/sub-nav";
 import { Video as VideoIcon } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
+import { mediaUrl } from "@/lib/media-url";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
@@ -105,6 +106,10 @@ export default async function VideoLibraryPage({
     status: v.status,
     length: formatLength(v.lengthSeconds),
     sourceUrl: v.sourceUrl,
+    // Captured poster. Meta's own thumbnailUrl was excluded before because
+    // those assets expire per sync; now that the bytes are ours, the poster
+    // is stable and worth rendering.
+    posterUrl: mediaUrl(v),
     transcript: v.transcript || null,
     accountLabel: `${v.adAccount.business.name} · ${v.adAccount.name}`,
   }));
@@ -162,8 +167,10 @@ export default async function VideoLibraryPage({
       )}
 
       <p className="text-xs text-subtle">
-        Showing up to 500 most recently synced videos. Source URLs from Meta
-        are short-lived, so re-sync if a clip 404s.
+        Showing up to 500 most recently synced videos. Posters are stored by
+        adsboys, so they keep working. Clips uploaded to the ad account play
+        on hover; Page-owned videos (boosted posts and reels) show a still,
+        because Meta exposes no downloadable file for them.
       </p>
     </div>
   );

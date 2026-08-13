@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { FlatAdsTable } from "@/components/tables/flat-ads-table";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { SearchBar } from "@/components/ui/search-bar";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
 import type { FlatDisplayAd } from "@/lib/display";
 
 function formatRelative(d: Date | null): string {
@@ -24,10 +24,10 @@ function formatRelative(d: Date | null): string {
 export default async function AdsFlatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; range?: string; q?: string }>;
+  searchParams: Promise<{ client?: string; range?: string; from?: string; to?: string; q?: string }>;
 }) {
-  const { client, range, q } = await searchParams;
-  const dateRange = resolveDateRange(range);
+  const { client, range, from, to, q } = await searchParams;
+  const dateRange = resolveDateRange(range, from, to);
   const query = q?.trim();
   const selectedBusiness = client
     ? await prisma.metaBusiness.findUnique({
@@ -36,7 +36,7 @@ export default async function AdsFlatPage({
       })
     : null;
 
-  const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
+  const dateFilter = insightsDateFilter(dateRange);
 
   const [rows, perAd, anyInsightsSync] = await Promise.all([
     prisma.ad.findMany({

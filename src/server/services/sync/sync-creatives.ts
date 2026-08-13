@@ -9,6 +9,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import { captureCreativesForAccount } from "./capture-assets";
 import { metaClient } from "@/lib/meta/client";
 import { backfillAdCopyForAccount } from "@/server/services/ai/index-ad-copy";
 
@@ -113,6 +114,16 @@ export async function syncCreativesForAccount(
         err,
       );
     });
+
+    // Capture the bytes while Meta's URLs are still live. Best effort: this
+    // cannot fail the sync, and anything it misses is retried next run.
+    const captured = await captureCreativesForAccount(account.id, account.metaAdAccountId);
+    if (captured.attempted > 0) {
+      console.log(
+        `[sync-creatives] assets: ${captured.stored} stored, ${captured.skipped} already present, ${captured.failed} failed` +
+          (captured.errors.length ? ` (${captured.errors[0]})` : ""),
+      );
+    }
 
     return { adAccountId: account.id, upserted, syncLogId: syncLog.id };
   } catch (err) {

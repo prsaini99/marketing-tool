@@ -130,6 +130,34 @@ interface RawAdAccount {
   account_status: number;
 }
 
+/**
+ * Meta's `filtering` parameter for "changed since".
+ *
+ * Returns undefined when there is no watermark, which is the correct shape
+ * for a first sync: no filter, pull everything.
+ *
+ * WHY updated_time AND NOT A DELETION STORY. This filter reports what
+ * changed; it can never report what was removed, because a deleted object
+ * simply stops appearing. An incremental-only mirror therefore accumulates
+ * campaigns that no longer exist on Meta. The caller is responsible for
+ * running a periodic unfiltered pass to reconcile, and syncs/reconcile.ts
+ * owns that decision.
+ *
+ * The watermark is deliberately rewound by a margin before use: Meta's
+ * updated_time has clock skew against our own, and an object edited in the
+ * same second a sync started would otherwise be missed forever. Re-fetching
+ * a few unchanged rows is free, since every write is an idempotent upsert.
+ */
+export const INCREMENTAL_REWIND_MS = 10 * 60 * 1000;
+
+export function changedSinceFilter(since: Date | null | undefined): string | undefined {
+  if (!since) return undefined;
+  const stamp = Math.floor((since.getTime() - INCREMENTAL_REWIND_MS) / 1000);
+  return JSON.stringify([
+    { field: "updated_time", operator: "GREATER_THAN", value: stamp },
+  ]);
+}
+
 export async function metaGet<T>(
   path: string,
   accessToken: string,
@@ -346,6 +374,7 @@ class MetaClient {
   async listCampaigns(
     connectionId: string,
     metaAdAccountId: string,
+    since?: Date | null,
   ): Promise<NormalizedCampaign[]> {
     const { accessToken } = await getCredential(connectionId);
     const acctId = metaAdAccountId.startsWith("act_")
@@ -359,6 +388,8 @@ class MetaClient {
         fields:
           "id,name,status,objective,daily_budget,lifetime_budget,spend_cap,updated_time",
         limit: "200",
+        // Undefined when there is no watermark, i.e. a full pull.
+        ...(changedSinceFilter(since) ? { filtering: changedSinceFilter(since)! } : {}),
       },
     );
 
@@ -369,6 +400,7 @@ class MetaClient {
   async listAdSets(
     connectionId: string,
     metaAdAccountId: string,
+    since?: Date | null,
   ): Promise<NormalizedAdSet[]> {
     const { accessToken } = await getCredential(connectionId);
     const acctId = metaAdAccountId.startsWith("act_")
@@ -381,6 +413,8 @@ class MetaClient {
         fields:
           "id,name,status,effective_status,optimization_goal,daily_budget,lifetime_budget,budget_remaining,start_time,end_time,updated_time,campaign_id",
         limit: "200",
+        // Undefined when there is no watermark, i.e. a full pull.
+        ...(changedSinceFilter(since) ? { filtering: changedSinceFilter(since)! } : {}),
       },
     );
     return resp.data.map(normalizeAdSet);
@@ -872,6 +906,7 @@ class MetaClient {
   async listAds(
     connectionId: string,
     metaAdAccountId: string,
+    since?: Date | null,
   ): Promise<NormalizedAd[]> {
     const { accessToken } = await getCredential(connectionId);
     const acctId = metaAdAccountId.startsWith("act_")
@@ -886,6 +921,8 @@ class MetaClient {
         fields:
           "id,name,status,effective_status,issues_info,updated_time,adset_id,creative{id,thumbnail_url}",
         limit: "200",
+        // Undefined when there is no watermark, i.e. a full pull.
+        ...(changedSinceFilter(since) ? { filtering: changedSinceFilter(since)! } : {}),
       },
     );
     return resp.data.map(normalizeAd);

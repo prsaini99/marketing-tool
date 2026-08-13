@@ -7,7 +7,13 @@ import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { NewCampaignButton } from "@/components/campaigns/new-campaign-button";
 import { SearchBar } from "@/components/ui/search-bar";
 import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
+import {
+  assessAccountDelivery,
+  campaignBlockReason,
+  describeDeliveryHealth,
+} from "@/lib/delivery-health";
+import { NoDeliveryNotice } from "@/components/insights/no-delivery-notice";
 import type { DisplayCampaign } from "@/lib/display";
 
 function formatRelative(d: Date | null): string {
@@ -26,10 +32,10 @@ function formatRelative(d: Date | null): string {
 export default async function CampaignsFlatPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; range?: string; q?: string }>;
+  searchParams: Promise<{ client?: string; range?: string; from?: string; to?: string; q?: string }>;
 }) {
-  const { client, range, q } = await searchParams;
-  const dateRange = resolveDateRange(range);
+  const { client, range, from, to, q } = await searchParams;
+  const dateRange = resolveDateRange(range, from, to);
   const query = q?.trim();
   const selectedBusiness = client
     ? await prisma.metaBusiness.findUnique({
@@ -38,10 +44,21 @@ export default async function CampaignsFlatPage({
       })
     : null;
 
-  const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
+  const dateFilter = insightsDateFilter(dateRange);
 
-  const [rows, perCampaign, anyInsightsSync, accountsForCreate] =
-    await Promise.all([
+  const scopeFilter = {
+    selectedForSync: true as const,
+    ...(selectedBusiness ? { businessId: selectedBusiness.id } : {}),
+  };
+
+  const [
+    rows,
+    perCampaign,
+    anyInsightsSync,
+    accountsForCreate,
+    latestSnapshot,
+    scopeAdSets,
+  ] = await Promise.all([
       prisma.campaign.findMany({
         where: {
           adAccount: {
@@ -105,7 +122,54 @@ export default async function CampaignsFlatPage({
         distinct: ["metaAdAccountId"],
         orderBy: [{ business: { name: "asc" } }, { name: "asc" }],
       }),
+      // Most recent day we hold ANY delivery for, ignoring the selected
+      // window. This is what turns "everything is zero" into "everything is
+      // zero because the last delivery was on 5 June".
+      prisma.insightsSnapshot.findFirst({
+        where: { level: "campaign", adAccount: scopeFilter },
+        orderBy: { date: "desc" },
+        select: { date: true },
+      }),
+      // Ad set delivery state, so the notice can say WHY nothing ran rather
+      // than only that nothing did.
+      prisma.adSet.findMany({
+        where: { campaign: { adAccount: scopeFilter } },
+        select: {
+          campaign: { select: { metaCampaignId: true } },
+          metaAdSetId: true,
+          name: true,
+          status: true,
+          effectiveStatus: true,
+          startTime: true,
+          endTime: true,
+          budgetRemainingCents: true,
+          dailyBudgetCents: true,
+          lifetimeBudgetCents: true,
+        },
+      }),
     ]);
+
+  // Zero rows in the window is different from zero rows ever: the first is
+  // "nothing delivered", the second is "nothing has been synced". Only the
+  // first gets the notice, because the second has its own empty state.
+  const windowHasData = perCampaign.some(
+    (m) =>
+      (m._sum.spendCents ?? 0) > 0 ||
+      (m._sum.impressions ?? 0) > 0 ||
+      (m._sum.clicks ?? 0) > 0,
+  );
+  const health = assessAccountDelivery(scopeAdSets);
+  const showNoDelivery = !windowHasData && Boolean(latestSnapshot);
+
+  // Ad sets grouped by parent, so each campaign row can be told whether its
+  // own ad sets are capable of delivering.
+  const adSetsByCampaign = new Map<string, typeof scopeAdSets>();
+  for (const a of scopeAdSets) {
+    const k = a.campaign.metaCampaignId;
+    const list = adSetsByCampaign.get(k);
+    if (list) list.push(a);
+    else adSetsByCampaign.set(k, [a]);
+  }
 
   const newCampaignAccounts = accountsForCreate.map((a) => ({
     metaAdAccountId: a.metaAdAccountId,
@@ -154,6 +218,11 @@ export default async function CampaignsFlatPage({
       clicks: hasInsights ? clks : null,
       ctr: hasInsights ? (imps > 0 ? clks / imps : 0) : null,
       lastEdited: formatRelative(c.metaUpdatedTime),
+      deliveryBlockedDetail:
+        campaignBlockReason(
+          c.status,
+          adSetsByCampaign.get(c.metaCampaignId) ?? [],
+        )?.detail ?? null,
     };
   });
 
@@ -233,7 +302,18 @@ export default async function CampaignsFlatPage({
           description="Switch clients in the top bar, or sync this client's ad accounts."
         />
       ) : (
-        <FlatCampaignsTable campaigns={campaigns} />
+        <>
+          {showNoDelivery && (
+            <NoDeliveryNotice
+              rangeLabel={dateRange.label}
+              latestDataAt={latestSnapshot?.date ?? null}
+              deliveryReason={
+                health.allStopped ? describeDeliveryHealth(health) : null
+              }
+            />
+          )}
+          <FlatCampaignsTable campaigns={campaigns} />
+        </>
       )}
 
       <p className="text-xs text-subtle">

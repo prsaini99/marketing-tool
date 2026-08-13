@@ -22,7 +22,13 @@ import {
 } from "lucide-react";
 import { prisma } from "@/lib/db/prisma";
 import { cn } from "@/lib/utils";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
+import {
+  assessAccountDelivery,
+  campaignBlockReason,
+  describeDeliveryHealth,
+} from "@/lib/delivery-health";
+import { NoDeliveryNotice } from "@/components/insights/no-delivery-notice";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { EmptyState } from "@/components/ui/empty-state";
 import { KpiCard } from "@/components/insights/kpi-card";
@@ -158,11 +164,11 @@ export default async function AccountDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string; }>;
 }) {
   const { id } = await params;
-  const { range } = await searchParams;
-  const dateRange = resolveDateRange(range);
+  const { range, from, to } = await searchParams;
+  const dateRange = resolveDateRange(range, from, to);
   const fullAccountId = `act_${id}`;
 
   const account = await prisma.metaAdAccount.findFirst({
@@ -193,7 +199,7 @@ export default async function AccountDetailPage({
     );
   }
 
-  const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
+  const dateFilter = insightsDateFilter(dateRange);
 
   const [
     accountTotals,
@@ -202,6 +208,8 @@ export default async function AccountDetailPage({
     insightsSync,
     perCampaign,
     syncLogs,
+    latestSnapshot,
+    allAdSets,
   ] = await Promise.all([
     prisma.insightsSnapshot.aggregate({
       where: { adAccountId: account.id, level: "account", ...dateFilter },
@@ -224,7 +232,7 @@ export default async function AccountDetailPage({
       where: {
         adAccountId: account.id,
         level: "campaign",
-        ...(dateRange.since ? { date: { gte: dateRange.since } } : {}),
+        ...(insightsDateFilter(dateRange)),
       },
       _sum: { spendCents: true, impressions: true, clicks: true },
     }),
@@ -233,7 +241,42 @@ export default async function AccountDetailPage({
       orderBy: { startedAt: "desc" },
       take: 10,
     }),
+    // Latest delivery we hold, regardless of the selected window. Turns
+    // "everything is zero" into "the last delivery was on 5 June".
+    prisma.insightsSnapshot.findFirst({
+      where: { adAccountId: account.id, level: "account" },
+      orderBy: { date: "desc" },
+      select: { date: true },
+    }),
+    prisma.adSet.findMany({
+      where: { campaign: { adAccountId: account.id } },
+      select: {
+        campaign: { select: { metaCampaignId: true } },
+        metaAdSetId: true,
+        name: true,
+        status: true,
+        effectiveStatus: true,
+        startTime: true,
+        endTime: true,
+        budgetRemainingCents: true,
+        dailyBudgetCents: true,
+        lifetimeBudgetCents: true,
+      },
+    }),
   ]);
+
+  const health = assessAccountDelivery(allAdSets);
+  const adSetsByCampaign = new Map<string, typeof allAdSets>();
+  for (const a of allAdSets) {
+    const k = a.campaign.metaCampaignId;
+    const list = adSetsByCampaign.get(k);
+    if (list) list.push(a);
+    else adSetsByCampaign.set(k, [a]);
+  }
+  const showNoDelivery =
+    Boolean(latestSnapshot) &&
+    (accountTotals._sum.spendCents ?? 0) === 0 &&
+    (accountTotals._sum.impressions ?? 0) === 0;
 
   const hasInsights = Boolean(insightsSync);
   const spendCents = accountTotals._sum.spendCents ?? 0;
@@ -278,6 +321,11 @@ export default async function AccountDetailPage({
       clicks: hasInsights ? clks : null,
       ctr: hasInsights ? (imps > 0 ? clks / imps : 0) : null,
       lastEdited: formatRelative(c.metaUpdatedTime) ?? "-",
+      deliveryBlockedDetail:
+        campaignBlockReason(
+          c.status,
+          adSetsByCampaign.get(c.metaCampaignId) ?? [],
+        )?.detail ?? null,
     };
   });
 
@@ -514,6 +562,17 @@ export default async function AccountDetailPage({
           <h2 className="text-sm font-semibold tracking-tight">Performance</h2>
           <p className="text-xs text-muted">{dateRange.label}</p>
         </div>
+        {showNoDelivery && (
+          <div className="mt-3">
+            <NoDeliveryNotice
+              rangeLabel={dateRange.label}
+              latestDataAt={latestSnapshot?.date ?? null}
+              deliveryReason={
+                health.allStopped ? describeDeliveryHealth(health) : null
+              }
+            />
+          </div>
+        )}
         <div className="mt-2 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard
             label="Spend"

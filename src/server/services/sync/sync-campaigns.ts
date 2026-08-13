@@ -9,6 +9,7 @@
  */
 
 import { prisma } from "@/lib/db/prisma";
+import { decideSyncMode } from "./watermark";
 import { metaClient } from "@/lib/meta/client";
 
 export interface SyncCampaignsResult {
@@ -19,6 +20,7 @@ export interface SyncCampaignsResult {
 
 export async function syncCampaignsForAccount(
   adAccountId: string,
+opts: { forceFull?: boolean } = {},
 ): Promise<SyncCampaignsResult> {
   const account = await prisma.metaAdAccount.findUnique({
     where: { id: adAccountId },
@@ -32,8 +34,37 @@ export async function syncCampaignsForAccount(
     throw new Error(`Ad account ${adAccountId} is not selected for sync`);
   }
 
+  // Incremental when we can, full when we must. Only a full pull notices an
+  // object deleted on Meta, so decideSyncMode forces one periodically.
+  const [lastSuccess, lastFull] = await Promise.all([
+    prisma.syncLog.findFirst({
+      where: { adAccountId: account.id, kind: "campaigns", status: "success" },
+      orderBy: { finishedAt: "desc" },
+      select: { finishedAt: true },
+    }),
+    prisma.syncLog.findFirst({
+      where: {
+        adAccountId: account.id,
+        kind: "campaigns",
+        status: "success",
+        fullPull: true,
+      },
+      orderBy: { finishedAt: "desc" },
+      select: { finishedAt: true },
+    }),
+  ]);
+  const mode = decideSyncMode(
+    {
+      lastSuccessAt: lastSuccess?.finishedAt ?? null,
+      lastFullAt: lastFull?.finishedAt ?? null,
+    },
+    new Date(),
+    { forceFull: opts.forceFull },
+  );
+
   const syncLog = await prisma.syncLog.create({
     data: {
+      fullPull: mode.full,
       adAccountId: account.id,
       kind: "campaigns",
       status: "running",
@@ -45,6 +76,7 @@ export async function syncCampaignsForAccount(
     const campaigns = await metaClient.listCampaigns(
       account.business.connection.id,
       account.metaAdAccountId,
+      mode.since
     );
 
     let upserted = 0;

@@ -6,7 +6,7 @@ import { SyncNowButton } from "@/components/sync/sync-now-button";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { EmptyState } from "@/components/ui/empty-state";
 import { NewAdSetButton } from "@/components/adsets/new-adset-button";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
 import type { DisplayAdSet } from "@/lib/display";
 
 function formatRelative(d: Date | null | undefined): string | null {
@@ -27,11 +27,11 @@ export default async function AdSetsPage({
   searchParams,
 }: {
   params: Promise<{ id: string; campaignId: string }>;
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string; }>;
 }) {
   const { id, campaignId } = await params;
-  const { range } = await searchParams;
-  const dateRange = resolveDateRange(range);
+  const { range, from, to } = await searchParams;
+  const dateRange = resolveDateRange(range, from, to);
   const fullAccountId = `act_${id}`;
 
   const account = await prisma.metaAdAccount.findFirst({
@@ -89,7 +89,7 @@ export default async function AdSetsPage({
         where: {
           adAccountId: account.id,
           level: "adset",
-          ...(dateRange.since ? { date: { gte: dateRange.since } } : {}),
+          ...(insightsDateFilter(dateRange)),
         },
         _sum: { spendCents: true, impressions: true, clicks: true },
       }),

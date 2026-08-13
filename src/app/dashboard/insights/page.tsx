@@ -7,7 +7,7 @@ import { TopCampaigns } from "@/components/insights/top-campaigns";
 import { DateRangeDropdown } from "@/components/insights/date-range-dropdown";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SyncAllInsightsButton } from "@/components/sync/sync-all-insights-button";
-import { resolveDateRange } from "@/lib/date-range";
+import { insightsDateFilter, resolveDateRange } from "@/lib/date-range";
 
 function formatMoney(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
@@ -26,10 +26,10 @@ function formatCompact(n: number) {
 export default async function InsightsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; range?: string }>;
+  searchParams: Promise<{ client?: string; range?: string; from?: string; to?: string; }>;
 }) {
-  const { client, range } = await searchParams;
-  const dateRange = resolveDateRange(range);
+  const { client, range, from, to } = await searchParams;
+  const dateRange = resolveDateRange(range, from, to);
   const selectedBusiness = client
     ? await prisma.metaBusiness.findUnique({
         where: { id: client },
@@ -91,7 +91,7 @@ export default async function InsightsPage({
   // we accept the simplification (most agencies operate one currency at a time).
   const currency = accounts[0].currency;
 
-  const dateFilter = dateRange.since ? { date: { gte: dateRange.since } } : {};
+  const dateFilter = insightsDateFilter(dateRange);
 
   // Daily breakdown across all selected accounts (level=account).
   const [dailyRows, perAccount, perCampaign, insightsSyncCount] =
