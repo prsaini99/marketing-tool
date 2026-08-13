@@ -476,6 +476,16 @@ model SyncLog {
   error       String?
   startedAt   DateTime
   finishedAt  DateTime?
+  /// True when this run pulled EVERYTHING rather than filtering on
+  /// updated_time. Only a full pull can notice that an object was deleted on
+  /// Meta, so this is what the reconcile schedule keys off.
+  ///
+  /// Defaults true because every run predating incremental sync was a full
+  /// pull, which makes the backfilled value factually correct rather than
+  /// merely convenient.
+  fullPull    Boolean       @default(true)
+
+  @@index([adAccountId, kind, status, finishedAt])
 }
 
 // Every write operation we perform on Meta. Empty in Phase 0.5 (read-only),
