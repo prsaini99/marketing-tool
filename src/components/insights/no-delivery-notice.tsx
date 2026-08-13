@@ -15,6 +15,15 @@ import { CalendarOff } from "lucide-react";
  * different statement, and when it is true it is the only thing on the page
  * worth reading. So say it, say when data does exist, and when the cause is
  * knowable say that too.
+ *
+ * WHAT THIS MUST NOT SAY. An earlier version asserted the zeros were
+ * "genuinely zero, not missing". That was wrong, and expensively so: the
+ * rolling sync window had silently lost 14,276.15 of real spend across 16
+ * campaigns, and this notice was reassuring the reader that the resulting
+ * zeros were true. A component that explains an absence must never vouch for
+ * data coverage it cannot verify. State the facts (nothing delivered in this
+ * window, here is the last day that did) and let the coverage question be
+ * answered by something that actually checks it.
  */
 export function NoDeliveryNotice({
   rangeLabel,
@@ -46,8 +55,7 @@ export function NoDeliveryNotice({
         <p className="mt-1 text-muted">
           {latestDataAt ? (
             <>
-              Every figure below is genuinely zero for this window, not
-              missing. The most recent day with any delivery is{" "}
+              The most recent day with any delivery is{" "}
               <strong className="text-foreground">
                 {latestDataAt.toLocaleDateString("en-GB", {
                   day: "numeric",

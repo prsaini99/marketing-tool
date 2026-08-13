@@ -30,8 +30,29 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+export interface SyncInsightsOptions {
+  /**
+   * Explicit window, ISO yyyy-mm-dd. Omit for the routine rolling window.
+   *
+   * THIS EXISTS BECAUSE THE ROLLING WINDOW LOSES HISTORY. The routine sync
+   * asks Meta for the last WINDOW_DAYS only, so any delivery older than that
+   * on the day of the FIRST sync is never collected, and every later run
+   * moves the window further past it. On the account this was found on, the
+   * first sync happened around mid-May, so Meta's delivery from 12 January
+   * to 13 February was already out of reach on day one: 14,276.15 of real
+   * spend across 16 campaigns that the dashboard has been rendering as zero
+   * ever since.
+   *
+   * Meta retains insights for roughly 37 months, so that history is
+   * recoverable. It just has to be asked for explicitly.
+   */
+  since?: string;
+  until?: string;
+}
+
 export async function syncInsightsForAccount(
   adAccountId: string,
+  opts: SyncInsightsOptions = {},
 ): Promise<SyncInsightsResult> {
   const account = await prisma.metaAdAccount.findUnique({
     where: { id: adAccountId },
@@ -46,8 +67,11 @@ export async function syncInsightsForAccount(
   const since = new Date(until);
   since.setUTCDate(since.getUTCDate() - (WINDOW_DAYS - 1));
 
-  const sinceStr = isoDate(since);
-  const untilStr = isoDate(until);
+  const sinceStr = opts.since ?? isoDate(since);
+  const untilStr = opts.until ?? isoDate(until);
+  if (sinceStr > untilStr) {
+    throw new Error(`Invalid window: since ${sinceStr} is after until ${untilStr}`);
+  }
 
   const syncLog = await prisma.syncLog.create({
     data: {
