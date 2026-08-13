@@ -56,6 +56,12 @@ export interface DisplayCampaign {
   clicks: number | null;
   ctr: number | null;
   lastEdited: string; // pre-formatted ("3 days ago", etc.)
+  /**
+   * Set only when `status` is ACTIVE but every ad set under the campaign is
+   * blocked. Carries the human explanation, so the status pill can say "Not
+   * delivering" instead of a green "Active" that is not true.
+   */
+  deliveryBlockedDetail?: string | null;
 }
 
 const KNOWN_OBJECTIVES: Record<string, string> = {

@@ -227,3 +227,48 @@ export function describeDeliveryHealth(h: AccountDeliveryHealth): string {
   }
   return `All ${h.intendedActive} active ad sets can deliver.`;
 }
+
+/**
+ * Whether ONE campaign's ad sets can currently deliver.
+ *
+ * A campaign's own `status` is operator intent and nothing more. A campaign
+ * reading ACTIVE whose every ad set ended in February is not running, has not
+ * run for months, and showing it as plain "Active" next to zero spend is the
+ * single most misleading thing a media buyer can be shown: it makes correct
+ * numbers look like broken reporting.
+ *
+ * Returns null when the campaign is not ACTIVE (nothing to contradict), when
+ * it has no ad sets synced yet (unknown, not blocked), or when at least one
+ * ad set genuinely can deliver.
+ */
+export function campaignBlockReason(
+  status: string,
+  adSets: AdSetDeliveryInput[],
+  now: Date = new Date(),
+): { reason: BlockReason; detail: string } | null {
+  if (!isActiveIntent(status)) return null;
+  const intended = adSets.filter((a) => isActiveIntent(a.status));
+  if (intended.length === 0) return null;
+
+  const states = intended.map((a) => assessAdSet(a, now));
+  if (states.some((st) => st.canDeliver)) return null;
+
+  // All blocked. Report the most common reason, and on a tie the first in
+  // assessAdSet's own precedence order, so the message stays stable rather
+  // than flipping between equally-true explanations on each render.
+  const counts = new Map<BlockReason, number>();
+  for (const st of states) {
+    if (st.blockedBy) counts.set(st.blockedBy, (counts.get(st.blockedBy) ?? 0) + 1);
+  }
+  let top: BlockReason | null = null;
+  let best = 0;
+  for (const [reason, n] of counts) {
+    if (n > best) {
+      best = n;
+      top = reason;
+    }
+  }
+  if (!top) return null;
+  const example = states.find((st) => st.blockedBy === top);
+  return { reason: top, detail: example?.detail ?? "" };
+}

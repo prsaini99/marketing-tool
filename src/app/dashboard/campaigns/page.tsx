@@ -10,6 +10,7 @@ import { BulkSyncButton } from "@/components/sync/bulk-sync-button";
 import { resolveDateRange } from "@/lib/date-range";
 import {
   assessAccountDelivery,
+  campaignBlockReason,
   describeDeliveryHealth,
 } from "@/lib/delivery-health";
 import { NoDeliveryNotice } from "@/components/insights/no-delivery-notice";
@@ -134,6 +135,7 @@ export default async function CampaignsFlatPage({
       prisma.adSet.findMany({
         where: { campaign: { adAccount: scopeFilter } },
         select: {
+          campaign: { select: { metaCampaignId: true } },
           metaAdSetId: true,
           name: true,
           status: true,
@@ -158,6 +160,16 @@ export default async function CampaignsFlatPage({
   );
   const health = assessAccountDelivery(scopeAdSets);
   const showNoDelivery = !windowHasData && Boolean(latestSnapshot);
+
+  // Ad sets grouped by parent, so each campaign row can be told whether its
+  // own ad sets are capable of delivering.
+  const adSetsByCampaign = new Map<string, typeof scopeAdSets>();
+  for (const a of scopeAdSets) {
+    const k = a.campaign.metaCampaignId;
+    const list = adSetsByCampaign.get(k);
+    if (list) list.push(a);
+    else adSetsByCampaign.set(k, [a]);
+  }
 
   const newCampaignAccounts = accountsForCreate.map((a) => ({
     metaAdAccountId: a.metaAdAccountId,
@@ -206,6 +218,11 @@ export default async function CampaignsFlatPage({
       clicks: hasInsights ? clks : null,
       ctr: hasInsights ? (imps > 0 ? clks / imps : 0) : null,
       lastEdited: formatRelative(c.metaUpdatedTime),
+      deliveryBlockedDetail:
+        campaignBlockReason(
+          c.status,
+          adSetsByCampaign.get(c.metaCampaignId) ?? [],
+        )?.detail ?? null,
     };
   });
 

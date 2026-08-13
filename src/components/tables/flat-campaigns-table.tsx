@@ -100,7 +100,27 @@ function statusStyle(status: string) {
   }
 }
 
-function StatusPill({ status }: { status: string }) {
+function StatusPill({
+  status,
+  blockedDetail,
+}: {
+  status: string;
+  blockedDetail?: string | null;
+}) {
+  // An ACTIVE campaign whose ad sets all ended months ago is not active in
+  // any sense the reader cares about. Operator intent is still shown, but it
+  // no longer gets to claim delivery it is not achieving.
+  if (blockedDetail) {
+    return (
+      <span
+        title={blockedDetail}
+        className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+        Not delivering
+      </span>
+    );
+  }
   const s = statusStyle(status);
   return (
     <span
@@ -399,7 +419,7 @@ export function FlatCampaignsTable({ campaigns }: FlatCampaignsTableProps) {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <StatusPill status={c.status} />
+                    <StatusPill status={c.status} blockedDetail={c.deliveryBlockedDetail} />
                   </td>
                   <td className="px-4 py-3 text-sm text-muted">
                     {c.lastEdited}

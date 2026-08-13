@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { resolveDateRange } from "@/lib/date-range";
 import {
   assessAccountDelivery,
+  campaignBlockReason,
   describeDeliveryHealth,
 } from "@/lib/delivery-health";
 import { NoDeliveryNotice } from "@/components/insights/no-delivery-notice";
@@ -250,6 +251,7 @@ export default async function AccountDetailPage({
     prisma.adSet.findMany({
       where: { campaign: { adAccountId: account.id } },
       select: {
+        campaign: { select: { metaCampaignId: true } },
         metaAdSetId: true,
         name: true,
         status: true,
@@ -264,6 +266,13 @@ export default async function AccountDetailPage({
   ]);
 
   const health = assessAccountDelivery(allAdSets);
+  const adSetsByCampaign = new Map<string, typeof allAdSets>();
+  for (const a of allAdSets) {
+    const k = a.campaign.metaCampaignId;
+    const list = adSetsByCampaign.get(k);
+    if (list) list.push(a);
+    else adSetsByCampaign.set(k, [a]);
+  }
   const showNoDelivery =
     Boolean(latestSnapshot) &&
     (accountTotals._sum.spendCents ?? 0) === 0 &&
@@ -312,6 +321,11 @@ export default async function AccountDetailPage({
       clicks: hasInsights ? clks : null,
       ctr: hasInsights ? (imps > 0 ? clks / imps : 0) : null,
       lastEdited: formatRelative(c.metaUpdatedTime) ?? "-",
+      deliveryBlockedDetail:
+        campaignBlockReason(
+          c.status,
+          adSetsByCampaign.get(c.metaCampaignId) ?? [],
+        )?.detail ?? null,
     };
   });
 
