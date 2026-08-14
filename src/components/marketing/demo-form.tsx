@@ -19,6 +19,7 @@
  */
 
 import { useState } from "react";
+import Link from "next/link";
 import { CheckCircle2, Loader2, Mail, Send } from "lucide-react";
 
 const SPEND_BANDS = [
@@ -197,7 +198,21 @@ export function DemoForm({ contactEmail }: { contactEmail: string }) {
         {state === "sending" ? "Sending" : "Request a demo"}
       </button>
 
-      <p className="mt-3 flex items-center justify-center gap-1.5 text-[13px] text-subtle">
+      {/*
+        The form collects personal data, so the policy governing it has to be
+        reachable from the point of collection rather than only from the
+        footer. Stated plainly instead of as a tick box: consent theatre on a
+        two-field contact form protects nobody.
+      */}
+      <p className="mt-3 text-center text-[13px] leading-relaxed text-subtle">
+        We use this to reply to you and nothing else. See our{" "}
+        <Link href="/privacy" className="font-medium text-accent hover:underline">
+          privacy policy
+        </Link>
+        .
+      </p>
+
+      <p className="mt-2 flex items-center justify-center gap-1.5 text-[13px] text-subtle">
         <Mail className="h-3.5 w-3.5" aria-hidden />
         Or email{" "}
         <a href={`mailto:${contactEmail}`} className="font-medium text-accent hover:underline">

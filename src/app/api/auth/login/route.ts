@@ -5,14 +5,19 @@
  *
  * Validates against, in order:
  *   1. the `AppUser` table — logins the owner can create/revoke (and expire)
- *      without editing env vars and redeploying;
- *   2. MASTER_EMAIL + MASTER_PASSWORD (owner) / REVIEWER_EMAIL +
- *      REVIEWER_PASSWORD (restricted reviewer) in env.
+ *      without editing env vars and redeploying. Both roles live here;
+ *   2. MASTER_EMAIL + MASTER_PASSWORD in env, owner only.
  *
  * The env fallback stays deliberately: it's what stops a lockout when the
  * table is empty, the DB is unreachable, or a hash is corrupt. A DB lookup
  * that throws logs a warning and falls through to env rather than failing
  * the login.
+ *
+ * That fallback is owner-only on purpose. A lockout guard has to be the
+ * account that can fix the lockout, and a reviewer session can reach only the
+ * automation surface, so a reviewer fallback would rescue nobody. Reviewer
+ * accounts are handed to outside parties and must be revocable and expirable
+ * from the database, which a value baked into the deployment's env is not.
  *
  * On success sets the matching role's signed session cookie; on failure
  * returns 401 with the same generic message regardless of which credential
@@ -30,7 +35,6 @@ import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
   verifyCredentials,
-  verifyReviewerCredentials,
   type SessionRole,
 } from "@/lib/auth";
 import { verifyUserCredentials } from "@/server/services/auth/users";
@@ -102,12 +106,8 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!role) {
-    if (verifyCredentials(body.email, body.password)) {
-      role = "owner";
-    } else if (verifyReviewerCredentials(body.email, body.password)) {
-      role = "reviewer";
-    }
+  if (!role && verifyCredentials(body.email, body.password)) {
+    role = "owner";
   }
 
   if (!role) {
