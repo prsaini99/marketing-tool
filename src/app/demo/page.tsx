@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import { BrandMark, SiteFooter, SiteNav } from "@/components/marketing/site";
 import { DemoForm } from "@/components/marketing/demo-form";
+import { OPERATOR } from "@/components/marketing/legal";
 
 /**
  * Demo request, the single conversion point every page funnels to.
  *
- * Deliberately not a form. Enterprise buyers at this stage want a person,
- * and an unstaffed form is a leak. Email opens a real conversation with
- * useful context pre-filled. Swap in a Calendly or Cal.com embed here once a
- * booking link exists.
+ * The address comes from OPERATOR rather than a literal, so the contact
+ * address on the legal pages and the one on the conversion page can never
+ * drift apart. They already had once.
  */
 
 export const metadata: Metadata = {
@@ -41,7 +41,7 @@ export default function DemoPage() {
           </p>
 
           <div className="mx-auto mt-10 max-w-xl">
-            <DemoForm contactEmail="gursat@stackbinary.io" />
+            <DemoForm contactEmail={OPERATOR.contactEmail} />
           </div>
         </div>
       </div>

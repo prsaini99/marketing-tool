@@ -114,43 +114,38 @@ export default function Page() {
           </p>
         </Clause>
 
-        <Clause n={3} title="What we collect on our own website">
+        <Clause n={3} title="Information collected through this website">
           <p>
-            Everything above arrives through a business connecting their Meta
-            assets. This clause is separate because it covers people who simply
-            visit {OPERATOR.product}.com, where we are the controller rather
-            than a processor.
+            This section applies to visitors to {OPERATOR.product}.com. It is
+            separate from the above because that information reaches us through
+            a business connecting its Meta assets, whereas this does not.
           </p>
           <LegalTable
             head={["Category", "What it includes"]}
             rows={[
               [
-                "Demo requests",
-                "If you fill in the demo form, we store the name, work email, company, monthly ad spend band and message you enter. Only the name and email are required.",
+                "Enquiry details",
+                "The name, work email, company, budget range and message submitted through the demo request form. Name and email are required; the remaining fields are optional.",
               ],
               [
-                "How you found us",
-                "Alongside a demo request we record the page you were on, the campaign parameters in the link you followed, and the site that referred you. This tells us which of our own pages actually produce enquiries.",
+                "Referral data",
+                "The page from which an enquiry was submitted, any campaign parameters present in the link followed, and the referring website.",
               ],
               [
-                "Analytics",
-                "Google Analytics 4 records aggregate visits. Microsoft Clarity records a replay of the pages you visit on the marketing site, including mouse movement, clicks and scrolling, which we use to find pages that confuse people.",
+                "Usage analytics",
+                "Google Analytics 4 and Microsoft Clarity collect usage and interaction data on the public website, including page views and session activity.",
               ],
             ]}
           />
           <p>
-            <strong>The session replay does not extend into the product.</strong>{" "}
-            Both tags load only on the public marketing pages, never once you
-            are signed in, so no client account name, campaign, customer
-            conversation or metric is ever recorded. Clarity also masks text
-            input by default, so what you type into the demo form is not
-            captured in a replay.
+            These analytics tools operate on the public website only. They are
+            not present in the authenticated application, so no connected
+            account, campaign or conversation data is recorded by them.
           </p>
           <p>
-            We use a demo request to reply to you and to keep in touch about{" "}
-            {OPERATOR.product}. We do not sell it, and we do not pass it to
-            anyone beyond the providers listed below. Ask us and we will delete
-            it.
+            Enquiry details are used to respond to you and to correspond about{" "}
+            {OPERATOR.product}. They are not sold, and are not disclosed beyond
+            the providers listed below.
           </p>
         </Clause>
 
@@ -196,11 +191,11 @@ export default function Page() {
               ],
               [
                 "Google",
-                "Google Analytics 4 measures visits to the public marketing site. It does not run inside the product and sees nothing about any connected ad account.",
+                "Provides Google Analytics 4, which measures usage of the public website. It does not operate within the application.",
               ],
               [
                 "Microsoft",
-                "Microsoft Clarity records page replays on the public marketing site, for the same limited scope as above.",
+                "Provides Microsoft Clarity, which measures interaction with the public website. It does not operate within the application.",
               ],
             ]}
           />
@@ -255,9 +250,10 @@ export default function Page() {
             deletion is immediate and cannot be undone.
           </p>
           <p>
-            A demo request is not held under any Meta connection, so it is not
-            covered by that cascade. We keep it while we are in contact with
-            you and delete it on request.
+            Enquiries submitted through this website are not held under a Meta
+            connection and are therefore not covered by that deletion. They are
+            retained for the duration of our correspondence and deleted on
+            request.
           </p>
           <p>
             Individual deletion requests are handled as described on the{" "}
