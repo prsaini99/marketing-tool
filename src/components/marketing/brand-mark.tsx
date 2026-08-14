@@ -1,23 +1,24 @@
 /**
- * The adsboys mark.
+ * The adsboys mark: a lowercase "a" drawn as one heavy monoline, its stem
+ * rising past the x-height into an upward tail, with a solid ember dot as
+ * the counter.
  *
- * A speech bubble containing three ascending bars. The product's whole
- * argument is that the ads and the conversations they start belong in one
- * place, so the mark fuses the two rather than picking one: performance
- * inside a message.
+ * Chosen over feature imagery on purpose. Bars, arrows and speech bubbles
+ * all pin the identity to one capability, and the messaging half of the
+ * product is subject to Meta's approval; a monogram is true regardless of
+ * which features a given deployment has enabled. The rising tail carries
+ * the growth connotation without being a chart, and the dot carries the
+ * accent colour without the mark depending on it.
  *
- * Drawn as SVG rather than the stack of styled spans this replaces, for
- * three reasons. It can be a favicon. It stays crisp at any size instead of
- * relying on fractional CSS heights that round badly at 16px. And it can be
- * handed to anyone who needs the logo as a file.
+ * Hand-traced from the approved generation rather than shipped as a PNG:
+ * the raster sat on a painted background and could not be a favicon, could
+ * not inherit the chrome's text colour, and could not be handed to anyone
+ * as a file. This is the same geometry as app/icon.svg; change one, change
+ * both.
  *
- * Built on a 32-unit grid with deliberately chunky geometry: the tail and
- * the gaps between bars are sized so the shape still reads as a bubble with
- * bars in a browser tab, which is where most logos quietly turn to mush.
- *
- * Colour comes from currentColor on the bubble and a paper token on the
- * bars, so one component works on the ink chrome, on paper, and inverted in
- * a dark tab strip without a second asset.
+ * The letter strokes use currentColor so the mark is ink on paper, paper on
+ * ink, or anything else the parent sets, with no second asset. Only the dot
+ * is opinionated.
  */
 
 export function BrandMark({
@@ -27,7 +28,7 @@ export function BrandMark({
   size?: "sm" | "md" | "lg";
   className?: string;
 }) {
-  const px = size === "lg" ? 48 : size === "sm" ? 20 : 32;
+  const px = size === "lg" ? 48 : size === "sm" ? 22 : 32;
   return (
     <svg
       width={px}
@@ -39,33 +40,36 @@ export function BrandMark({
       aria-label="adsboys"
       className={className}
     >
-      {/*
-        Bubble. The tail is part of the same path rather than a separate
-        shape, so it never separates from the body at small sizes or when the
-        colour is inherited.
-      */}
-      <path
-        d="M6 2h20a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H13l-6.2 5.4A1 1 0 0 1 5 28.6V24a4 4 0 0 1-3-3.9V6a4 4 0 0 1 4-4Z"
-        fill="currentColor"
+      {/* Bowl. A full geometric circle, Futura-style single-storey "a";
+          the stem below runs tangent to its right edge so the two strokes
+          merge into one letterform rather than reading as ring-plus-line. */}
+      <circle
+        cx="13"
+        cy="19"
+        r="8"
+        stroke="currentColor"
+        strokeWidth="5"
+        fill="none"
       />
-      {/*
-        Three ascending bars. Heights climb left to right so the shape reads
-        as growth even when the bubble is the only thing a viewer registers.
-        Rounded caps match the display typeface's soft terminals.
-      */}
-      <rect x="9" y="15" width="3.2" height="5" rx="1.6" fill="var(--color-background, #f6f5f1)" />
-      <rect x="14.4" y="11" width="3.2" height="9" rx="1.6" fill="var(--color-background, #f6f5f1)" />
-      <rect x="19.8" y="7" width="3.2" height="13" rx="1.6" fill="var(--color-background, #f6f5f1)" />
+      {/* Stem, continuing above the x-height and sweeping up-right. The
+          sweep is what makes it adsboys rather than a typeface sample. */}
+      <path
+        d="M27 5.5C23.2 7.3 21 10.2 21 14V26.5"
+        stroke="currentColor"
+        strokeWidth="5"
+        strokeLinecap="round"
+        fill="none"
+      />
+      {/* Counter. The one fixed-colour element in the mark. */}
+      <circle cx="13" cy="19" r="3.2" fill="var(--color-accent, #e8590c)" />
     </svg>
   );
 }
 
 /**
- * Mark plus wordmark, for headers and the footer.
- *
- * The name is lowercase everywhere on purpose: it is how the brand is
- * written in the product, the domain and the copy, and a capitalised
- * "Adsboys" in the logo would be the one place it disagreed with itself.
+ * Mark plus wordmark, for headers and the footer. Lowercase everywhere:
+ * it is how the name is written in the product, the domain and the copy,
+ * and the logo should not be the one place that disagrees.
  */
 export function BrandLockup({
   size = "md",
@@ -78,7 +82,7 @@ export function BrandLockup({
     size === "lg" ? "text-2xl" : size === "sm" ? "text-base" : "text-lg";
   return (
     <span className={`inline-flex items-center gap-2.5 ${className}`}>
-      <BrandMark size={size} className="text-accent" />
+      <BrandMark size={size} />
       <span
         className={`font-bold tracking-tight ${text}`}
         style={{ fontFamily: "var(--font-display)" }}

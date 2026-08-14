@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { AlertTriangle, BarChart3, BookOpen, BookMarked, Bot, Building2, FileClock, FileText, Inbox, Megaphone, MessageSquare, Settings, Sparkles, Users, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { BrandMark } from "@/components/marketing/brand-mark";
 import {
   getActiveBusinessId,
   type AccountBusinessMap,
@@ -164,12 +165,9 @@ export function Sidebar({
     // can scroll internally instead of pushing the footer off-screen.
     <aside className="chrome-rail sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r border-ink-border text-ink-foreground">
       <div className="flex h-14 items-center gap-2.5 border-b border-ink-border px-4">
-        {/* Brand mark: signal bars — this is an instrument, not a website. */}
-        <div className="flex h-7 w-7 items-end justify-center gap-[3px] rounded-md bg-glow/15 p-1.5">
-          <span className="h-2 w-1 rounded-full bg-glow/50" />
-          <span className="h-3.5 w-1 rounded-full bg-glow" />
-          <span className="h-2.5 w-1 rounded-full bg-glow/75" />
-        </div>
+        {/* One mark everywhere: the same "a" the marketing site and the
+            favicon carry, inheriting the chrome's ink-foreground. */}
+        <BrandMark size="sm" />
         <span
           className="text-[15px] font-bold tracking-tight text-ink-foreground"
           style={{ fontFamily: "var(--font-display)" }}
