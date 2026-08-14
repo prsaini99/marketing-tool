@@ -25,7 +25,7 @@ export default function DemoPage() {
       <SiteNav />
       <div className="chrome-rail min-h-[70vh]">
         <div className="mx-auto w-full max-w-2xl px-5 pb-20 pt-16 text-center">
-          <div className="flex justify-center">
+          <div className="flex justify-center text-ink-foreground">
             <BrandMark size="lg" />
           </div>
           <h1
