@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Analytics } from "./analytics";
+import { BrandMark } from "./brand-mark";
 import { ArrowRight } from "lucide-react";
 
 /**
@@ -15,19 +17,8 @@ import { ArrowRight } from "lucide-react";
  * moment rather than impulse conversion.
  */
 
-export function BrandMark({ size = "md" }: { size?: "md" | "lg" }) {
-  const box = size === "lg" ? "h-12 w-12 p-3 gap-1" : "h-8 w-8 p-2 gap-[3px]";
-  const bar = size === "lg" ? "w-1.5" : "w-1";
-  return (
-    <span
-      className={`inline-flex items-end justify-center rounded-lg bg-glow/15 ${box}`}
-    >
-      <span className={`h-1/2 ${bar} rounded-full bg-glow/50`} />
-      <span className={`h-full ${bar} rounded-full bg-glow`} />
-      <span className={`h-3/4 ${bar} rounded-full bg-glow/75`} />
-    </span>
-  );
-}
+export { BrandMark, BrandLockup } from "./brand-mark";
+
 
 export function SiteNav() {
   return (
@@ -167,6 +158,15 @@ export function SiteFooter() {
           </ul>
         </div>
       </div>
+      {/*
+        Analytics is mounted here rather than in the root layout, because the
+        root layout also wraps /dashboard. Session-recording a logged-in ad
+        account would put client campaign names, budgets and customer
+        conversations into Clarity, which is a promise the security page does
+        not make. SiteFooter appears on every marketing page and no dashboard
+        page, so it is the boundary in practice.
+      */}
+      <Analytics />
       <div className="border-t border-ink-border">
         <p className="mx-auto w-full max-w-6xl px-5 py-5 text-xs text-ink-subtle">
           © {new Date().getFullYear()} adsboys. Built for agencies and
