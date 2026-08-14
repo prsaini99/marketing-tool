@@ -24,12 +24,12 @@ export const OPERATOR = {
   /** REPLACE with the registered office address. */
   address: "India",
   country: "India",
-  contactEmail: "gursat@stackbinary.io",
+  contactEmail: "contact@stackbinary.io",
   /**
    * Date these documents last changed in substance. Update it when you edit
    * them, since a policy with a stale date reads as unmaintained.
    */
-  lastUpdated: "13 August 2026",
+  lastUpdated: "14 August 2026",
 } as const;
 
 /** Page shell: hero, then prose sections, then the standard footer. */

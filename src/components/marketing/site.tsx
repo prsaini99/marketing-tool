@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Analytics } from "./analytics";
-import { BrandMark } from "./brand-mark";
+import { BrandLockup } from "./brand-mark";
 import { ArrowRight } from "lucide-react";
 
 /**
@@ -24,14 +24,13 @@ export function SiteNav() {
   return (
     <header className="sticky top-0 z-40 border-b border-ink-border bg-ink/90 backdrop-blur-md">
       <nav className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5">
-        <Link href="/" className="flex items-center gap-2.5">
-          <BrandMark />
-          <span
-            className="text-lg font-bold tracking-tight text-ink-foreground"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            adsboys
-          </span>
+        {/*
+          Colour goes on the link, not on the wordmark. The mark draws in
+          currentColor, so colouring only the text left it inheriting body
+          ink against a near-black rail.
+        */}
+        <Link href="/" className="text-ink-foreground">
+          <BrandLockup />
         </Link>
         <div className="flex items-center gap-1 text-sm">
           <Link
@@ -81,14 +80,8 @@ export function SiteFooter() {
     <footer className="chrome-rail border-t border-ink-border">
       <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-14 sm:grid-cols-3">
         <div>
-          <div className="flex items-center gap-2.5">
-            <BrandMark />
-            <span
-              className="text-lg font-bold text-ink-foreground"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              adsboys
-            </span>
+          <div className="text-ink-foreground">
+            <BrandLockup />
           </div>
           <p className="mt-3 max-w-xs text-sm leading-relaxed text-ink-muted">
             One place to run Meta campaigns, learn what works from your own

@@ -24,7 +24,13 @@ export default async function DashboardLayout({
   // awaits here meant four database round trips stacked end-to-end before
   // any page could even begin rendering, which was the single largest
   // constant tax on navigation.
-  const [businesses, selectedAccounts, alertCount, needsAttentionCount] =
+  const [
+    businesses,
+    selectedAccounts,
+    alertCount,
+    needsAttentionCount,
+    demoRequestCount,
+  ] =
     await Promise.all([
       // Switcher dropdown: businesses with at least one synced account.
       prisma.metaBusiness.findMany({
@@ -48,6 +54,9 @@ export default async function DashboardLayout({
       prisma.botThread.count({
         where: { flagReason: { not: null }, resolvedAt: null },
       }),
+      // Uncontacted demo requests. A lead sitting unnoticed is the most
+      // expensive thing this dashboard can fail to surface.
+      prisma.demoRequest.count({ where: { status: "NEW" } }),
     ]);
   const accountToBusiness: Record<string, string> = {};
   for (const a of selectedAccounts) {
@@ -67,6 +76,7 @@ export default async function DashboardLayout({
           accountToBusiness={accountToBusiness}
           alertCount={alertCount}
           needsAttentionCount={needsAttentionCount}
+          demoRequestCount={demoRequestCount}
           role={role ?? undefined}
         />
       )}

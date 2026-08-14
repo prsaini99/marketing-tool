@@ -3,7 +3,8 @@
 import { useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { BrandMark } from "@/components/marketing/brand-mark";
 
 export function LoginForm() {
   const router = useRouter();
@@ -47,13 +48,23 @@ export function LoginForm() {
     // same ink-and-ember atmosphere as the rail, at cinema scale.
     <div className="chrome-rail flex min-h-screen items-center justify-center px-4">
       <div className="rise-in relative w-full max-w-sm">
+        {/*
+          Way out. Login is reached from the public nav, and a visitor who
+          clicks Sign in to look around had no route back except the browser
+          control. The card is the only thing on screen, so nothing here
+          competes with it for attention.
+        */}
+        <Link
+          href="/"
+          className="mb-7 inline-flex items-center gap-1.5 text-sm text-ink-muted transition-colors hover:text-ink-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          Back to site
+        </Link>
+
         {/* Brand */}
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-12 w-12 items-end justify-center gap-1 rounded-xl bg-glow/15 p-3">
-            <span className="h-3 w-1.5 rounded-full bg-glow/50" />
-            <span className="h-6 w-1.5 rounded-full bg-glow" />
-            <span className="h-4 w-1.5 rounded-full bg-glow/75" />
-          </div>
+        <div className="mb-8 flex flex-col items-center gap-3 text-ink-foreground">
+          <BrandMark size="lg" />
           <div className="text-center">
             <div
               className="text-2xl font-bold tracking-tight text-ink-foreground"

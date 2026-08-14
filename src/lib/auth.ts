@@ -6,12 +6,15 @@
  * incoming credentials against those env values and, on match, sets an
  * HTTP-only signed cookie.
  *
- * A second, optional credential pair (`REVIEWER_EMAIL` / `REVIEWER_PASSWORD`)
- * logs in as a restricted "reviewer" role — used to hand Meta App Review a
- * login that can only reach the automation/inbox surface, never campaigns,
- * connections, or anything destructive. When either reviewer env var is
- * unset, the reviewer login is disabled outright (never falls back to an
- * empty-password match).
+ * There is a second, restricted "reviewer" role, used to hand Meta App Review
+ * a login that can only reach the automation/inbox surface, never campaigns,
+ * connections, or anything destructive. Reviewer accounts live ONLY in the
+ * `AppUser` table (bcrypt-hashed, revocable, expirable). There is deliberately
+ * no env-var equivalent: an owner credential in env is a lockout guard and
+ * earns its keep, but a reviewer credential is a temporary account handed to
+ * an outside party, which is precisely the case that needs revoking and
+ * expiring without a redeploy. A plaintext second door in env could do
+ * neither.
  *
  * Session model: the cookie value is HMAC-SHA256(SESSION_SECRET, <role tag>).
  * Each role gets its own deterministic tag ("auth-v1" for owner,
@@ -46,18 +49,6 @@ function getEnv(): {
     );
   }
   return { email, password, secret };
-}
-
-/**
- * Reviewer credentials. Returns null (not a thrown error) when either env
- * var is unset — the reviewer login is simply disabled in that case, rather
- * than ever treating a missing password as a blank-password match.
- */
-function getReviewerEnv(): { email: string; password: string } | null {
-  const email = process.env.REVIEWER_EMAIL;
-  const password = process.env.REVIEWER_PASSWORD;
-  if (!email || !password) return null;
-  return { email, password };
 }
 
 function base64UrlEncode(bytes: ArrayBuffer): string {
@@ -129,13 +120,14 @@ export async function getSessionRole(
     const expectedOwner = await getExpectedSessionValue();
     if (safeEqual(cookieValue, expectedOwner)) return "owner";
   } catch {
-    // Owner env misconfigured — fall through and still try reviewer.
+    // SESSION_SECRET missing, so no value can be derived. Fall through and
+    // still try the reviewer tag, which fails the same way.
   }
   try {
     const expectedReviewer = await getExpectedReviewerSessionValue();
     if (safeEqual(cookieValue, expectedReviewer)) return "reviewer";
   } catch {
-    // Reviewer env misconfigured — no match.
+    // Same cause as above. No match.
   }
   return null;
 }
@@ -162,25 +154,6 @@ export function verifyCredentials(email: string, password: string): boolean {
   // in the form input doesn't bite users.
   const emailOk = safeEqual(email.trim().toLowerCase(), envEmail.toLowerCase());
   const passwordOk = safeEqual(password, envPassword);
-  return emailOk && passwordOk;
-}
-
-/**
- * Verify a login attempt against the reviewer credentials in env. Returns
- * false (never a blank-password match) when the reviewer role is disabled,
- * i.e. either REVIEWER_EMAIL or REVIEWER_PASSWORD is unset.
- */
-export function verifyReviewerCredentials(
-  email: string,
-  password: string,
-): boolean {
-  const reviewerEnv = getReviewerEnv();
-  if (!reviewerEnv) return false;
-  const emailOk = safeEqual(
-    email.trim().toLowerCase(),
-    reviewerEnv.email.toLowerCase(),
-  );
-  const passwordOk = safeEqual(password, reviewerEnv.password);
   return emailOk && passwordOk;
 }
 

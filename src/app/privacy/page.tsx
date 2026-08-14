@@ -25,7 +25,7 @@ import {
 export const metadata: Metadata = {
   title: "Privacy Policy | adsboys",
   description:
-    "What data adsboys receives from Meta, who processes it, how long it is kept, and how to have it deleted.",
+    "What data adsboys receives from Meta, what it collects on its own site, who processes it, how long it is kept, and how to have it deleted.",
   alternates: { canonical: "https://adsboys.com/privacy" },
 };
 
@@ -34,7 +34,7 @@ export default function Page() {
     <LegalPage
       eyebrow="Legal"
       title="Privacy policy"
-      intro={`How ${OPERATOR.product} handles the data it receives from Meta and from the businesses that use it.`}
+      intro={`How ${OPERATOR.product} handles the data it receives from Meta, from the businesses that use it, and from visitors to this site.`}
     >
       <LegalNav current="privacy" />
 
@@ -53,8 +53,8 @@ export default function Page() {
             items={[
               <>
                 <strong>For the businesses that use {OPERATOR.product}</strong>,
-                we are the controller of their account information and the
-                operator of the platform they connect their Meta assets to.
+                and for anyone who visits this website or asks us for a demo,
+                we are the controller. We decide what is collected and why.
               </>,
               <>
                 <strong>
@@ -114,7 +114,42 @@ export default function Page() {
           </p>
         </Clause>
 
-        <Clause n={3} title="Why we use it">
+        <Clause n={3} title="Information collected through this website">
+          <p>
+            This section applies to visitors to {OPERATOR.product}.com. It is
+            separate from the above because that information reaches us through
+            a business connecting its Meta assets, whereas this does not.
+          </p>
+          <LegalTable
+            head={["Category", "What it includes"]}
+            rows={[
+              [
+                "Enquiry details",
+                "The name, work email, company, budget range and message submitted through the demo request form. Name and email are required; the remaining fields are optional.",
+              ],
+              [
+                "Referral data",
+                "The page from which an enquiry was submitted, any campaign parameters present in the link followed, and the referring website.",
+              ],
+              [
+                "Usage analytics",
+                "Google Analytics 4 and Microsoft Clarity collect usage and interaction data on the public website, including page views and session activity.",
+              ],
+            ]}
+          />
+          <p>
+            These analytics tools operate on the public website only. They are
+            not present in the authenticated application, so no connected
+            account, campaign or conversation data is recorded by them.
+          </p>
+          <p>
+            Enquiry details are used to respond to you and to correspond about{" "}
+            {OPERATOR.product}. They are not sold, and are not disclosed beyond
+            the providers listed below.
+          </p>
+        </Clause>
+
+        <Clause n={4} title="Why we use it">
           <Points
             items={[
               "To show a business its own advertising performance, and to generate reports, audits and creative analysis from it.",
@@ -130,7 +165,7 @@ export default function Page() {
           </p>
         </Clause>
 
-        <Clause n={4} title="Who else processes it">
+        <Clause n={5} title="Who else processes it">
           <p>
             We use a small number of service providers. Each one processes data
             only to provide its service to us.
@@ -154,11 +189,19 @@ export default function Page() {
                 "Resend",
                 "Delivers operational email to the business, such as alert digests and weekly performance reports. These contain advertising metrics, not the content of conversations.",
               ],
+              [
+                "Google",
+                "Provides Google Analytics 4, which measures usage of the public website. It does not operate within the application.",
+              ],
+              [
+                "Microsoft",
+                "Provides Microsoft Clarity, which measures interaction with the public website. It does not operate within the application.",
+              ],
             ]}
           />
         </Clause>
 
-        <Clause n={5} title="Limits we enforce on automated messaging">
+        <Clause n={6} title="Limits we enforce on automated messaging">
           <p>
             These are enforced in code rather than left to configuration, so
             they hold regardless of how a business sets up its rules.
@@ -175,7 +218,7 @@ export default function Page() {
           />
         </Clause>
 
-        <Clause n={6} title="How it is protected">
+        <Clause n={7} title="How it is protected">
           <Points
             items={[
               "Each client runs as a dedicated deployment with its own database and its own Meta app. There is no shared multi-tenant datastore.",
@@ -193,7 +236,7 @@ export default function Page() {
           </p>
         </Clause>
 
-        <Clause n={7} title="How long we keep it">
+        <Clause n={8} title="How long we keep it">
           <p>
             Advertising data and conversation history are kept for as long as
             the business keeps its Meta assets connected, because the platform
@@ -207,12 +250,18 @@ export default function Page() {
             deletion is immediate and cannot be undone.
           </p>
           <p>
+            Enquiries submitted through this website are not held under a Meta
+            connection and are therefore not covered by that deletion. They are
+            retained for the duration of our correspondence and deleted on
+            request.
+          </p>
+          <p>
             Individual deletion requests are handled as described on the{" "}
             <Link href="/data-deletion">data deletion page</Link>.
           </p>
         </Clause>
 
-        <Clause n={8} title="Your choices">
+        <Clause n={9} title="Your choices">
           <Points
             items={[
               "Stop automated messages from a business by replying STOP in that conversation.",
@@ -228,7 +277,7 @@ export default function Page() {
           </p>
         </Clause>
 
-        <Clause n={9} title="Changes">
+        <Clause n={10} title="Changes">
           <p>
             If we change how data is handled, we update this page and the date
             at the top. Material changes are communicated to connected
