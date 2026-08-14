@@ -15,7 +15,7 @@ interface NavItem {
   href: string;
   label: string;
   icon: typeof Building2;
-  badgeKey?: "alertCount" | "needsAttentionCount";
+  badgeKey?: "alertCount" | "needsAttentionCount" | "demoRequestCount";
   /**
    * Extra path prefixes this entry stays highlighted for. A cluster entry
    * (e.g. Campaigns) represents its whole tab strip, so /dashboard/adsets
@@ -96,6 +96,7 @@ const navSections: NavSection[] = [
   {
     title: "Admin",
     items: [
+      { href: "/dashboard/demo-requests", label: "Demo requests", icon: Inbox, badgeKey: "demoRequestCount" },
       { href: "/dashboard/audit-log", label: "Audit log", icon: FileClock },
       { href: "/dashboard/setup-guide", label: "Setup guide", icon: BookOpen },
       { href: "/dashboard/settings", label: "Settings", icon: Settings },
@@ -112,6 +113,8 @@ interface SidebarProps {
    * null — drives the "needs attention" badge on the Automation entry.
    */
   needsAttentionCount?: number;
+  /** Demo requests still marked NEW, so a lead cannot sit unnoticed. */
+  demoRequestCount?: number;
   /**
    * Session role from the server component that renders this (dashboard
    * layout reads the cookie via getSessionRole and passes it down — this
@@ -128,6 +131,7 @@ export function Sidebar({
   accountToBusiness,
   alertCount = 0,
   needsAttentionCount = 0,
+  demoRequestCount = 0,
   role,
 }: SidebarProps) {
   // Reviewer sessions see only the sections/items they can reach; empty
@@ -214,7 +218,9 @@ export function Sidebar({
                     ? alertCount
                     : item.badgeKey === "needsAttentionCount"
                       ? needsAttentionCount
-                      : 0;
+                      : item.badgeKey === "demoRequestCount"
+                        ? demoRequestCount
+                        : 0;
                 // Alerts stays red (danger); "needs attention" signals a
                 // thread waiting on a human, not an outright failure, so it
                 // gets the amber warning treatment.

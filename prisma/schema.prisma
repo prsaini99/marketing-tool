@@ -1004,3 +1004,39 @@ model heartbeats {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   source     String?
 }
+
+/// An inbound demo request from the marketing site.
+///
+/// The only table in this schema written by an ANONYMOUS caller, which is why
+/// the route that fills it is rate limited and honeypotted. Everything here
+/// is attacker-supplied text: render it as text, never as HTML.
+model DemoRequest {
+  id           String  @id @default(cuid())
+  name         String
+  email        String
+  company      String?
+  /// Free-text band ("under 1L", "1-5L") rather than a number: people
+  /// answer this approximately and a numeric field invites false precision.
+  monthlySpend String?
+  message      String?
+
+  /// Where they came from. Captured at submit rather than inferred later,
+  /// because the referrer and UTM parameters are gone the moment the tab is
+  /// closed, and "which campaign produced this lead" is the entire reason
+  /// the marketing site exists.
+  source      String?
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  referrer    String?
+
+  /// Triage. NEW -> CONTACTED -> QUALIFIED | ARCHIVED.
+  status String  @default("NEW")
+  notes  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+}

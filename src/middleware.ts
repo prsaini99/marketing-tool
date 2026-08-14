@@ -60,13 +60,21 @@ export async function middleware(req: NextRequest) {
   return NextResponse.next();
 }
 
-// Run on dashboard pages + every API route except the auth ones (login/logout
-// must be reachable without a session) and the public cron tick + Meta
-// webhook (neither carries a browser cookie; the webhook is authenticated by
-// HMAC signature).
+// Run on dashboard pages + every API route except four prefixes:
+//
+//   auth/     login and logout must be reachable without a session
+//   cron/     a scheduler carries no browser cookie (bearer token instead)
+//   webhooks/ Meta carries no cookie either (HMAC signature instead)
+//   public/   the marketing site's demo form; prospects are not users
+//
+// THE public/ PREFIX IS WORLD-REACHABLE, INCLUDING FOR WRITES. Anything
+// placed under it is exposed to the internet with no session check, so a
+// route only belongs there if it is safe for anyone to call: rate limited,
+// validated as hostile input, and incapable of reading another party's data.
+// /api/public/demo-request is the only such route today.
 export const config = {
   matcher: [
     "/dashboard/:path*",
-    "/api/((?!auth/|cron/|webhooks/).+)",
+    "/api/((?!auth/|cron/|webhooks/|public/).+)",
   ],
 };
