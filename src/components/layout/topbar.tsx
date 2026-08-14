@@ -1,6 +1,7 @@
 import { AccountSwitcher } from "./account-switcher";
 import { BackButton } from "./back-button";
 import { UserMenu } from "./user-menu";
+import { BrandMark } from "@/components/marketing/brand-mark";
 import type { AccountBusinessMap } from "@/lib/active-business";
 
 interface TopbarProps {
@@ -31,9 +32,7 @@ export function Topbar({ businesses, accountToBusiness, role }: TopbarProps) {
              each account's Inbox, so a nav bar would be chrome around a
              single destination. Just the brand, so the app isn't nameless. */
           <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent text-sm font-semibold text-accent-foreground">
-              M
-            </div>
+            <BrandMark size="sm" />
             <span className="text-sm font-semibold" style={{ fontFamily: "var(--font-display)" }}>adsboys</span>
           </div>
         ) : (

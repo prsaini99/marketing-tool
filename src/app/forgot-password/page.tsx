@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ArrowLeft, Mail } from "lucide-react";
+import { BrandMark } from "@/components/marketing/brand-mark";
 
 export default function ForgotPasswordPage() {
   const [submitted, setSubmitted] = useState(false);
@@ -17,12 +18,15 @@ export default function ForgotPasswordPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface px-4">
       <div className="w-full max-w-sm">
-        {/* Brand */}
-        <div className="mb-8 flex flex-col items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent text-accent-foreground text-base font-semibold">
-            M
-          </div>
-          <span className="text-sm font-semibold tracking-tight">Meta Tool</span>
+        {/* Brand. This page sits on paper, so the mark inherits dark ink. */}
+        <div className="mb-8 flex flex-col items-center gap-2.5">
+          <BrandMark />
+          <span
+            className="text-lg font-bold tracking-tight"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            adsboys
+          </span>
         </div>
 
         {/* Card */}
