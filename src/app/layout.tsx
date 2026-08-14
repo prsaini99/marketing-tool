@@ -38,6 +38,17 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: "adsboys: Meta Ads Command",
   description: "adsboys, the agency command deck for Meta ad accounts.",
+  // Search Console ownership. The HTML-tag method rather than a DNS record,
+  // so verification lives in the repo and survives a redeploy without
+  // registrar access. Google re-checks this tag after verifying, so removing
+  // it later un-verifies the property.
+  ...(process.env.NEXT_PUBLIC_GSC_VERIFICATION
+    ? {
+        verification: {
+          google: process.env.NEXT_PUBLIC_GSC_VERIFICATION,
+        },
+      }
+    : {}),
 };
 
 export default function RootLayout({
