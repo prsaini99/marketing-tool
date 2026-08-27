@@ -1,6 +1,6 @@
 /**
  * POST /api/brand-kit/assets (multipart/form-data)
- *   businessId — required
+ *   businessId — a client id, or omitted/empty for the workspace kit
  *   kind       — "LOGO" | "REFERENCE"
  *   file       — image file, <= 5 MB
  *   label      — optional
@@ -9,14 +9,19 @@
  * upload replaces any existing logo (handled in the service).
  *
  * DELETE /api/brand-kit/assets
- *   body: { businessId, assetId }
+ *   body: { businessId: string | null, assetId }
  *
  * Removes one asset (row + bucket object). The service verifies the asset
- * belongs to businessId before deleting anything.
+ * belongs to that scope before deleting anything — a client id must not
+ * reach a workspace asset, and vice versa.
  */
 
 import { NextResponse } from "next/server";
-import { addBrandAsset, removeBrandAsset } from "@/server/services/brand/kit";
+import {
+  addBrandAsset,
+  removeBrandAsset,
+  type KitScope,
+} from "@/server/services/brand/kit";
 
 const MAX_ASSET_BYTES = 5 * 1024 * 1024;
 const VALID_KINDS = new Set(["LOGO", "REFERENCE"]);
@@ -30,6 +35,17 @@ const VALID_KINDS = new Set(["LOGO", "REFERENCE"]);
 // the old "any image/* is fine" assumption no longer holds.
 const ALLOWED_CONTENT_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
+/**
+ * An absent or empty businessId addresses the workspace kit — the
+ * operator's own brand, edited with "All clients" selected. Empty string
+ * folds to null because that is what a form field left blank sends.
+ */
+function scopeFrom(value: unknown): KitScope {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 export async function POST(req: Request) {
   let form: FormData;
   try {
@@ -41,13 +57,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const businessId = form.get("businessId");
-  if (typeof businessId !== "string" || !businessId.trim()) {
-    return NextResponse.json(
-      { error: "businessId is required" },
-      { status: 400 },
-    );
-  }
+  const scope = scopeFrom(form.get("businessId"));
 
   const kind = form.get("kind");
   if (typeof kind !== "string" || !VALID_KINDS.has(kind)) {
@@ -87,7 +97,7 @@ export async function POST(req: Request) {
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const asset = await addBrandAsset(
-      businessId.trim(),
+      scope,
       kind as "LOGO" | "REFERENCE",
       bytes,
       file.type,
@@ -122,9 +132,13 @@ export async function DELETE(req: Request) {
   }
 
   const { businessId, assetId } = body as Record<string, unknown>;
-  if (typeof businessId !== "string" || !businessId.trim()) {
+  if (
+    businessId !== null &&
+    businessId !== undefined &&
+    typeof businessId !== "string"
+  ) {
     return NextResponse.json(
-      { error: "businessId is required" },
+      { error: "businessId must be a string or null" },
       { status: 400 },
     );
   }
@@ -136,7 +150,7 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    await removeBrandAsset(businessId.trim(), assetId.trim());
+    await removeBrandAsset(scopeFrom(businessId), assetId.trim());
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(

@@ -85,14 +85,30 @@ model MetaBusiness {
 // an agency needs a different kit per client, and that is how every other
 // scoping in this app already works.
 model BrandKit {
-  id         String       @id @default(cuid())
-  businessId String       @unique
-  business   MetaBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  palette    String[]     @default([])
+  id String @id @default(cuid())
+
+  // NULL means the workspace's own kit — the one edited with "All clients"
+  // selected, belonging to the operator rather than to any client. A
+  // partial unique index (see the brand_kit_workspace migration) keeps
+  // there being exactly one of those, since Postgres lets NULLs repeat
+  // under a plain unique constraint. Nothing inherits: a client with no
+  // kit gets an empty one, not the workspace's.
+  businessId String?       @unique
+  business   MetaBusiness? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  palette    String[] @default([])
   themeNotes String?
-  assets     BrandAsset[]
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+
+  // Identity copy. brandName and tagline are rendered as literal on-image
+  // text so the model stops inventing a name; avoidNotes goes in as a
+  // negative instruction.
+  brandName  String?
+  tagline    String?
+  avoidNotes String?
+
+  assets    BrandAsset[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 }
 
 // One table for logo and style references, separated by `kind`. The logo is a

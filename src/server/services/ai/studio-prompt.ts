@@ -18,12 +18,20 @@ export type ReferenceRole = "product" | "style" | "logo";
 export interface StudioBrand {
   palette: string[];
   themeNotes: string | null;
+  /** Rendered as literal on-image text, so the model stops inventing one. */
+  brandName: string | null;
+  tagline: string | null;
+  /** Fed in as a prohibition, not a subject. */
+  avoidNotes: string | null;
 }
 
 export interface StudioToggles {
   useColours: boolean;
   useTheme: boolean;
   useLogo: boolean;
+  /** Brand name and tagline travel together — they are one piece of copy. */
+  useIdentity: boolean;
+  useAvoid: boolean;
 }
 
 // The OpenAI images edit endpoint accepts a bounded set of reference
@@ -40,6 +48,15 @@ const ROLE_INSTRUCTIONS: Record<ReferenceRole, string> = {
     "A brand mark reference image is attached. Incorporate the logo shown, placed naturally and legibly in the scene.",
 };
 
+/**
+ * Every optional field is trimmed before it is tested for presence, so a
+ * field the operator cleared to spaces reads as absent rather than
+ * producing a fragment with nothing after the colon.
+ */
+function text(value: string | null | undefined): string {
+  return value?.trim() ?? "";
+}
+
 export function buildStudioPrompt(
   brief: string,
   brand: StudioBrand | null,
@@ -51,16 +68,39 @@ export function buildStudioPrompt(
       ? `Use this colour palette, primary colour first: ${brand.palette.join(", ")}.`
       : "";
 
-  const themeBlock =
-    toggles.useTheme && brand && brand.themeNotes
-      ? `Brand theme notes: ${brand.themeNotes}`
-      : "";
+  const themeNotes = brand && toggles.useTheme ? text(brand.themeNotes) : "";
+  const themeBlock = themeNotes ? `Brand theme notes: ${themeNotes}` : "";
+
+  const brandName = brand && toggles.useIdentity ? text(brand.brandName) : "";
+  const nameBlock = brandName
+    ? `Render the brand name exactly as written, as on-image text: "${brandName}". Do not alter its spelling or invent a different name.`
+    : "";
+
+  const tagline = brand && toggles.useIdentity ? text(brand.tagline) : "";
+  const taglineBlock = tagline
+    ? `Include this tagline as secondary on-image text, exactly as written: "${tagline}".`
+    : "";
+
+  const avoidNotes = brand && toggles.useAvoid ? text(brand.avoidNotes) : "";
+  const avoidBlock = avoidNotes
+    ? `Do not include any of the following: ${avoidNotes}.`
+    : "";
 
   const roleBlocks = roles
     .filter((role) => role !== "logo" || toggles.useLogo)
     .map((role) => ROLE_INSTRUCTIONS[role]);
 
-  return [brief, paletteBlock, themeBlock, ...roleBlocks]
+  return [
+    brief,
+    nameBlock,
+    taglineBlock,
+    paletteBlock,
+    themeBlock,
+    ...roleBlocks,
+    // Last, because a prohibition is easiest to follow when the model has
+    // already read everything it is being asked to produce.
+    avoidBlock,
+  ]
     .filter(Boolean)
     .join("\n");
 }

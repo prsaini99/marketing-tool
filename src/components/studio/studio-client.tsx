@@ -124,6 +124,11 @@ export function StudioClient({
   const [useColours, setUseColours] = useState(true);
   const [useTheme, setUseTheme] = useState(true);
   const [useLogo, setUseLogo] = useState(true);
+  // Brand name and tagline share one switch: they are one piece of copy,
+  // and splitting them would mean four checkboxes for what the operator
+  // thinks of as "put my brand on it".
+  const [useIdentity, setUseIdentity] = useState(true);
+  const [useAvoid, setUseAvoid] = useState(true);
   const [selectedRefIds, setSelectedRefIds] = useState<Set<string>>(new Set());
   const [uploads, setUploads] = useState<UploadRef[]>([]);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -134,6 +139,11 @@ export function StudioClient({
     [kit],
   );
   const logoAsset = kit?.assets.find((a) => a.kind === "LOGO") ?? null;
+  // A toggle for a field the kit doesn't have is disabled rather than
+  // hidden, so the operator can see what the kit could hold — the same
+  // reason "Include logo" says "(no logo in kit)" instead of vanishing.
+  const hasIdentity = Boolean(kit?.brandName?.trim() || kit?.tagline?.trim());
+  const hasAvoid = Boolean(kit?.avoidNotes?.trim());
 
   // Default every kit reference ON whenever the underlying SET of
   // reference ids changes (kit loaded, an asset added/removed) — but
@@ -351,9 +361,21 @@ export function StudioClient({
           model,
           references: resolvedReferences,
           brand: (kit
-            ? { palette: kit.palette, themeNotes: kit.themeNotes }
+            ? {
+                palette: kit.palette,
+                themeNotes: kit.themeNotes,
+                brandName: kit.brandName,
+                tagline: kit.tagline,
+                avoidNotes: kit.avoidNotes,
+              }
             : null) satisfies StudioBrand | null,
-          toggles: { useColours, useTheme, useLogo } satisfies StudioToggles,
+          toggles: {
+            useColours,
+            useTheme,
+            useLogo,
+            useIdentity,
+            useAvoid,
+          } satisfies StudioToggles,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -397,27 +419,24 @@ export function StudioClient({
           Ad studio
         </h1>
         <p className="text-sm text-muted">
-          Generate on-brand ad imagery from a one-line brief. Pick a client
-          in the switcher above to draw on their brand kit, or generate
-          without one.
+          {businessId
+            ? "Generate on-brand ad imagery from a one-line brief, drawing on this client’s own brand kit."
+            : "Generate on-brand ad imagery from a one-line brief, drawing on your brand kit. Pick a client in the switcher above to use theirs instead."}
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,360px)_1fr]">
         {/* ── Left column: brand kit ─────────────────────────────────── */}
         <div className="space-y-4">
-          {businessId ? (
-            <BrandKitPanel
-              businessId={businessId}
-              initialKit={initialKit}
-              onKitChange={setKit}
-            />
-          ) : (
-            <div className="rounded-md border border-dashed border-border bg-surface px-4 py-5 text-center text-xs text-muted">
-              Pick a client to use a brand kit. Generation still works
-              without one.
-            </div>
-          )}
+          {/* Mounted in both scopes. A null businessId is not "no kit
+              available" — it is the workspace's own kit, the operator's
+              brand, which is the one most generations actually use while
+              there is only a placeholder client in the account. */}
+          <BrandKitPanel
+            businessId={businessId}
+            initialKit={initialKit}
+            onKitChange={setKit}
+          />
         </div>
 
         {/* ── Right column: generation form + results ────────────────── */}
@@ -577,6 +596,30 @@ export function StudioClient({
                   Include logo
                   {!logoAsset && (
                     <span className="text-subtle">(no logo in kit)</span>
+                  )}
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={useIdentity}
+                    onChange={(e) => setUseIdentity(e.target.checked)}
+                    disabled={!hasIdentity}
+                  />
+                  Use brand name &amp; tagline
+                  {!hasIdentity && (
+                    <span className="text-subtle">(none in kit)</span>
+                  )}
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={useAvoid}
+                    onChange={(e) => setUseAvoid(e.target.checked)}
+                    disabled={!hasAvoid}
+                  />
+                  Apply do-not list
+                  {!hasAvoid && (
+                    <span className="text-subtle">(none in kit)</span>
                   )}
                 </label>
               </div>

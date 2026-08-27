@@ -1,15 +1,27 @@
 /**
- * Brand kit — per-client (per-MetaBusiness) colour palette, theme notes,
- * one logo and several style references. Feeds prompt assembly for the Ad
- * Studio image generator (see src/server/services/ai/studio-prompt.ts).
+ * Brand kit — a colour palette, identity copy, one logo and several style
+ * references. Feeds prompt assembly for the Ad Studio image generator
+ * (see src/server/services/ai/studio-prompt.ts).
  *
- * A missing kit is a normal state, not an error: most clients won't have
- * bothered to set one up, and the studio still works without it (the
- * palette/theme fragments in buildStudioPrompt are simply omitted).
+ * Two scopes, distinguished by businessId:
+ *
+ *   businessId === null   the workspace's own kit — the operator's brand,
+ *                         edited with "All clients" selected. Exactly one
+ *                         exists, enforced by a partial unique index.
+ *   businessId === "..."  a client's kit, scoped to their MetaBusiness.
+ *
+ * Nothing inherits. A client with no kit gets an empty one, never the
+ * workspace's — each client owns their brand outright, which is also what
+ * keeps the workspace kit private once clients get their own logins: a
+ * client session scopes to its own businessId and can never address the
+ * NULL row.
+ *
+ * A missing kit is a normal state, not an error: the studio still works
+ * without one (the brand fragments in buildStudioPrompt are omitted).
  *
  * Assets live in the same private `meta-assets` bucket as everything else
- * under src/lib/storage/assets.ts, at `brand/<businessId>/<assetId>` —
- * the "brand" AssetKind added in Task 1. Rendered via mediaUrl()/
+ * under src/lib/storage/assets.ts, at `brand/<scope>/<assetId>` where
+ * scope is the businessId or WORKSPACE_SCOPE. Rendered via
  * /api/media/<storagePath>, never a raw URL column (there isn't one here;
  * storagePath is all this table has).
  */
@@ -20,6 +32,34 @@ import { assetPath, storeBytes, storageClient, ASSET_BUCKET } from "@/lib/storag
 
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const MAX_PALETTE_ENTRIES = 6;
+const MAX_IDENTITY_LENGTH = 200;
+
+/**
+ * Path segment for the workspace kit's assets. Leading underscore because
+ * a MetaBusiness id is a cuid and can never collide with it.
+ */
+const WORKSPACE_SCOPE = "_workspace";
+
+/**
+ * null is the workspace kit; a string is that client's kit. Every function
+ * here takes this rather than a bare string, so a caller cannot silently
+ * lose the distinction.
+ */
+export type KitScope = string | null;
+
+/**
+ * Thrown for input the operator can actually fix — a malformed hex colour,
+ * too many palette entries, an over-long tagline. Routes map this to a 400
+ * and show its message; anything else is an unexpected failure and becomes
+ * a generic 500. A marker class rather than string-matching the message,
+ * so adding a new validation rule cannot silently start returning 500s.
+ */
+export class BrandKitValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BrandKitValidationError";
+  }
+}
 
 export type BrandAssetKind = "LOGO" | "REFERENCE";
 
@@ -33,12 +73,26 @@ export interface BrandKitAssetView {
 export interface BrandKitView {
   palette: string[];
   themeNotes: string | null;
+  brandName: string | null;
+  tagline: string | null;
+  avoidNotes: string | null;
   assets: BrandKitAssetView[];
+}
+
+export interface BrandKitInput {
+  palette: string[];
+  themeNotes: string | null;
+  brandName: string | null;
+  tagline: string | null;
+  avoidNotes: string | null;
 }
 
 function toView(kit: {
   palette: string[];
   themeNotes: string | null;
+  brandName: string | null;
+  tagline: string | null;
+  avoidNotes: string | null;
   assets: Array<{
     id: string;
     kind: string;
@@ -49,6 +103,9 @@ function toView(kit: {
   return {
     palette: kit.palette,
     themeNotes: kit.themeNotes,
+    brandName: kit.brandName,
+    tagline: kit.tagline,
+    avoidNotes: kit.avoidNotes,
     assets: kit.assets.map((a) => ({
       id: a.id,
       kind: a.kind as BrandAssetKind,
@@ -58,16 +115,50 @@ function toView(kit: {
   };
 }
 
-/** Returns null when the business has no kit yet — that is a normal state. */
+/** Returns null when the scope has no kit yet — that is a normal state. */
 export async function getBrandKit(
-  businessId: string,
+  scope: KitScope,
 ): Promise<BrandKitView | null> {
-  const kit = await prisma.brandKit.findUnique({
-    where: { businessId },
+  // findFirst, not findUnique: Prisma rejects null in a unique `where`,
+  // and businessId is nullable now. The unique constraint plus the
+  // workspace partial index still guarantee at most one match either way.
+  const kit = await prisma.brandKit.findFirst({
+    where: { businessId: scope },
     include: { assets: { orderBy: { createdAt: "asc" } } },
   });
   if (!kit) return null;
   return toView(kit);
+}
+
+/**
+ * Finds the scope's kit or creates an empty one. Used by both save paths,
+ * so the operator never has to "create" a kit explicitly — editing it or
+ * uploading to it IS creating it.
+ *
+ * The catch covers two saves racing to create the same kit: the loser of
+ * the unique-constraint race re-reads the winner's row rather than
+ * surfacing a constraint error the operator can do nothing about.
+ */
+async function findOrCreateKit(scope: KitScope): Promise<{ id: string }> {
+  const existing = await prisma.brandKit.findFirst({
+    where: { businessId: scope },
+    select: { id: true },
+  });
+  if (existing) return existing;
+
+  try {
+    return await prisma.brandKit.create({
+      data: { businessId: scope, palette: [] },
+      select: { id: true },
+    });
+  } catch (err) {
+    const raced = await prisma.brandKit.findFirst({
+      where: { businessId: scope },
+      select: { id: true },
+    });
+    if (raced) return raced;
+    throw err;
+  }
 }
 
 /**
@@ -83,7 +174,9 @@ function normalizePalette(palette: string[]): string[] {
   for (const raw of palette) {
     const trimmed = raw.trim();
     if (!HEX_COLOR.test(trimmed)) {
-      throw new Error(`Invalid palette colour: "${raw}" (expected #RRGGBB)`);
+      throw new BrandKitValidationError(
+        `Invalid palette colour: "${raw}" (expected #RRGGBB)`,
+      );
     }
     const key = trimmed.toLowerCase();
     if (seen.has(key)) continue;
@@ -91,23 +184,48 @@ function normalizePalette(palette: string[]): string[] {
     out.push(trimmed);
   }
   if (out.length > MAX_PALETTE_ENTRIES) {
-    throw new Error(`Palette is limited to ${MAX_PALETTE_ENTRIES} colours`);
+    throw new BrandKitValidationError(
+      `Palette is limited to ${MAX_PALETTE_ENTRIES} colours`,
+    );
   }
   return out;
 }
 
+/**
+ * Identity copy is trimmed, blanked to null when empty, and length-capped.
+ * It is rendered into an image prompt verbatim, so an accidental paste of
+ * a whole paragraph would quietly dominate every generation.
+ */
+function normalizeIdentity(value: string | null, field: string): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > MAX_IDENTITY_LENGTH) {
+    throw new BrandKitValidationError(
+      `${field} is limited to ${MAX_IDENTITY_LENGTH} characters`,
+    );
+  }
+  return trimmed;
+}
+
 /** Creates the kit on first save — the user never has to "create" one explicitly. */
 export async function upsertBrandKit(
-  businessId: string,
-  input: { palette: string[]; themeNotes: string | null },
+  scope: KitScope,
+  input: BrandKitInput,
 ): Promise<BrandKitView> {
-  const palette = normalizePalette(input.palette);
-  const themeNotes = input.themeNotes?.trim() || null;
+  const data = {
+    palette: normalizePalette(input.palette),
+    themeNotes: input.themeNotes?.trim() || null,
+    brandName: normalizeIdentity(input.brandName, "Brand name"),
+    tagline: normalizeIdentity(input.tagline, "Tagline"),
+    avoidNotes: normalizeIdentity(input.avoidNotes, "Do-not list"),
+  };
 
-  const kit = await prisma.brandKit.upsert({
-    where: { businessId },
-    create: { businessId, palette, themeNotes },
-    update: { palette, themeNotes },
+  // Validation runs before anything is written, so a rejected palette or
+  // an over-long tagline cannot leave a half-created empty kit behind.
+  const { id } = await findOrCreateKit(scope);
+  const kit = await prisma.brandKit.update({
+    where: { id },
+    data,
     include: { assets: { orderBy: { createdAt: "asc" } } },
   });
   return toView(kit);
@@ -115,26 +233,22 @@ export async function upsertBrandKit(
 
 /**
  * Adds a logo or reference asset, storing bytes at
- * brand/<businessId>/<assetId>. A LOGO replaces any existing logo — the
- * old row and its bucket object are deleted first, since the logo is a
- * singleton by convention and leaving the old object behind would quietly
- * fill the bucket.
+ * brand/<scope>/<assetId>. A LOGO replaces any existing logo — the old
+ * row and its bucket object are deleted once the new one is in place,
+ * since the logo is a singleton by convention and leaving the old object
+ * behind would quietly fill the bucket.
  *
- * Creates the kit if the business doesn't have one yet, same as
+ * Creates the kit if the scope doesn't have one yet, same as
  * upsertBrandKit — uploading an asset is itself "starting" a kit.
  */
 export async function addBrandAsset(
-  businessId: string,
+  scope: KitScope,
   kind: BrandAssetKind,
   bytes: Uint8Array,
   contentType: string,
   label?: string | null,
 ): Promise<BrandKitAssetView> {
-  const kit = await prisma.brandKit.upsert({
-    where: { businessId },
-    create: { businessId, palette: [] },
-    update: {},
-  });
+  const kit = await findOrCreateKit(scope);
 
   let previousLogo: { id: string; storagePath: string } | null = null;
   if (kind === "LOGO") {
@@ -147,11 +261,11 @@ export async function addBrandAsset(
   // (row + bucket object) once the new one is durably in place. Doing it
   // in the opposite order — delete-then-store — means a storage failure
   // (bucket misconfigured, transient error, quota) destroys the working
-  // logo and leaves the business with none, surfaced to the caller as a
-  // bare 500. This order guarantees a failed store leaves the kit exactly
-  // as it was.
+  // logo and leaves the kit with none, surfaced to the caller as a bare
+  // 500. This order guarantees a failed store leaves the kit exactly as
+  // it was.
   const assetId = randomUUID();
-  const path = assetPath("brand", businessId, assetId);
+  const path = assetPath("brand", scope ?? WORKSPACE_SCOPE, assetId);
   const stored = await storeBytes(path, bytes, contentType);
   if (!stored.ok) {
     // Nothing was written or changed yet — the previous logo, if any, is
@@ -200,15 +314,16 @@ export async function addBrandAsset(
 
 /**
  * Removes an asset — row and bucket object both. Verifies the asset
- * belongs to the given businessId's kit before deleting anything; an id
- * from the client is never trusted on its own.
+ * belongs to the given scope's kit before deleting anything; an id from
+ * the client is never trusted on its own. Scoping on businessId: null
+ * matters here too — a client id must not reach a workspace asset.
  */
 export async function removeBrandAsset(
-  businessId: string,
+  scope: KitScope,
   assetId: string,
 ): Promise<void> {
   const asset = await prisma.brandAsset.findFirst({
-    where: { id: assetId, brandKit: { businessId } },
+    where: { id: assetId, brandKit: { is: { businessId: scope } } },
   });
   if (!asset) {
     throw new Error("Asset not found");

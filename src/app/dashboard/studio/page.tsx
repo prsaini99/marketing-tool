@@ -11,10 +11,12 @@
  * already reflects it. Everything interactive — the generation form,
  * results, the kit editor — lives in the client component.
  *
- * "All clients" (no `?client=`) is a fully supported state, not an error:
- * `businessId` is null, `initialKit` is null, and generation still works
- * with no brand kit applied — the "just try an image" case this page
- * exists for.
+ * "All clients" (no `?client=`) is not an empty state — it is the
+ * workspace's OWN brand kit, the operator's rather than any client's.
+ * `getBrandKit(null)` addresses it. Nothing inherits in either direction:
+ * a client with no kit gets an empty one, never the workspace's, because
+ * each client owns their brand outright and will eventually edit it
+ * behind their own login.
  */
 
 import { getActiveBusinessId } from "@/lib/active-business";
@@ -40,7 +42,9 @@ export default async function StudioPage({
     get: (name: string) => (name === "client" ? (params.client ?? null) : null),
   });
 
-  const kit = businessId ? await getBrandKit(businessId) : null;
+  // businessId of null is a real scope, not "skip the lookup": it is the
+  // workspace's own kit.
+  const kit = await getBrandKit(businessId);
 
   // Ad accounts Save-to-library can upload into: the active client's
   // accounts when one is selected, otherwise every selectedForSync

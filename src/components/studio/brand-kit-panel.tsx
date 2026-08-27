@@ -15,18 +15,23 @@ import { cn } from "@/lib/utils";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 
 /**
- * BrandKitPanel — collapsible editor for a client's brand kit: colour
- * palette, theme notes, one logo, and a grid of style references. Feeds
- * prompt assembly for the Ad Studio image generator (buildStudioPrompt).
+ * BrandKitPanel — collapsible editor for a brand kit: colour palette,
+ * brand name and tagline, theme notes, a do-not list, one logo, and a
+ * grid of style references. Feeds prompt assembly for the Ad Studio image
+ * generator (buildStudioPrompt). Mounted on /dashboard/studio.
  *
- * Saving the palette/notes is explicit (a Save button), not save-on-blur —
+ * `businessId === null` edits the WORKSPACE kit — the operator's own
+ * brand, shown when the topbar says "All clients". A string edits that
+ * client's kit. Nothing is inherited in either direction, so the panel
+ * says which one you are looking at: the two are otherwise identical on
+ * screen, and saving into the wrong one stays invisible until an image
+ * comes back in the wrong colours.
+ *
+ * Saving the text fields is explicit (a Save button), not save-on-blur —
  * these values feed every subsequent generation, and silently mutating
  * them mid-experiment would be disorienting. Asset add/remove happen
  * immediately on action (there's nothing to "draft" about an upload), but
- * removing an asset is confirmed since it's destructive.
- *
- * Not mounted anywhere yet — Task 5 mounts it on /dashboard/studio and
- * calls getBrandKit server-side to seed the initial view.
+ * removing or replacing an asset is confirmed since it's destructive.
  */
 
 export type BrandAssetKind = "LOGO" | "REFERENCE";
@@ -41,11 +46,19 @@ export interface BrandKitAssetView {
 export interface BrandKitView {
   palette: string[];
   themeNotes: string | null;
+  brandName: string | null;
+  tagline: string | null;
+  avoidNotes: string | null;
   assets: BrandKitAssetView[];
 }
 
 interface BrandKitPanelProps {
-  businessId: string;
+  /**
+   * null is the workspace's own kit — the operator's brand, edited with
+   * "All clients" selected. A string is that client's kit. Nothing
+   * inherits between the two.
+   */
+  businessId: string | null;
   initialKit: BrandKitView | null;
   /**
    * Optional — called with the live kit whenever it changes (save, asset
@@ -61,6 +74,9 @@ interface BrandKitPanelProps {
 const MAX_PALETTE_ENTRIES = 6;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const MAX_ASSET_BYTES = 5 * 1024 * 1024;
+// Mirrors MAX_IDENTITY_LENGTH in the service. Enforced here as a maxLength
+// so the operator is stopped at the field rather than by a save error.
+const MAX_IDENTITY_LENGTH = 200;
 // Mirrors the server allowlist in src/app/api/brand-kit/assets/route.ts —
 // SVG (and anything else outside this set) is rejected here too so the
 // operator sees the reason immediately, though the server check is the
@@ -72,6 +88,12 @@ export function BrandKitPanel({
   initialKit,
   onKitChange,
 }: BrandKitPanelProps) {
+  // Which brand this panel is editing. The distinction is stated in the
+  // UI rather than inferred, because the two look identical otherwise and
+  // saving into the wrong one is invisible until an image comes back in
+  // the wrong colours.
+  const scopeNoun = businessId === null ? "workspace" : "client";
+
   const [expanded, setExpanded] = useState(true);
   const [kit, setKit] = useState<BrandKitView | null>(initialKit);
 
@@ -87,6 +109,9 @@ export function BrandKitPanel({
   // ── Palette / notes draft state — only committed on explicit Save ──────
   const [palette, setPalette] = useState<string[]>(initialKit?.palette ?? []);
   const [themeNotes, setThemeNotes] = useState(initialKit?.themeNotes ?? "");
+  const [brandName, setBrandName] = useState(initialKit?.brandName ?? "");
+  const [tagline, setTagline] = useState(initialKit?.tagline ?? "");
+  const [avoidNotes, setAvoidNotes] = useState(initialKit?.avoidNotes ?? "");
   const [newColor, setNewColor] = useState("#");
   const [paletteError, setPaletteError] = useState<string | null>(null);
 
@@ -96,11 +121,14 @@ export function BrandKitPanel({
 
   const dirty =
     JSON.stringify(palette) !== JSON.stringify(kit?.palette ?? []) ||
-    (themeNotes.trim() || null) !== (kit?.themeNotes ?? null);
+    (themeNotes.trim() || null) !== (kit?.themeNotes ?? null) ||
+    (brandName.trim() || null) !== (kit?.brandName ?? null) ||
+    (tagline.trim() || null) !== (kit?.tagline ?? null) ||
+    (avoidNotes.trim() || null) !== (kit?.avoidNotes ?? null);
 
   useEffect(() => {
     setSaved(false);
-  }, [palette, themeNotes]);
+  }, [palette, themeNotes, brandName, tagline, avoidNotes]);
 
   function addColor() {
     setPaletteError(null);
@@ -136,6 +164,9 @@ export function BrandKitPanel({
           businessId,
           palette,
           themeNotes: themeNotes.trim() || null,
+          brandName: brandName.trim() || null,
+          tagline: tagline.trim() || null,
+          avoidNotes: avoidNotes.trim() || null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -143,6 +174,9 @@ export function BrandKitPanel({
       setKit((prev) => ({
         palette: data.palette,
         themeNotes: data.themeNotes,
+        brandName: data.brandName,
+        tagline: data.tagline,
+        avoidNotes: data.avoidNotes,
         assets: prev?.assets ?? [],
       }));
       setSaved(true);
@@ -155,7 +189,14 @@ export function BrandKitPanel({
 
   function onAssetAdded(asset: BrandKitAssetView) {
     setKit((prev) => {
-      const base = prev ?? { palette, themeNotes: themeNotes.trim() || null, assets: [] };
+      const base = prev ?? {
+        palette,
+        themeNotes: themeNotes.trim() || null,
+        brandName: brandName.trim() || null,
+        tagline: tagline.trim() || null,
+        avoidNotes: avoidNotes.trim() || null,
+        assets: [],
+      };
       const withoutReplacedLogo =
         asset.kind === "LOGO"
           ? base.assets.filter((a) => a.kind !== "LOGO")
@@ -172,7 +213,13 @@ export function BrandKitPanel({
 
   const logo = kit?.assets.find((a) => a.kind === "LOGO") ?? null;
   const references = kit?.assets.filter((a) => a.kind === "REFERENCE") ?? [];
-  const isEmpty = !kit && palette.length === 0 && !themeNotes.trim();
+  const isEmpty =
+    !kit &&
+    palette.length === 0 &&
+    !themeNotes.trim() &&
+    !brandName.trim() &&
+    !tagline.trim() &&
+    !avoidNotes.trim();
 
   return (
     <div className="rounded-md border border-border bg-background">
@@ -183,7 +230,9 @@ export function BrandKitPanel({
       >
         <div className="flex items-center gap-2">
           <Palette className="h-4 w-4 text-accent" />
-          <span className="text-sm font-semibold text-foreground">Brand kit</span>
+          <span className="text-sm font-semibold text-foreground">
+            {scopeNoun === "workspace" ? "Your brand kit" : "Client brand kit"}
+          </span>
           {!isEmpty && (
             <span className="text-[11px] text-subtle">
               {palette.length} colour{palette.length === 1 ? "" : "s"} ·{" "}
@@ -202,9 +251,9 @@ export function BrandKitPanel({
         <div className="space-y-4 border-t border-border px-4 py-4">
           {isEmpty && (
             <div className="rounded-md border border-dashed border-border bg-surface px-4 py-5 text-center text-xs text-muted">
-              No brand kit yet. Set a colour palette, theme notes, a logo and
-              style references here, and every image you generate for this
-              client in Ad Studio will draw on them automatically.
+              {scopeNoun === "workspace"
+                ? "No brand kit yet. Set your colours, name, tagline, theme notes, a logo and style references here, and every image you generate with no client selected will draw on them automatically."
+                : "This client has no brand kit yet. Set their colours, name, tagline, theme notes, a logo and style references here — nothing is inherited from your own kit, so what you put here is theirs alone."}
             </div>
           )}
 
@@ -282,6 +331,62 @@ export function BrandKitPanel({
             />
           </div>
 
+          {/* ── Identity ───────────────────────────────────────────────── */}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-foreground">
+                Brand name
+              </label>
+              <input
+                type="text"
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
+                maxLength={MAX_IDENTITY_LENGTH}
+                placeholder="e.g. Stackbinary"
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+              <p className="text-[11px] text-subtle">
+                Rendered as on-image text, so the model stops inventing one.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-foreground">
+                Tagline
+              </label>
+              <input
+                type="text"
+                value={tagline}
+                onChange={(e) => setTagline(e.target.value)}
+                maxLength={MAX_IDENTITY_LENGTH}
+                placeholder="e.g. Ship it already"
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+              <p className="text-[11px] text-subtle">
+                Secondary on-image copy. Leave blank to use none.
+              </p>
+            </div>
+          </div>
+
+          {/* ── Do-not list ────────────────────────────────────────────── */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-foreground">
+              Do-not list
+            </label>
+            <textarea
+              rows={2}
+              value={avoidNotes}
+              onChange={(e) => setAvoidNotes(e.target.value)}
+              maxLength={MAX_IDENTITY_LENGTH}
+              placeholder="e.g. stock-photo people, drop shadows, competitor blue"
+              className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            />
+            <p className="text-[11px] text-subtle">
+              List what to keep out, without the &quot;no&quot; — the prompt already
+              says &quot;do not include&quot;, so &quot;no drop shadows&quot; would read as a
+              double negative.
+            </p>
+          </div>
+
           {/* ── Save ───────────────────────────────────────────────────── */}
           <div className="flex items-center justify-between gap-2">
             <p className="text-[11px] text-subtle">
@@ -289,7 +394,9 @@ export function BrandKitPanel({
                 ? "Saved."
                 : dirty
                   ? "Unsaved changes."
-                  : "Palette and notes feed every image you generate for this client."}
+                  : scopeNoun === "workspace"
+                    ? "Your brand. It feeds every image you generate with no client selected."
+                    : "This client's brand. It feeds every image you generate for them."}
             </p>
             <button
               type="button"
@@ -339,7 +446,7 @@ function LogoSlot({
   onChanged,
   onRemoved,
 }: {
-  businessId: string;
+  businessId: string | null;
   logo: BrandKitAssetView | null;
   onChanged: (asset: BrandKitAssetView) => void;
   onRemoved: (assetId: string) => void;
@@ -375,7 +482,9 @@ function LogoSlot({
     setUploading(true);
     try {
       const form = new FormData();
-      form.set("businessId", businessId);
+      // Empty string, not "null": the server folds a blank businessId to
+      // the workspace scope, and FormData would stringify null literally.
+      form.set("businessId", businessId ?? "");
       form.set("kind", "LOGO");
       form.set("file", file, file.name);
       const res = await fetch("/api/brand-kit/assets", {
@@ -508,7 +617,7 @@ function ReferenceGrid({
   onAdded,
   onRemoved,
 }: {
-  businessId: string;
+  businessId: string | null;
   references: BrandKitAssetView[];
   onAdded: (asset: BrandKitAssetView) => void;
   onRemoved: (assetId: string) => void;
@@ -529,7 +638,9 @@ function ReferenceGrid({
     setUploading(true);
     try {
       const form = new FormData();
-      form.set("businessId", businessId);
+      // Empty string, not "null": the server folds a blank businessId to
+      // the workspace scope, and FormData would stringify null literally.
+      form.set("businessId", businessId ?? "");
       form.set("kind", "REFERENCE");
       form.set("file", file, file.name);
       const res = await fetch("/api/brand-kit/assets", {

@@ -76,32 +76,42 @@ function parseBrand(v: unknown): StudioBrand | null | "invalid" {
   if (!Array.isArray(obj.palette) || !obj.palette.every((c) => typeof c === "string")) {
     return "invalid";
   }
-  if (obj.themeNotes !== null && typeof obj.themeNotes !== "string" && obj.themeNotes !== undefined) {
-    return "invalid";
+  for (const field of ["themeNotes", "brandName", "tagline", "avoidNotes"]) {
+    const value = obj[field];
+    if (value !== null && value !== undefined && typeof value !== "string") {
+      return "invalid";
+    }
   }
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
   return {
     palette: obj.palette,
-    themeNotes: typeof obj.themeNotes === "string" ? obj.themeNotes : null,
+    themeNotes: str(obj.themeNotes),
+    brandName: str(obj.brandName),
+    tagline: str(obj.tagline),
+    avoidNotes: str(obj.avoidNotes),
   };
 }
 
 function parseToggles(v: unknown): StudioToggles | "invalid" {
   if (v === undefined) {
-    return { useColours: true, useTheme: true, useLogo: true };
+    return {
+      useColours: true,
+      useTheme: true,
+      useLogo: true,
+      useIdentity: true,
+      useAvoid: true,
+    };
   }
   if (typeof v !== "object" || v === null) return "invalid";
   const obj = v as Record<string, unknown>;
-  if (
-    typeof obj.useColours !== "boolean" ||
-    typeof obj.useTheme !== "boolean" ||
-    typeof obj.useLogo !== "boolean"
-  ) {
-    return "invalid";
-  }
+  const flags = ["useColours", "useTheme", "useLogo", "useIdentity", "useAvoid"] as const;
+  if (flags.some((f) => typeof obj[f] !== "boolean")) return "invalid";
   return {
-    useColours: obj.useColours,
-    useTheme: obj.useTheme,
-    useLogo: obj.useLogo,
+    useColours: obj.useColours as boolean,
+    useTheme: obj.useTheme as boolean,
+    useLogo: obj.useLogo as boolean,
+    useIdentity: obj.useIdentity as boolean,
+    useAvoid: obj.useAvoid as boolean,
   };
 }
 

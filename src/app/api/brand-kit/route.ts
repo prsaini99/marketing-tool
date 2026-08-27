@@ -1,31 +1,61 @@
 /**
- * GET /api/brand-kit?client=<businessId>
+ * GET /api/brand-kit           → the workspace's own kit
+ * GET /api/brand-kit?client=X  → that client's kit
  *
- * Returns the brand kit for one client (a MetaBusiness), or null when none
- * exists yet — a missing kit is a normal state, not an error.
+ * Returns null when the scope has no kit yet — a missing kit is a normal
+ * state, not an error.
  *
  * PUT /api/brand-kit
- *   body: { businessId, palette: string[], themeNotes: string | null }
+ *   body: { businessId: string | null, palette, themeNotes,
+ *           brandName, tagline, avoidNotes }
  *
+ * A null (or absent) businessId addresses the workspace kit — the
+ * operator's own brand, the one edited with "All clients" selected.
  * Creates the kit on first save or updates it. Session-guarded like every
  * other /api/* route — see src/middleware.ts.
  */
 
 import { NextResponse } from "next/server";
-import { getBrandKit, upsertBrandKit } from "@/server/services/brand/kit";
+import {
+  BrandKitValidationError,
+  getBrandKit,
+  upsertBrandKit,
+  type KitScope,
+} from "@/server/services/brand/kit";
 import { prisma } from "@/lib/db/prisma";
+
+/**
+ * An absent or empty `client` param means the workspace kit. Empty string
+ * is folded into null deliberately: `?client=` is what a URL builder
+ * produces for "no client selected", and treating it as a client id would
+ * send it to Prisma as a lookup that can never match.
+ */
+function scopeFromParam(value: string | null): KitScope {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * Confirms a client scope names a real MetaBusiness before it reaches
+ * Prisma through upsertBrandKit — otherwise a bad id trips BrandKit's
+ * foreign key constraint, and Prisma's raw error text ("Foreign key
+ * constraint failed on the field: …") leaks straight to the client as a
+ * 400, mislabelling an invalid-input case with an opaque database detail.
+ * The workspace scope has no row to check.
+ */
+async function scopeExists(scope: KitScope): Promise<boolean> {
+  if (scope === null) return true;
+  const business = await prisma.metaBusiness.findUnique({
+    where: { id: scope },
+    select: { id: true },
+  });
+  return Boolean(business);
+}
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const businessId = url.searchParams.get("client");
-  if (!businessId) {
-    return NextResponse.json(
-      { error: "client query param is required" },
-      { status: 400 },
-    );
-  }
-
-  const kit = await getBrandKit(businessId);
+  const scope = scopeFromParam(url.searchParams.get("client"));
+  const kit = await getBrandKit(scope);
   return NextResponse.json(kit);
 }
 
@@ -47,11 +77,16 @@ export async function PUT(req: Request) {
     );
   }
 
-  const { businessId, palette, themeNotes } = body as Record<string, unknown>;
+  const { businessId, palette, themeNotes, brandName, tagline, avoidNotes } =
+    body as Record<string, unknown>;
 
-  if (typeof businessId !== "string" || !businessId.trim()) {
+  if (
+    businessId !== null &&
+    businessId !== undefined &&
+    typeof businessId !== "string"
+  ) {
     return NextResponse.json(
-      { error: "businessId is required" },
+      { error: "businessId must be a string or null" },
       { status: 400 },
     );
   }
@@ -61,24 +96,24 @@ export async function PUT(req: Request) {
       { status: 400 },
     );
   }
-  if (themeNotes !== null && themeNotes !== undefined && typeof themeNotes !== "string") {
-    return NextResponse.json(
-      { error: "themeNotes must be a string or null" },
-      { status: 400 },
-    );
+
+  const optionalText: Array<[string, unknown]> = [
+    ["themeNotes", themeNotes],
+    ["brandName", brandName],
+    ["tagline", tagline],
+    ["avoidNotes", avoidNotes],
+  ];
+  for (const [field, value] of optionalText) {
+    if (value !== null && value !== undefined && typeof value !== "string") {
+      return NextResponse.json(
+        { error: `${field} must be a string or null` },
+        { status: 400 },
+      );
+    }
   }
 
-  // Check the business exists BEFORE handing businessId to Prisma via
-  // upsertBrandKit — otherwise a bad id trips BrandKit's foreign key
-  // constraint, and Prisma's raw error text ("Foreign key constraint
-  // failed on the field: …") would leak straight to the client as a 400,
-  // mislabelling what's actually an invalid-input case with an opaque
-  // database detail instead of a clear message.
-  const business = await prisma.metaBusiness.findUnique({
-    where: { id: businessId.trim() },
-    select: { id: true },
-  });
-  if (!business) {
+  const scope = scopeFromParam(typeof businessId === "string" ? businessId : null);
+  if (!(await scopeExists(scope))) {
     return NextResponse.json(
       { error: "No business found for that businessId" },
       { status: 400 },
@@ -86,19 +121,20 @@ export async function PUT(req: Request) {
   }
 
   try {
-    const kit = await upsertBrandKit(businessId, {
+    const kit = await upsertBrandKit(scope, {
       palette,
-      themeNotes: themeNotes ?? null,
+      themeNotes: (themeNotes as string | null | undefined) ?? null,
+      brandName: (brandName as string | null | undefined) ?? null,
+      tagline: (tagline as string | null | undefined) ?? null,
+      avoidNotes: (avoidNotes as string | null | undefined) ?? null,
     });
     return NextResponse.json(kit);
   } catch (err) {
-    // normalizePalette throws Error with a specific, safe-to-show message
-    // for actual client input problems (bad hex colour, too many entries) —
-    // that's still real client input validation, so it still maps to 400.
-    // Anything else (a DB hiccup, storage error, etc.) is unexpected server
-    // failure and must not be mislabelled as the client's fault, nor leak
-    // raw internals — map it to a generic 500 instead.
-    if (err instanceof Error && /palette/i.test(err.message)) {
+    // BrandKitValidationError is input the operator can fix (a bad hex
+    // colour, too many entries, an over-long tagline) — safe to show, and
+    // genuinely a 400. Anything else is unexpected server failure: it must
+    // not be mislabelled as the client's fault, nor leak raw internals.
+    if (err instanceof BrandKitValidationError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }
     console.error("brand-kit PUT error:", err);
