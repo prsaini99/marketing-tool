@@ -248,7 +248,7 @@ export function BrandKitPanel({
       </button>
 
       {expanded && (
-        <div className="space-y-4 border-t border-border px-4 py-4">
+        <div className="space-y-3 border-t border-border px-4 py-4">
           {isEmpty && (
             <div className="rounded-md border border-dashed border-border bg-surface px-4 py-5 text-center text-xs text-muted">
               {scopeNoun === "workspace"
@@ -317,22 +317,13 @@ export function BrandKitPanel({
             )}
           </div>
 
-          {/* ── Theme notes ────────────────────────────────────────────── */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground">
-              Theme notes
-            </label>
-            <textarea
-              rows={3}
-              value={themeNotes}
-              onChange={(e) => setThemeNotes(e.target.value)}
-              placeholder="e.g. Warm, festive lighting; clean product photography; avoid clutter; friendly and approachable tone."
-              className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-            />
-          </div>
-
-          {/* ── Identity ───────────────────────────────────────────────── */}
-          <div className="grid gap-2 sm:grid-cols-2">
+          {/* ── Text fields ────────────────────────────────────────────── */}
+          {/* Two columns at width. Stacked full-bleed, four fields plus a
+              line of help under each turned a short form into a tall
+              scroll; the panel sits above the generate form, so its height
+              is what pushes the actual work off screen. Help text is
+              trimmed to what the placeholder cannot say on its own. */}
+          <div className="grid gap-3 lg:grid-cols-2">
             <div className="space-y-1">
               <label className="text-xs font-medium text-foreground">
                 Brand name
@@ -346,9 +337,10 @@ export function BrandKitPanel({
                 className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               />
               <p className="text-[11px] text-subtle">
-                Rendered as on-image text, so the model stops inventing one.
+                Drawn as on-image text, so the model stops inventing one.
               </p>
             </div>
+
             <div className="space-y-1">
               <label className="text-xs font-medium text-foreground">
                 Tagline
@@ -361,30 +353,37 @@ export function BrandKitPanel({
                 placeholder="e.g. Ship it already"
                 className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-foreground">
+                Theme notes
+              </label>
+              <textarea
+                rows={2}
+                value={themeNotes}
+                onChange={(e) => setThemeNotes(e.target.value)}
+                placeholder="e.g. Warm festive lighting, clean product photography, no clutter"
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-foreground">
+                Do-not list
+              </label>
+              <textarea
+                rows={2}
+                value={avoidNotes}
+                onChange={(e) => setAvoidNotes(e.target.value)}
+                maxLength={MAX_IDENTITY_LENGTH}
+                placeholder="e.g. stock-photo people, drop shadows, competitor blue"
+                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+              />
               <p className="text-[11px] text-subtle">
-                Secondary on-image copy. Leave blank to use none.
+                Skip the &quot;no&quot; — the prompt already adds it.
               </p>
             </div>
-          </div>
-
-          {/* ── Do-not list ────────────────────────────────────────────── */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground">
-              Do-not list
-            </label>
-            <textarea
-              rows={2}
-              value={avoidNotes}
-              onChange={(e) => setAvoidNotes(e.target.value)}
-              maxLength={MAX_IDENTITY_LENGTH}
-              placeholder="e.g. stock-photo people, drop shadows, competitor blue"
-              className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-            />
-            <p className="text-[11px] text-subtle">
-              List what to keep out, without the &quot;no&quot; — the prompt already
-              says &quot;do not include&quot;, so &quot;no drop shadows&quot; would read as a
-              double negative.
-            </p>
           </div>
 
           {/* ── Save ───────────────────────────────────────────────────── */}
@@ -395,8 +394,8 @@ export function BrandKitPanel({
                 : dirty
                   ? "Unsaved changes."
                   : scopeNoun === "workspace"
-                    ? "Your brand. It feeds every image you generate with no client selected."
-                    : "This client's brand. It feeds every image you generate for them."}
+                    ? "Feeds every image you generate with no client selected."
+                    : "Feeds every image you generate for this client."}
             </p>
             <button
               type="button"
@@ -414,23 +413,31 @@ export function BrandKitPanel({
             </div>
           )}
 
-          {/* ── Logo ───────────────────────────────────────────────────── */}
-          <div className="space-y-1.5 border-t border-border pt-4">
-            <label className="text-xs font-medium text-foreground">Logo</label>
-            <LogoSlot businessId={businessId} logo={logo} onChanged={onAssetAdded} onRemoved={onAssetRemoved} />
-          </div>
+          {/* ── Assets ─────────────────────────────────────────────────── */}
+          {/* Logo and references side by side: both are small tile grids,
+              and stacking them was the other half of the panel's height. */}
+          <div className="grid gap-4 border-t border-border pt-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground">Logo</label>
+              <LogoSlot
+                businessId={businessId}
+                logo={logo}
+                onChanged={onAssetAdded}
+                onRemoved={onAssetRemoved}
+              />
+            </div>
 
-          {/* ── References ─────────────────────────────────────────────── */}
-          <div className="space-y-1.5 border-t border-border pt-4">
-            <label className="text-xs font-medium text-foreground">
-              Style references
-            </label>
-            <ReferenceGrid
-              businessId={businessId}
-              references={references}
-              onAdded={onAssetAdded}
-              onRemoved={onAssetRemoved}
-            />
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground">
+                Style references
+              </label>
+              <ReferenceGrid
+                businessId={businessId}
+                references={references}
+                onAdded={onAssetAdded}
+                onRemoved={onAssetRemoved}
+              />
+            </div>
           </div>
         </div>
       )}
