@@ -139,11 +139,22 @@ export function StudioClient({
     [kit],
   );
   const logoAsset = kit?.assets.find((a) => a.kind === "LOGO") ?? null;
-  // A toggle for a field the kit doesn't have is disabled rather than
-  // hidden, so the operator can see what the kit could hold — the same
-  // reason "Include logo" says "(no logo in kit)" instead of vanishing.
+  // Presence flags: a toggle is rendered only when the kit has something
+  // for it to act on. Toggling a field the kit doesn't hold changed
+  // nothing anyway — buildStudioPrompt gates on the field's presence too —
+  // so a disabled checkbox was noise standing in for a state the panel
+  // above already reports.
   const hasIdentity = Boolean(kit?.brandName?.trim() || kit?.tagline?.trim());
   const hasAvoid = Boolean(kit?.avoidNotes?.trim());
+  const hasPalette = (kit?.palette.length ?? 0) > 0;
+  const hasTheme = Boolean(kit?.themeNotes?.trim());
+  const hasAnyBrandInput =
+    hasPalette ||
+    hasTheme ||
+    hasIdentity ||
+    hasAvoid ||
+    Boolean(logoAsset) ||
+    referenceAssets.length > 0;
 
   // Default every kit reference ON whenever the underlying SET of
   // reference ids changes (kit loaded, an asset added/removed) — but
@@ -425,21 +436,23 @@ export function StudioClient({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,360px)_1fr]">
-        {/* ── Left column: brand kit ─────────────────────────────────── */}
-        <div className="space-y-4">
-          {/* Mounted in both scopes. A null businessId is not "no kit
-              available" — it is the workspace's own kit, the operator's
-              brand, which is the one most generations actually use while
-              there is only a placeholder client in the account. */}
-          <BrandKitPanel
-            businessId={businessId}
-            initialKit={initialKit}
-            onKitChange={setKit}
-          />
-        </div>
+      {/* Single full-width column, not a sidebar grid. The kit is one
+          collapsible band: as a 360px left column it left ~600px of dead
+          gutter beside the form whenever it was collapsed, which is its
+          normal state once the kit is filled in. Full width also gives
+          the results grid the room it actually wants — these are images
+          being judged, not a list being scanned. */}
+      <div className="space-y-4">
+        {/* Mounted in both scopes. A null businessId is not "no kit
+            available" — it is the workspace's own kit, the operator's
+            brand, which is the one most generations actually use while
+            there is only a placeholder client in the account. */}
+        <BrandKitPanel
+          businessId={businessId}
+          initialKit={initialKit}
+          onKitChange={setKit}
+        />
 
-        {/* ── Right column: generation form + results ────────────────── */}
         <div className="space-y-4">
           <div className="space-y-4 rounded-md border border-border bg-background p-4">
             <div className="space-y-1.5">
@@ -565,66 +578,67 @@ export function StudioClient({
             </div>
 
             {/* ── Brand toggles ───────────────────────────────────────── */}
+            {/* Only what the kit can actually act on. Five permanently
+                greyed-out checkboxes reading "(none in kit)" competed for
+                attention before there was anything to toggle, and pushed
+                the row onto two lines; an empty kit now says so in one
+                line instead. */}
             <div className="space-y-1.5 border-t border-border pt-3">
               <label className="text-xs font-medium text-foreground">
                 Brand kit
               </label>
-              <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
-                <label className="flex items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={useColours}
-                    onChange={(e) => setUseColours(e.target.checked)}
-                  />
-                  Use brand colours
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={useTheme}
-                    onChange={(e) => setUseTheme(e.target.checked)}
-                  />
-                  Apply theme notes
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={useLogo}
-                    onChange={(e) => setUseLogo(e.target.checked)}
-                    disabled={!logoAsset}
-                  />
-                  Include logo
-                  {!logoAsset && (
-                    <span className="text-subtle">(no logo in kit)</span>
-                  )}
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={useIdentity}
-                    onChange={(e) => setUseIdentity(e.target.checked)}
-                    disabled={!hasIdentity}
-                  />
-                  Use brand name &amp; tagline
-                  {!hasIdentity && (
-                    <span className="text-subtle">(none in kit)</span>
-                  )}
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={useAvoid}
-                    onChange={(e) => setUseAvoid(e.target.checked)}
-                    disabled={!hasAvoid}
-                  />
-                  Apply do-not list
-                  {!hasAvoid && (
-                    <span className="text-subtle">(none in kit)</span>
-                  )}
-                </label>
-              </div>
-              {referenceAssets.length > 0 && (
+              {hasAnyBrandInput ? (
                 <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                  {hasPalette && (
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={useColours}
+                        onChange={(e) => setUseColours(e.target.checked)}
+                      />
+                      Use brand colours
+                    </label>
+                  )}
+                  {hasTheme && (
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={useTheme}
+                        onChange={(e) => setUseTheme(e.target.checked)}
+                      />
+                      Apply theme notes
+                    </label>
+                  )}
+                  {hasIdentity && (
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={useIdentity}
+                        onChange={(e) => setUseIdentity(e.target.checked)}
+                      />
+                      Use brand name &amp; tagline
+                    </label>
+                  )}
+                  {logoAsset && (
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={useLogo}
+                        onChange={(e) => setUseLogo(e.target.checked)}
+                      />
+                      Include logo
+                    </label>
+                  )}
+                  {hasAvoid && (
+                    <label className="flex items-center gap-1.5">
+                      <input
+                        type="checkbox"
+                        checked={useAvoid}
+                        onChange={(e) => setUseAvoid(e.target.checked)}
+                      />
+                      Apply do-not list
+                    </label>
+                  )}
                   {referenceAssets.map((a) => (
                     <label key={a.id} className="flex items-center gap-1.5">
                       <input
@@ -636,6 +650,12 @@ export function StudioClient({
                     </label>
                   ))}
                 </div>
+              ) : (
+                <p className="text-[11px] text-subtle">
+                  {businessId
+                    ? "This client's brand kit is empty — open it above to add colours, a name or a logo."
+                    : "Your brand kit is empty — open it above to add colours, a name or a logo."}
+                </p>
               )}
             </div>
 
