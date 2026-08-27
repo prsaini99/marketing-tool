@@ -73,11 +73,41 @@ model MetaBusiness {
 
   adAccounts MetaAdAccount[]
   embeddings Embedding[]
+  brandKit   BrandKit?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([connectionId, metaBusinessId])
+}
+
+// Per-client brand inputs for the Ad studio. Scoped to MetaBusiness because
+// an agency needs a different kit per client, and that is how every other
+// scoping in this app already works.
+model BrandKit {
+  id         String       @id @default(cuid())
+  businessId String       @unique
+  business   MetaBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  palette    String[]     @default([])
+  themeNotes String?
+  assets     BrandAsset[]
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+}
+
+// One table for logo and style references, separated by `kind`. The logo is a
+// singleton by convention — replacing swaps it — while references are many.
+model BrandAsset {
+  id          String   @id @default(cuid())
+  brandKitId  String
+  brandKit    BrandKit @relation(fields: [brandKitId], references: [id], onDelete: Cascade)
+  kind        String   // "LOGO" | "REFERENCE"
+  storagePath String
+  contentType String
+  label       String?
+  createdAt   DateTime @default(now())
+
+  @@index([brandKitId, kind])
 }
 
 // Ad accounts under a MetaBusiness. selectedForSync gates whether Phase 1

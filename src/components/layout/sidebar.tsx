@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { AlertTriangle, BarChart3, BookOpen, BookMarked, Bot, Building2, FileClock, FileText, Inbox, Megaphone, MessageSquare, Settings, Sparkles, Users, Wand2 } from "lucide-react";
+import { AlertTriangle, BarChart3, BookOpen, BookMarked, Bot, Building2, FileClock, FileText, ImagePlus, Inbox, Megaphone, MessageSquare, Settings, Sparkles, Users, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/marketing/brand-mark";
 import {
@@ -81,6 +81,7 @@ const navSections: NavSection[] = [
     title: "AI",
     items: [
       { href: "/dashboard/copilot", label: "Campaign copilot", icon: Wand2 },
+      { href: "/dashboard/studio", label: "Ad studio", icon: ImagePlus },
       { href: "/dashboard/chat", label: "Assistant", icon: MessageSquare },
       { href: "/dashboard/playbook", label: "Playbook", icon: BookMarked },
       { href: "/dashboard/reports", label: "Reports", icon: FileText },

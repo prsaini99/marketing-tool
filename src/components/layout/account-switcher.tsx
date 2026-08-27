@@ -7,11 +7,18 @@ import {
   getActiveBusinessId,
   type AccountBusinessMap,
 } from "@/lib/active-business";
+import { confirmDiscard } from "@/lib/unsaved-guard";
 
 // Routes that support inline `?client=` filtering. On any of these, switching
 // a client updates the current page's URL. On entity-specific drill-downs
 // (e.g. /dashboard/accounts/[id]/campaigns) we fall back to /dashboard/accounts
 // because the path-level ID belongs to a different client.
+//
+// /dashboard/studio is in this set so picking a client from the topbar
+// while on Ad Studio updates ?client= in place instead of navigating to
+// /dashboard/accounts — the page's own copy tells the user to use this
+// switcher, so it has to actually work from there. See navigate() below
+// for the unsaved-variants check this also requires.
 const FILTERABLE_ROUTES = new Set<string>([
   "/dashboard/accounts",
   "/dashboard/insights",
@@ -30,6 +37,7 @@ const FILTERABLE_ROUTES = new Set<string>([
   "/dashboard/audit-log",
   "/dashboard/setup-guide",
   "/dashboard/settings",
+  "/dashboard/studio",
 ]);
 
 interface AccountSwitcherProps {
@@ -67,6 +75,20 @@ export function AccountSwitcher({
   }, []);
 
   function navigate(clientId: string | null) {
+    // Consults src/lib/unsaved-guard.ts: a no-op everywhere except Ad
+    // Studio, which registers a check while it has ungenerated-to-library
+    // variants sitting in memory. This is a router.push() from a <button>
+    // click, so neither beforeunload nor Ad Studio's own <a>-click
+    // interceptor can see it — without this, switching clients would
+    // silently discard unsaved (possibly paid-for) work.
+    if (
+      !confirmDiscard(
+        "You have generated images that haven't been saved yet. Switching clients loses them — you'd have to generate again (and pay again) to get them back.",
+      )
+    ) {
+      return;
+    }
+
     const params = new URLSearchParams(searchParams.toString());
     if (clientId) {
       params.set("client", clientId);

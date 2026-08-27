@@ -50,6 +50,7 @@
  */
 
 import OpenAI, { toFile } from "openai";
+import { MAX_REFERENCES, type ReferenceRole } from "./studio-prompt";
 
 const apiKey = process.env.OPENAI_API_KEY;
 const openai = new OpenAI({ apiKey: apiKey ?? "missing-key" });
@@ -62,15 +63,27 @@ const openai = new OpenAI({ apiKey: apiKey ?? "missing-key" });
 // fit when product preservation matters — that's why it's not the default.
 // Overridable via OPENAI_IMAGE_MODEL ("gpt-image-1" to fall back,
 // "chatgpt-image-latest" to mirror the ChatGPT app); input_fidelity is sent
-// only for models that accept it (see supportsInputFidelity).
-const MODEL = process.env.OPENAI_IMAGE_MODEL?.trim() || "gpt-image-1.5";
+// only for models that accept it (see supportsInputFidelity). This is now
+// only the DEFAULT — callers can override per request via input.model.
+const DEFAULT_MODEL = process.env.OPENAI_IMAGE_MODEL?.trim() || "gpt-image-1.5";
 
 // Which models accept the input_fidelity parameter on images.edit. The
 // real API is stricter than the SDK's type docs — gpt-image-2 rejects it —
 // so we keep an explicit allowlist and omit the param for anything else.
-function supportsInputFidelity(model: string): boolean {
+export function supportsInputFidelity(model: string): boolean {
   return model === "gpt-image-1" || model === "gpt-image-1.5";
 }
+
+// Reference bytes are always labelled "image/png" when handed to toFile,
+// regardless of what they actually are — tolerated by OpenAI for a
+// JPEG-labelled-PNG (the pre-existing AiStudioPanel path relies on this and
+// works), but SVG or GIF bytes surface as an opaque 400 mid-generation
+// instead of a clear upfront rejection. Callers that know the real content
+// type (studio-client.tsx, for both its own uploads and kit references
+// fetched through /api/media) can pass it through `references[].mimeType`;
+// anything outside this allowlist is ignored and falls back to the
+// historical "image/png" label rather than being trusted blindly.
+const KNOWN_REFERENCE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 // 1024×1024 = square; matches Meta's preferred 1:1 ratio.
 // 1024×1536 = portrait, useful for Stories/Reels — future toggle.
 const DEFAULT_SIZE = "1024x1024" as const;
@@ -228,8 +241,27 @@ export interface GenerateAdImageInput {
    * finished ad creative using the photo as creative reference. The
    * product appears RECOGNISABLY in each variant but is not pixel-
    * faithful — model is free to redesign pose, drape, framing.
+   *
+   * Retained for backwards compatibility with existing callers. New
+   * callers should use `references` instead; when `references` is
+   * absent this is normalised into a single `{ role: "product" }` entry.
    */
   productReferenceB64?: string;
+  /**
+   * Ordered reference images, each with the role the prompt should describe
+   * it as. Replaces the single productReferenceB64 for new callers; that
+   * field is retained so existing callers keep working, and is treated as
+   * a single { role: "product" } entry when present.
+   *
+   * Capped at MAX_REFERENCES in total — the product photo and logo count
+   * toward it. Beyond a handful the model averages references into mush.
+   */
+  references?: Array<{ b64: string; role: ReferenceRole; mimeType?: string }>;
+  /**
+   * Per-request override of the image model. Defaults to DEFAULT_MODEL
+   * (env OPENAI_IMAGE_MODEL or "gpt-image-1.5") when omitted.
+   */
+  model?: string;
 }
 
 /**
@@ -254,18 +286,35 @@ export async function generateAdImages(
   if (!brief) throw new Error("brief is required");
   const count = Math.max(1, Math.min(4, input.count ?? 2));
   const quality = input.quality ?? DEFAULT_QUALITY;
+  const model = input.model?.trim() || DEFAULT_MODEL;
+
+  // Normalise references: new callers pass `references` directly; old
+  // callers pass the single `productReferenceB64` field, which becomes a
+  // single { role: "product" } entry when `references` isn't given.
   const productB64 = input.productReferenceB64?.trim();
+  let references = input.references?.length
+    ? input.references
+    : productB64
+      ? [{ b64: productB64, role: "product" as ReferenceRole }]
+      : [];
+  // Defensive backstop for non-HTTP callers — the route (the user-facing
+  // contract) rejects an oversized array outright instead of truncating.
+  if (references.length > MAX_REFERENCES) {
+    references = references.slice(0, MAX_REFERENCES);
+  }
+
+  const hasProductRole = references.some((r) => r.role === "product");
 
   let variants: AdImageVariant[] = [];
   let prompt: string;
   let pattern: GenerationPattern;
 
-  if (!productB64) {
-    // No product reference → text-to-image from scratch.
+  if (references.length === 0) {
+    // No references → text-to-image from scratch.
     pattern = "from-scratch";
     prompt = buildPrompt(brief);
     const res = await openai.images.generate({
-      model: MODEL,
+      model,
       prompt,
       n: count,
       size: DEFAULT_SIZE,
@@ -275,19 +324,30 @@ export async function generateAdImages(
       .filter((d): d is { b64_json: string } => Boolean(d.b64_json))
       .map((d) => ({ b64: d.b64_json, mimeType: "image/png" }));
   } else {
-    // Product reference → freestyle ad-creative edit. gpt-image-1
-    // sees the photo as inspiration and designs a complete, finished
-    // creative around it. No mask, no compositing — the model owns
+    // Reference(s) provided → freestyle ad-creative edit. gpt-image-1
+    // sees the photo(s) as inspiration and designs a complete, finished
+    // creative around them. No mask, no compositing — the model owns
     // the design end-to-end.
-    pattern = "product-reference";
-    prompt = buildPrompt(brief, { withProductReference: true });
-    const buffer = Buffer.from(productB64, "base64");
-    const sourceFile = await toFile(buffer, "product-reference.png", {
-      type: "image/png",
-    });
+    pattern = hasProductRole ? "product-reference" : "from-scratch";
+    prompt = buildPrompt(brief, { withProductReference: hasProductRole });
+    const sourceFiles = await Promise.all(
+      references.map((ref, i) => {
+        const mimeType =
+          ref.mimeType && KNOWN_REFERENCE_MIME_TYPES.has(ref.mimeType)
+            ? ref.mimeType
+            : "image/png";
+        const ext = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/webp" ? "webp" : "png";
+        return toFile(Buffer.from(ref.b64, "base64"), `reference-${i}-${ref.role}.${ext}`, {
+          type: mimeType,
+        });
+      }),
+    );
     const res = await openai.images.edit({
-      model: MODEL,
-      image: sourceFile,
+      model,
+      // The OpenAI SDK (v6.42.0) types `image` as `Uploadable |
+      // Array<Uploadable>` for GPT image models — up to 16 images accepted
+      // — so we hand it every reference rather than dropping to one.
+      image: sourceFiles,
       prompt,
       n: count,
       size: DEFAULT_SIZE,
@@ -298,7 +358,7 @@ export async function generateAdImages(
       // same pattern, pallu, border, blouse — while still freely designing
       // the scene + typography around it. Only sent for models that accept
       // it (gpt-image-2 hard-rejects it with a 400).
-      ...(supportsInputFidelity(MODEL)
+      ...(supportsInputFidelity(model)
         ? { input_fidelity: "high" as const }
         : {}),
     });
@@ -324,6 +384,18 @@ export interface TweakAdImageInput {
   originalB64: string;
   /** "low" (default) / "medium" / "high". Same scale as generate. */
   quality?: ImageQuality;
+  /**
+   * Per-request override of the image model, same field as
+   * GenerateAdImageInput.model. Defaults to DEFAULT_MODEL when omitted —
+   * that default is also what the pre-existing AiStudioPanel caller gets,
+   * since it never sends this field. Without threading this through,
+   * generating on one model (e.g. gpt-image-2) and then tweaking silently
+   * ran the edit on a DIFFERENT model (always DEFAULT_MODEL /
+   * gpt-image-1.5), producing a visibly different renderer on the same
+   * image — the exact "why does my product look different?" failure the
+   * fidelity section above exists to prevent.
+   */
+  model?: string;
 }
 
 /**
@@ -353,6 +425,7 @@ export async function tweakAdImage(
   const sourceFile = await toFile(buffer, "source.png", {
     type: "image/png",
   });
+  const model = input.model?.trim() || DEFAULT_MODEL;
 
   // Prompt is framed as "edit this image" so the model treats the input
   // as the canonical composition and applies only the requested change.
@@ -380,17 +453,17 @@ QUALITY:
   }`;
 
   const res = await openai.images.edit({
-    model: MODEL,
+    model,
     image: sourceFile,
     prompt,
     size: DEFAULT_SIZE,
     quality: input.quality ?? DEFAULT_QUALITY,
     // Preserve the source faithfully — a tweak should change only what's
     // asked, not silently regenerate the product / text into a lookalike.
-    // Only sent for models that accept it (gpt-image-2 rejects it).
-    ...(supportsInputFidelity(MODEL)
-      ? { input_fidelity: "high" as const }
-      : {}),
+    // Only sent for models that accept it (gpt-image-2 rejects it). Do NOT
+    // change which models supportsInputFidelity() accepts — gpt-image-2
+    // 400s on input_fidelity, so that allowlist is load-bearing.
+    ...(supportsInputFidelity(model) ? { input_fidelity: "high" as const } : {}),
   });
 
   const b64 = res.data?.[0]?.b64_json;

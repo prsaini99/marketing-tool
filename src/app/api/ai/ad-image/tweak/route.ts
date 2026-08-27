@@ -6,7 +6,7 @@
  * OpenAI's images.edit endpoint. The composition / subject / framing of
  * the original are preserved — only what the instruction asks changes.
  *
- * Body: { brief?, instruction, originalB64 }
+ * Body: { brief?, instruction, originalB64, quality?, model? }
  * Returns: { variant: { b64, mimeType }, prompt }
  */
 
@@ -25,6 +25,7 @@ export async function POST(req: Request) {
     instruction?: unknown;
     originalB64?: unknown;
     quality?: unknown;
+    model?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -48,12 +49,20 @@ export async function POST(req: Request) {
     );
   }
 
+  // Validated the same way the generate route validates `model` — a
+  // non-empty trimmed string, or omitted so tweakAdImage falls back to
+  // DEFAULT_MODEL (which is also what the pre-existing AiStudioPanel
+  // caller gets, since it never sends this field).
+  const model =
+    typeof body.model === "string" && body.model.trim() ? body.model : undefined;
+
   try {
     const result = await tweakAdImage({
       brief: typeof body.brief === "string" ? body.brief : "",
       instruction: body.instruction.trim(),
       originalB64: body.originalB64,
       quality: parseQuality(body.quality),
+      model,
     });
     return NextResponse.json(result);
   } catch (err) {

@@ -25,6 +25,12 @@ cp .env.example .env.local
 #  - MASTER_EMAIL    — Login email
 #  - MASTER_PASSWORD — Login password
 #  - SESSION_SECRET  — Same generator as ENCRYPTION_KEY. Rotating logs everyone out.
+#  - SUPABASE_URL             — Supabase project URL, used by the asset storage
+#                                client (src/lib/storage/assets.ts).
+#  - SUPABASE_SERVICE_ROLE_KEY — Supabase service-role key. Bypasses RLS
+#                                entirely — never prefix with NEXT_PUBLIC_.
+#                                Without both of these, storage is skipped and
+#                                /api/media/<path> 404s for every stored asset.
 #  - META_TEST_TOKEN — (optional) Meta token for dev shortcuts
 
 # 3. Push the Prisma schema to your DB

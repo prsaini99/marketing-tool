@@ -13,10 +13,11 @@ npm run dev          # Next dev server
 npm run build        # prisma generate && next build
 npm run typecheck    # tsc --noEmit — run before claiming anything is done
 npm run lint         # eslint
+npm test             # vitest run — pure-logic tests only, see below
 npm run cron-worker  # dev-only poller, hits /api/cron/tick every 60s
 ```
 
-**There is no test suite** — no test runner, no test files, no `test` script. `typecheck` + `lint` are the only automated verification. Don't claim tests pass; don't invent a command to run them.
+`npm test` (`vitest run`, 344 tests) covers pure logic — automation matching/rendering, prompt assembly, and similar side-effect-free helpers. `typecheck` + `lint` + `test` are the automated verification; there is still no component/route/DB test layer, so don't claim more than these three cover.
 
 Database:
 
@@ -26,11 +27,11 @@ npx prisma studio
 node scripts/enable-rls.mjs  # re-run after adding any model (see RLS below)
 ```
 
-The `db:*` scripts in `package.json` (`db:migrate`, `db:generate`, `db:reset`, `db:studio`) wrap `dotenv -e .env.local`, which is now correct: config lives in **`.env.local`** and there is no `.env`. `npm run cron-worker` wraps the same loader, because the tick endpoint requires `CRON_SECRET` and the worker has to read it.
+Config lives in **`.env`**; there is no `.env.local` in this repo. The `db:*` scripts in `package.json` (`db:migrate`, `db:generate`, `db:reset`, `db:studio`) and `npm run cron-worker` all wrap `dotenv -e .env.local` — that flag is stale and does not match the file actually present; `npm run cron-worker` needs it loaded because the tick endpoint requires `CRON_SECRET` and the worker has to read it.
 
 ## Environment
 
-`.env.local` is what Next actually loads, and it is the only env file present. Two connection strings, both required:
+`.env` is what Next actually loads, and it is the only env file present (besides `.env.example`). Two connection strings, both required:
 
 - `DATABASE_URL` — Supabase **transaction** pooler, port 6543, with `?pgbouncer=true&connection_limit=1`. Used by Prisma Client. The Prisma **schema engine cannot run over this URL** — `prisma db execute`/`migrate` against it fails with "Error in Schema engine".
 - `DIRECT_URL` — port 5432. Must use the **session pooler** hostname (`aws-1-*.pooler.supabase.com`), *not* `db.<ref>.supabase.co`. The latter is IPv6-only and unreachable from IPv4 networks.
@@ -41,6 +42,7 @@ Other env vars the code reads: `OPENAI_API_KEY` (required by the whole AI/RAG la
 
 - `META_APP_SECRET` — Meta app secret. Verifies `X-Hub-Signature-256` on every webhook POST to `/api/webhooks/meta`; without it the endpoint 500s by design.
 - `META_WEBHOOK_VERIFY_TOKEN` — random string you paste into the App Dashboard webhook config; the GET handshake compares it.
+- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — read by `src/lib/storage/assets.ts` to construct the storage client for captured Meta assets and brand-kit uploads. The service-role key **bypasses RLS entirely** and must never carry a `NEXT_PUBLIC_` prefix. Without both set, `storageClient()` returns null, capture/upload is silently skipped, and `/api/media/<path>` 404s for every stored asset — this looks exactly like a broken page rather than a missing env var, and has already cost a debugging session.
 
 ## Architecture
 
@@ -128,6 +130,8 @@ Be very careful with `.catch(() => ({ data: [] }))` around Graph calls. That pat
 
 Not covered in PROJECT.md. OpenAI is the sole vendor. Chat + embeddings funnel through `src/lib/llm/` (`chat.ts` exposes `DEFAULT_MODEL = "gpt-4o"`, overridable per call — `gpt-4o-mini` for cheap high-volume jobs — and `completeJson()` for schema-constrained structured output; `embeddings.ts` uses text-embedding-3-small, 1536-d). **Image generation is the exception**: `ai/generate-ad-image.ts` uses its own OpenAI client, defaulting to `gpt-image-1.5` (`OPENAI_IMAGE_MODEL` override) because it supports `input_fidelity: "high"` for product-faithful edits — `gpt-image-2` rejects that param with a 400. Features live in `src/server/services/ai/` (copy + image generation, account audit, anomaly detection, weekly reports, chat-with-data) with retrieval in `src/server/services/rag/`, including cross-account pattern transfer — performance-weighted winning ads from one account inform copy generation for another; auto-reindexed on creatives sync plus a nightly cron.
 
+`/dashboard/studio` ("Ad Studio") is the standalone entry point to `generate-ad-image.ts`, with a per-client brand kit (`BrandKit`/`BrandAsset` — colour palette, theme notes, one logo, several style references, stored the same way captured Meta assets are, under `src/lib/storage/assets.ts`) and a per-request image-model picker (`gpt-image-2` / `gpt-image-1.5` / `gpt-image-1` / `chatgpt-image-latest`) that overrides the module's `DEFAULT_MODEL` for both generate and tweak.
+
 The shared `Embedding` table is pgvector. Prisma has no native vector type, so `vector` is `Unsupported("vector(1536)")` — **it can only be read/written via `$queryRaw` / `$executeRaw`**, never the typed client. Every row must set `businessId` or `adAccountId`, and every search must filter on one of them; that scoping is what prevents cross-tenant leakage.
 
 ### Auth
@@ -154,7 +158,7 @@ Every public table has RLS **enabled with zero policies**, blocking PostgREST/Re
 
 - **Rule #5 claims all Meta calls go through a retry wrapper. They don't.** `src/lib/meta/retry.ts` exports `withRetry` and *nothing imports it* — it is dead code. There is currently no retry or backoff on any Meta call. `rate-limit.ts` is likewise an explicit no-op stub.
 - Both files say **"Create ad — not yet built"**. It shipped, along with creatives, images, videos, audiences, conversions, alerts, audits, playbook, reports, chat, and the whole AI/RAG stack. The folder listing in PROJECT.md predates all of it.
-- README's setup instructions reference `.env.local`, which is now correct. Earlier revisions of this file claimed the repo used `.env`; it does not.
+- README's setup instructions reference `.env.local`. That is now stale — the repo uses `.env`, and there is no `.env.local` present.
 - PROJECT.md says "Production cron handled by Vercel Cron once deployed". `vercel.json` now schedules four crons including `/api/cron/tick` hourly, so the sync tick does have a prod trigger; the PROJECT.md wording predates it.
 
 Update these when you touch the relevant area rather than adding another layer on top.

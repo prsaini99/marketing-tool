@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   Check,
@@ -92,6 +92,12 @@ export function CreateAdModal({
   onClose,
 }: CreateAdModalProps) {
   const router = useRouter();
+  // The Ad Studio "Use in a new ad" shortcut — campaigns-table.tsx and
+  // adsets-table.tsx carry ?image=<hash> through both drill-downs so it's
+  // still on the URL by the time this modal opens. See the preselect
+  // effects below for how it's applied (and reverted if stale).
+  const searchParams = useSearchParams();
+  const imageParam = searchParams.get("image");
   const [mounted, setMounted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -223,6 +229,29 @@ export function CreateAdModal({
       cancelled = true;
     };
   }, [open, mediaType, imageSource, metaAdAccountId, imagesLoaded]);
+
+  // Preselect the Ad Studio shortcut, part 1: eagerly switch to the
+  // library picker so the load effect above fires, even though the
+  // operator never touched the Upload/Library toggle themselves.
+  useEffect(() => {
+    if (!open || !imageParam) return;
+    setMediaType("image");
+    setImageSource("library");
+  }, [open, imageParam]);
+
+  // Preselect the Ad Studio shortcut, part 2: once the library has loaded,
+  // select the hash if it's actually in this account's library. Guards the
+  // stale-hash case — a dead link, or an image saved to a different
+  // account — by leaving imageSource on "upload" (the normal empty state)
+  // instead of showing the library picker with nothing selected.
+  useEffect(() => {
+    if (!open || !imageParam || !imagesLoaded) return;
+    if (images.some((i) => i.hash === imageParam)) {
+      setSelectedImageHash(imageParam);
+    } else {
+      setImageSource("upload");
+    }
+  }, [open, imageParam, imagesLoaded, images]);
 
   // Lazily load the account's library videos the first time the user switches
   // to the Video tab — keeps the modal cheap to open for the common image case.

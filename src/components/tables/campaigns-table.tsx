@@ -94,10 +94,18 @@ export function CampaignsTable({
 }: CampaignsTableProps) {
   const router = useRouter();
   // Preserve the active range / client filters when drilling into ad sets,
-  // so the user keeps the same window as they navigate deeper.
+  // so the user keeps the same window as they navigate deeper. `image` is
+  // the Ad Studio "Use in a new ad" shortcut (?image=<hash>) — it has to
+  // survive this navigation and the next (adsets-table.tsx) so it's still
+  // on the URL once the operator reaches the ad-set-scoped ads page and
+  // opens CreateAdModal.
   const searchParams = useSearchParams();
   const range = searchParams.get("range");
-  const querySuffix = range ? `?range=${range}` : "";
+  const image = searchParams.get("image");
+  const params = new URLSearchParams();
+  if (range) params.set("range", range);
+  if (image) params.set("image", image);
+  const querySuffix = params.size > 0 ? `?${params.toString()}` : "";
 
   // Which campaign's edit modal is open (null = closed). Lives here so the
   // modal portals out above the table without per-row state.
