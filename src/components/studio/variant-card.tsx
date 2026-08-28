@@ -64,6 +64,7 @@ export function VariantCard({
   brief,
   quality,
   model,
+  size,
   adAccounts,
   onReplace,
   onSaved,
@@ -77,6 +78,9 @@ export function VariantCard({
   // DEFAULT_MODEL — see /api/ai/ad-image/tweak and generate-ad-image.ts's
   // TweakAdImageInput.model.
   model: string;
+  // The size this variant was generated at. A tweak must request the same
+  // one, or adjusting a 9:16 Stories ad returns it square.
+  size: string | null;
   adAccounts: StudioAdAccount[];
   onReplace: (next: AdImageVariant) => void;
   onSaved: (saved: SavedVariantRef) => void;
@@ -111,6 +115,7 @@ export function VariantCard({
           originalB64: variant.b64,
           quality,
           model,
+          size,
         }),
       });
       const data = await res.json().catch(() => ({}));

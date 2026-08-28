@@ -18,6 +18,8 @@
 import { NextResponse } from "next/server";
 import { generateAdImages } from "@/server/services/ai/generate-ad-image";
 import { getFormat } from "@/server/services/ai/ad-formats";
+import { getPlacement, resolveSize } from "@/server/services/ai/placements";
+import { artDirectionFor } from "@/server/services/ai/art-directions";
 import { writeAdCopy, type AdCopy } from "@/server/services/ai/ad-copy";
 import {
   buildStudioPrompt,
@@ -53,6 +55,11 @@ const NEEDS_REASON: Record<"product" | "proof", string> = {
 // mimeType here is dropped rather than trusted, not rejected outright,
 // since `mimeType` is optional and older callers never send it.
 const KNOWN_REFERENCE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+/** Trimmed string, or null for anything else. */
+function optionalText(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
 
 function parseQuality(v: unknown): "low" | "medium" | "high" | undefined {
   return v === "low" || v === "medium" || v === "high" ? v : undefined;
@@ -146,6 +153,8 @@ export async function POST(req: Request) {
     count?: unknown;
     quality?: unknown;
     model?: unknown;
+    placement?: unknown;
+    brandContext?: unknown;
     references?: unknown;
     brand?: unknown;
     toggles?: unknown;
@@ -191,6 +200,27 @@ export async function POST(req: Request) {
 
   const model =
     typeof body.model === "string" && body.model.trim() ? body.model : undefined;
+
+  // Placement decides the frame. Unknown ids are rejected rather than
+  // silently squared off, since the operator picked a shape deliberately.
+  const placementId =
+    typeof body.placement === "string" && body.placement.trim()
+      ? body.placement.trim()
+      : null;
+  const placement = placementId ? getPlacement(placementId) : null;
+  if (placementId && !placement) {
+    return NextResponse.json(
+      { error: `Unknown placement "${placementId}"` },
+      { status: 400 },
+    );
+  }
+  // resolveSize owns the model-capability mapping: only gpt-image-2 accepts
+  // arbitrary resolutions, so every other model gets the nearest standard
+  // size and `exact: false` — which the client is told about rather than
+  // discovering from a differently-shaped image.
+  const sized = placement
+    ? resolveSize(placement, model ?? "")
+    : null;
 
   const references = parseReferences(body.references);
   if (references === "invalid") {
@@ -247,11 +277,28 @@ export async function POST(req: Request) {
     ? [...new Set(references.map((r) => r.role))]
     : [];
 
+  // Context is a separate field from `brand` on purpose: `brand` goes to the
+  // image model, this does not. See BrandContext in ad-copy.ts.
+  const rawContext = body.brandContext;
+  const brandContext =
+    rawContext && typeof rawContext === "object"
+      ? {
+          description: optionalText((rawContext as Record<string, unknown>).description),
+          audience: optionalText((rawContext as Record<string, unknown>).audience),
+          toneOfVoice: optionalText((rawContext as Record<string, unknown>).toneOfVoice),
+        }
+      : null;
+
   let copy: AdCopy | null = null;
   let copyError: string | null = null;
   if (format) {
     try {
-      copy = await writeAdCopy({ format, brief: body.brief, brand });
+      copy = await writeAdCopy({
+        format,
+        brief: body.brief,
+        brand,
+        context: brandContext,
+      });
     } catch (err) {
       // A text-call hiccup must not cost the operator their click. Fall back
       // to the brief as written and say so; the image still gets made.
@@ -264,6 +311,14 @@ export async function POST(req: Request) {
     }
   }
 
+  // One art direction per generation, drawn at random from those that suit
+  // the format's register. This is what stops two runs of the same format
+  // coming back as the same ad; the randomness lives here rather than in the
+  // pure module so artDirectionFor stays testable.
+  const artDirection = format
+    ? artDirectionFor(format.look, Math.floor(Math.random() * 1000))
+    : null;
+
   const brief = buildStudioPrompt({
     brief: body.brief.trim(),
     brand,
@@ -271,6 +326,7 @@ export async function POST(req: Request) {
     roles,
     layout: format?.layout,
     copy: copy ?? undefined,
+    artDirection: artDirection?.direction,
   });
 
   try {
@@ -281,6 +337,8 @@ export async function POST(req: Request) {
       model,
       references,
       promoFrame: !format,
+      size: sized?.size,
+      frameNote: placement?.promptNote,
     });
     return NextResponse.json({
       ...result,
@@ -291,6 +349,12 @@ export async function POST(req: Request) {
       // Surfaced so a figure-defined format (stat drop, offer stack) does not
       // come back silently missing its figure.
       droppedSlots: copy?.droppedSlots ?? [],
+      // The size actually rendered, and whether it is the true ratio for the
+      // chosen placement. Tweak needs the size to keep the same shape.
+      size: sized?.size ?? null,
+      exactRatio: sized ? sized.exact : null,
+      // Named so the operator can see why two runs of one format differ.
+      artDirection: artDirection?.label ?? null,
     });
   } catch (err) {
     console.error("ad-image generate error:", err);

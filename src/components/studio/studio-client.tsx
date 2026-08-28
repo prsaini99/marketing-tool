@@ -30,6 +30,11 @@ import {
   type StudioToggles,
 } from "@/server/services/ai/studio-prompt";
 import { getFormat, type FormatNeeds } from "@/server/services/ai/ad-formats";
+import {
+  PLACEMENTS,
+  getPlacement,
+  supportsExactRatio,
+} from "@/server/services/ai/placements";
 import { setUnsavedGuard } from "@/lib/unsaved-guard";
 import { cn } from "@/lib/utils";
 
@@ -91,6 +96,15 @@ const RESULT_GRID: Record<number, string> = {
   3: "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3",
   4: "grid-cols-2 xl:grid-cols-4",
 };
+
+// Width ÷ height per placement, derived from its own exact size so the
+// schematic can never disagree with what gets rendered.
+const RATIO_OF: Record<string, number> = Object.fromEntries(
+  PLACEMENTS.map((p) => {
+    const [w, h] = p.exactSize.split("x").map(Number);
+    return [p.id, w / h];
+  }),
+);
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -178,6 +192,12 @@ export function StudioClient({
   const format = getFormat(formatId);
   const [brief, setBrief] = useState("");
   const [model, setModel] = useState("gpt-image-1.5");
+  const [placementId, setPlacementId] = useState("feed-square");
+  const placement = getPlacement(placementId) ?? PLACEMENTS[0];
+  // The size the LAST generation actually ran at, echoed by the route. Tweak
+  // needs it so an adjustment keeps the same shape, and it is the rendered
+  // truth rather than what was selected afterwards.
+  const [renderedSize, setRenderedSize] = useState<string | null>(null);
   const [quality, setQuality] = useState<ImageQuality>("medium");
   const [useColours, setUseColours] = useState(true);
   const [useTheme, setUseTheme] = useState(true);
@@ -191,6 +211,26 @@ export function StudioClient({
   const [uploads, setUploads] = useState<UploadRef[]>([]);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Only gpt-image-2 can render a true 4:5 or 9:16; the others top out at
+  // 2:3. Choosing a vertical placement therefore switches the model, and
+  // says so rather than doing it silently — the operator can put the model
+  // back if product fidelity matters more, and gets the warning below
+  // instead of a differently-shaped image.
+  const [autoSwitched, setAutoSwitched] = useState(false);
+  function choosePlacement(next: string) {
+    setPlacementId(next);
+    const p = getPlacement(next);
+    if (p && p.id !== "feed-square" && !supportsExactRatio(model)) {
+      setModel("gpt-image-2");
+      setAutoSwitched(true);
+    } else {
+      setAutoSwitched(false);
+    }
+  }
+  // True when the chosen model cannot render the chosen placement exactly.
+  const ratioApprox =
+    placement.id !== "feed-square" && !supportsExactRatio(model);
 
   const referenceAssets = useMemo(
     () => kit?.assets.filter((a) => a.kind === "REFERENCE") ?? [],
@@ -231,6 +271,8 @@ export function StudioClient({
   // what's being sent and what got cut, rather than silently dropping one.
   const candidates = useMemo(() => {
     type Candidate = {
+      /** Upload or kit-asset id, so a tile can show that it was cut. */
+      id: string;
       role: ReferenceRole;
       label: string;
       // Resolves to the real content type alongside the bytes where it's
@@ -241,6 +283,7 @@ export function StudioClient({
       resolve: () => Promise<{ b64: string; mimeType?: string }>;
     };
     const fromUploads: Candidate[] = uploads.map((u) => ({
+      id: u.id,
       role: u.role,
       label: `${u.file.name} (${ROLE_LABEL[u.role]} upload)`,
       resolve: async () => ({ b64: u.b64, mimeType: u.file.type || undefined }),
@@ -248,6 +291,7 @@ export function StudioClient({
     const fromKitRefs: Candidate[] = referenceAssets
       .filter((a) => selectedRefIds.has(a.id))
       .map((a) => ({
+        id: a.id,
         role: "style" as ReferenceRole,
         label: `${a.label ?? "Style reference"} (kit)`,
         resolve: () => urlToReference(a.url),
@@ -256,6 +300,7 @@ export function StudioClient({
       useLogo && logoAsset
         ? [
             {
+              id: logoAsset.id,
               role: "logo" as ReferenceRole,
               label: "Logo (kit)",
               resolve: () => urlToReference(logoAsset.url),
@@ -267,6 +312,9 @@ export function StudioClient({
 
   const sending = candidates.slice(0, MAX_REFERENCES);
   const excluded = candidates.slice(MAX_REFERENCES);
+  // Ids the cap left out, so each tile can say so on itself instead of the
+  // banner listing filenames.
+  const excludedIds = new Set(excluded.map((c) => c.id));
   const hasProductReference = sending.some((c) => c.role === "product");
   const showFidelityWarning = hasProductReference && !FIDELITY_MODELS.has(model);
 
@@ -379,7 +427,27 @@ export function StudioClient({
   function addUploadFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     setUploadError(null);
-    for (const file of Array.from(files)) {
+
+    // Uploads sit ahead of kit references in the candidate order, so an
+    // upload past the cap would push out another upload rather than being
+    // ignored. Refuse it here instead — accepting a file and then marking
+    // it "not sent" is the behaviour that made this confusing.
+    const room = MAX_REFERENCES - uploads.length;
+    const chosen = Array.from(files);
+    if (room <= 0) {
+      setUploadError(
+        `You can send ${MAX_REFERENCES} images per generation. Remove one first.`,
+      );
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
+      return;
+    }
+    if (chosen.length > room) {
+      setUploadError(
+        `Only ${room} more ${room === 1 ? "image" : "images"} will fit — ${MAX_REFERENCES} are sent per generation. Added the first ${room}.`,
+      );
+    }
+
+    for (const file of chosen.slice(0, room)) {
       if (!ALLOWED_UPLOAD_TYPES.has(file.type)) {
         setUploadError(`${file.name}: pick a PNG, JPEG, or WEBP image file.`);
         continue;
@@ -435,6 +503,7 @@ export function StudioClient({
     setAngle(null);
     setCopyError(null);
     setDroppedSlots([]);
+    setRenderedSize(null);
     try {
       const resolvedReferences = await Promise.all(
         sending.map(async (c) => {
@@ -451,6 +520,16 @@ export function StudioClient({
           count: 1,
           quality,
           model,
+          placement: placementId,
+          // Separate from `brand` on purpose: this reaches the copy stage
+          // only, never the image model. See BrandContext in ad-copy.ts.
+          brandContext: kit
+            ? {
+                description: kit.description,
+                audience: kit.audience,
+                toneOfVoice: kit.toneOfVoice,
+              }
+            : null,
           references: resolvedReferences,
           brand: (kit
             ? {
@@ -477,6 +556,7 @@ export function StudioClient({
       // leaves prior variants in place.
       setVariants((data.variants as AdImageVariant[]) ?? []);
       setPrompt(typeof data.prompt === "string" ? data.prompt : null);
+      setRenderedSize(typeof data.size === "string" ? data.size : null);
       setAngle(typeof data.angle === "string" ? data.angle : null);
       setCopyError(typeof data.copyError === "string" ? data.copyError : null);
       setDroppedSlots(
@@ -515,10 +595,7 @@ export function StudioClient({
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-          <Sparkles className="h-5 w-5 text-accent" />
-          Ad studio
-        </h1>
+        <h1 className="text-lg font-semibold text-foreground">Ad studio</h1>
         <p className="text-sm text-muted">
           {businessId
             ? "Generate on-brand ad imagery from a one-line brief, drawing on this client’s own brand kit."
@@ -537,7 +614,7 @@ export function StudioClient({
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">
-                {format ? "Brief (optional)" : "Brief"}
+                Brief
               </label>
               <textarea
                 rows={3}
@@ -547,17 +624,40 @@ export function StudioClient({
                   format && FIGURE_LED_FORMATS.has(format.id)
                     ? `This format is built around a figure, and nothing here will invent one — put the number in your brief (e.g. "92% of buyers reorder", "FLAT 40% OFF until Sunday") or it gets left out.`
                     : format
-                      ? `Optional — leave blank and we'll write it from ${format.name.toLowerCase()} and your brand kit.`
+                      ? `What's the ad about? e.g. "${format.briefExample}"`
                       : "e.g. Diwali offer, FLAT 50% OFF, SHOP NOW. Festive scene, warm golden-hour light, diyas & marigolds."
                 }
                 className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
 
-            {/* Model gets its own row — its option labels are sentences,
-                not words, and a third of a 380px rail truncates them to
-                "gpt-image-1.5 — keeps an uploaded pr…". */}
+            {/* Placement above Model: the shape is a brief-level decision,
+                and it can change which model is used. */}
             <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground">
+                  Placement
+                </label>
+                <select
+                  value={placementId}
+                  onChange={(e) => choosePlacement(e.target.value)}
+                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                >
+                  {PLACEMENTS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label} — {p.ratio} ({p.metaPixels})
+                    </option>
+                  ))}
+                </select>
+                {autoSwitched && (
+                  <p className="text-[11px] text-subtle">
+                    Switched to gpt-image-2 — it&rsquo;s the only model that
+                    renders {placement.ratio} exactly. Change it back if
+                    product fidelity matters more.
+                  </p>
+                )}
+              </div>
+
               <div className="space-y-1">
                 <label className="text-xs font-medium text-foreground">Model</label>
                 <select
@@ -586,53 +686,93 @@ export function StudioClient({
               </div>
             </div>
 
+            {ratioApprox && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {model} can&rsquo;t render {placement.ratio} — this will come
+                back 2:3 instead. Use gpt-image-2 for a true {placement.ratio}.
+              </div>
+            )}
+
             {showFidelityWarning && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 {FIDELITY_WARNING}
               </div>
             )}
 
-            {/* ── Reference uploads ───────────────────────────────────── */}
+            {/* ── Images you supply ───────────────────────────────────── */}
+            {/* Not "references": only the style role is a reference. A logo
+                has to be reproduced, a product has to stay recognisable, and
+                a proof photo is a real person the model must not restage —
+                calling all four a reference undersold three of them. */}
             <div className="space-y-1.5 border-t border-border pt-3">
               <label className="text-xs font-medium text-foreground">
-                Reference uploads
+                Images to use
               </label>
-              <div className="flex flex-wrap gap-2">
-                {uploads.map((u) => (
-                  <div
-                    key={u.id}
-                    className="w-28 space-y-1 rounded-md border border-border bg-surface p-1.5"
-                  >
-                    <div className="relative h-16 w-full overflow-hidden rounded bg-surface-2">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={u.dataUrl}
-                        alt={u.file.name}
-                        className="h-full w-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeUpload(u.id)}
-                        aria-label={`Remove ${u.file.name}`}
-                        className="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 text-white"
+              <p className="text-[11px] text-subtle">
+                A product photo, your logo, a real person or result, or a
+                style reference. Tag each one after adding it.{" "}
+                {uploads.length >= MAX_REFERENCES ? (
+                  <span className="text-foreground">
+                    {MAX_REFERENCES} of {MAX_REFERENCES} added — remove one to
+                    swap it.
+                  </span>
+                ) : (
+                  <>Up to {MAX_REFERENCES} per generation.</>
+                )}
+              </p>
+              {/* Three across, each tile a square image with a slim role
+                  selector under it. The old tile spent more height on a
+                  bordered card and a boxed select than on the picture. */}
+              <div className="grid grid-cols-3 gap-2">
+                {uploads.map((u) => {
+                  const cut = excludedIds.has(u.id);
+                  return (
+                    <div key={u.id} className="space-y-0.5">
+                      <div
+                        className={cn(
+                          "relative aspect-square w-full overflow-hidden rounded-md border border-border bg-surface-2",
+                          cut && "opacity-40",
+                        )}
                       >
-                        <X className="h-3 w-3" />
-                      </button>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={u.dataUrl}
+                          alt={u.file.name}
+                          title={u.file.name}
+                          className="h-full w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeUpload(u.id)}
+                          aria-label={`Remove ${u.file.name}`}
+                          className="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                        {cut && (
+                          // Said on the image rather than in a paragraph
+                          // listing filenames — you can see which one it is.
+                          <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-center text-[9px] font-medium uppercase tracking-wide text-white">
+                            Not sent
+                          </span>
+                        )}
+                      </div>
+                      <select
+                        value={u.role}
+                        onChange={(e) =>
+                          setUploadRole(u.id, e.target.value as ReferenceRole)
+                        }
+                        aria-label={`Role for ${u.file.name}`}
+                        className="w-full rounded border-0 bg-transparent px-0 py-0 text-[10px] text-muted focus:text-foreground focus:outline-none"
+                      >
+                        <option value="product">Product</option>
+                        <option value="proof">Proof · real person</option>
+                        <option value="style">Style reference</option>
+                        <option value="logo">Logo</option>
+                      </select>
                     </div>
-                    <select
-                      value={u.role}
-                      onChange={(e) =>
-                        setUploadRole(u.id, e.target.value as ReferenceRole)
-                      }
-                      className="w-full rounded border border-border bg-background px-1 py-0.5 text-[10px]"
-                    >
-                      <option value="product">Product</option>
-                      <option value="proof">Proof (real person / result)</option>
-                      <option value="style">Style</option>
-                      <option value="logo">Logo</option>
-                    </select>
-                  </div>
-                ))}
+                  );
+                })}
                 <input
                   ref={uploadInputRef}
                   type="file"
@@ -641,14 +781,16 @@ export function StudioClient({
                   onChange={(e) => addUploadFiles(e.target.files)}
                   className="hidden"
                 />
-                <button
-                  type="button"
-                  onClick={() => uploadInputRef.current?.click()}
-                  className="flex h-16 w-28 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface text-[10px] text-muted hover:bg-surface-2"
-                >
-                  <ImagePlus className="h-4 w-4 text-subtle" />
-                  Add reference
-                </button>
+                {uploads.length < MAX_REFERENCES && (
+                  <button
+                    type="button"
+                    onClick={() => uploadInputRef.current?.click()}
+                    className="flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface text-[10px] text-muted hover:bg-surface-2 hover:text-foreground"
+                  >
+                    <ImagePlus className="h-4 w-4 text-subtle" />
+                    Add image
+                  </button>
+                )}
               </div>
               {uploadError && (
                 <p className="text-[11px] text-danger">{uploadError}</p>
@@ -747,9 +889,14 @@ export function StudioClient({
 
             {excluded.length > 0 && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Only {MAX_REFERENCES} of {candidates.length} references can be
-                sent. Sending: {sending.map((c) => c.label).join(", ")}. Not
-                sent: {excluded.map((c) => c.label).join(", ")}.
+                {MAX_REFERENCES} images go to the model per generation — more
+                than that costs more and starts blending them together. These
+                are over the limit and will be left out:{" "}
+                <span className="font-medium">
+                  {excluded.map((c) => c.label).join(", ")}
+                </span>
+                . Uploads are kept first; untick a brand-kit reference to make
+                room.
               </div>
             )}
 
@@ -788,7 +935,12 @@ export function StudioClient({
               <h2 className="mb-4 text-sm font-medium text-foreground">
                 What this format looks like
               </h2>
-              <FormatSchematic format={format} />
+              <FormatSchematic
+                    format={format}
+                    ratio={RATIO_OF[placement.id]}
+                    frameLabel={`${placement.label} — ${placement.ratio}`}
+                    palette={useColours ? (kit?.palette ?? []) : []}
+                  />
             </div>
           ) : variants.length === 0 ? (
             <div className="flex min-h-[420px] flex-col items-center justify-center rounded-md border border-dashed border-border bg-surface px-6 text-center">
@@ -860,6 +1012,7 @@ export function StudioClient({
                     brief={brief}
                     quality={quality}
                     model={model}
+                    size={renderedSize}
                     adAccounts={adAccounts}
                     onReplace={(next) => replaceVariant(i, next)}
                     onSaved={(saved) => markSaved(i, saved)}

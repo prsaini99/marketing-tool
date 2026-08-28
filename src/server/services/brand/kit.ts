@@ -33,6 +33,12 @@ import { assetPath, storeBytes, storageClient, ASSET_BUCKET } from "@/lib/storag
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const MAX_PALETTE_ENTRIES = 6;
 const MAX_IDENTITY_LENGTH = 200;
+/**
+ * Context fields get a longer cap than identity copy: they are prose the copy
+ * stage reads, not strings drawn onto an image, so a sentence or three is the
+ * point. Still capped, because the whole kit is pasted into a prompt.
+ */
+const MAX_CONTEXT_LENGTH = 600;
 
 /**
  * Path segment for the workspace kit's assets. Leading underscore because
@@ -76,6 +82,10 @@ export interface BrandKitView {
   brandName: string | null;
   tagline: string | null;
   avoidNotes: string | null;
+  /** Context for the copy stage. Never rendered onto the image. */
+  description: string | null;
+  audience: string | null;
+  toneOfVoice: string | null;
   assets: BrandKitAssetView[];
 }
 
@@ -85,6 +95,10 @@ export interface BrandKitInput {
   brandName: string | null;
   tagline: string | null;
   avoidNotes: string | null;
+  /** Context for the copy stage. Never rendered onto the image. */
+  description: string | null;
+  audience: string | null;
+  toneOfVoice: string | null;
 }
 
 function toView(kit: {
@@ -93,6 +107,9 @@ function toView(kit: {
   brandName: string | null;
   tagline: string | null;
   avoidNotes: string | null;
+  description: string | null;
+  audience: string | null;
+  toneOfVoice: string | null;
   assets: Array<{
     id: string;
     kind: string;
@@ -106,6 +123,9 @@ function toView(kit: {
     brandName: kit.brandName,
     tagline: kit.tagline,
     avoidNotes: kit.avoidNotes,
+    description: kit.description,
+    audience: kit.audience,
+    toneOfVoice: kit.toneOfVoice,
     assets: kit.assets.map((a) => ({
       id: a.id,
       kind: a.kind as BrandAssetKind,
@@ -197,11 +217,20 @@ function normalizePalette(palette: string[]): string[] {
  * a whole paragraph would quietly dominate every generation.
  */
 function normalizeIdentity(value: string | null, field: string): string | null {
+  return capped(value, field, MAX_IDENTITY_LENGTH);
+}
+
+/** Same rule as identity copy, with the longer context cap. */
+function normalizeContext(value: string | null, field: string): string | null {
+  return capped(value, field, MAX_CONTEXT_LENGTH);
+}
+
+function capped(value: string | null, field: string, max: number): string | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
-  if (trimmed.length > MAX_IDENTITY_LENGTH) {
+  if (trimmed.length > max) {
     throw new BrandKitValidationError(
-      `${field} is limited to ${MAX_IDENTITY_LENGTH} characters`,
+      `${field} is limited to ${max} characters`,
     );
   }
   return trimmed;
@@ -218,6 +247,9 @@ export async function upsertBrandKit(
     brandName: normalizeIdentity(input.brandName, "Brand name"),
     tagline: normalizeIdentity(input.tagline, "Tagline"),
     avoidNotes: normalizeIdentity(input.avoidNotes, "Do-not list"),
+    description: normalizeContext(input.description, "Description"),
+    audience: normalizeContext(input.audience, "Audience"),
+    toneOfVoice: normalizeContext(input.toneOfVoice, "Tone of voice"),
   };
 
   // Validation runs before anything is written, so a rejected palette or

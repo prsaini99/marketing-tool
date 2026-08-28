@@ -53,8 +53,21 @@ export interface AdFormat {
   slots: CopySlot[];
   /** Seeds the copy stage when the brief is empty. */
   defaultAngle: string;
+  /**
+   * A concrete brief for this format, shown as the field's placeholder.
+   * Every format carries one: an example of the real thing invites a real
+   * brief, where an empty box invites an empty box.
+   */
+  briefExample: string;
   /** Shown as a hint under the picker. */
   failureMode: string;
+  /**
+   * The register this format is built in, which decides what art directions
+   * it can be varied with. Declared here rather than imported from
+   * art-directions.ts so this module stays import-free; the two unions are
+   * identical and a catalogue test asserts every look is servable.
+   */
+  look: "designed" | "photographic" | "raw";
 }
 
 export const AD_FORMATS: AdFormat[] = [
@@ -75,7 +88,9 @@ export const AD_FORMATS: AdFormat[] = [
     slots: ["headline", "subhead", "cta"],
     defaultAngle:
       "the single most common frustration this product removes, stated plainly",
+    briefExample: "Sarees that don't need ironing before every wear",
     failureMode: "A generic pain. Name the specific moment it goes wrong.",
+    look: "photographic",
   },
   {
     id: "before-after",
@@ -92,8 +107,10 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "proof"],
     defaultAngle: "the visible change, with the honest timeframe it took",
+    briefExample: "Skin after eight weeks on the vitamin C serum",
     failureMode:
       "Any shift in angle, lighting or distance between the halves reads as a lie.",
+    look: "raw",
   },
   {
     id: "quote-card",
@@ -111,7 +128,9 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "attribution"],
     defaultAngle: "one customer's specific outcome, in their own register",
+    briefExample: "Priya's review of the sleep tea",
     failureMode: "Past about fifteen words it stops being a graphic.",
+    look: "designed",
   },
   {
     id: "review-stack",
@@ -130,7 +149,9 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "proof", "attribution"],
     defaultAngle: "the range of reasons people rate this well, not one repeated",
+    briefExample: "What buyers keep saying about the running shoes",
     failureMode: "Snippets that all praise the same thing read as written by one hand.",
+    look: "designed",
   },
   {
     id: "founder-quote",
@@ -148,8 +169,10 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "attribution"],
     defaultAngle: "why the founder made this, in one sentence they would say aloud",
+    briefExample: "Why I started cold-pressing oils in my kitchen",
     failureMode:
       "A professional headshot. Selfies and candids test 30-50% better.",
+    look: "raw",
   },
   {
     id: "us-vs-them",
@@ -168,7 +191,9 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline"],
     defaultAngle: "the specific habit this replaces, named rather than implied",
+    briefExample: "Our steel bottle against the plastic one it replaces",
     failureMode: "A strawman old way. Name the real alternative behaviour.",
+    look: "designed",
   },
   {
     id: "benefit-list",
@@ -190,7 +215,9 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "subhead", "cta"],
     defaultAngle: "the four outcomes a buyer would list if asked why they kept it",
+    briefExample: "Four reasons the air purifier pays for itself",
     failureMode: "Seven or more items. Four to five is the readable ceiling.",
+    look: "designed",
   },
   {
     id: "product-callouts",
@@ -210,7 +237,9 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "subhead", "cta"],
     defaultAngle: "the four details that justify the price, each tied to a part",
+    briefExample: "Every feature of the 40,000mAh power bank",
     failureMode: "Callouts louder than the product they annotate.",
+    look: "photographic",
   },
   {
     id: "checkerboard",
@@ -228,7 +257,9 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "subhead"],
     defaultAngle: "one claim and one proof, paired against two views of the product",
+    briefExample: "The winter jacket, four ways",
     failureMode: "Four panels all shouting. Pick the one that leads.",
+    look: "photographic",
   },
   {
     id: "stat-drop",
@@ -246,7 +277,9 @@ export const AD_FORMATS: AdFormat[] = [
     slots: ["headline", "subhead", "source"],
     defaultAngle:
       "the one number from the brief that makes the case on its own — the figure has to come from the brief or the brand kit, since nothing here may invent one",
+    briefExample: "92% of buyers reorder within a month",
     failureMode: "No source line. An unattributed number reads as exaggeration.",
+    look: "designed",
   },
   {
     id: "bold-statement",
@@ -263,7 +296,9 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline"],
     defaultAngle: "the claim this brand would defend in an argument",
+    briefExample: "The last mattress you'll buy this decade",
     failureMode: "A claim nobody could contest. Confidence without specificity.",
+    look: "designed",
   },
   {
     id: "offer-stack",
@@ -282,7 +317,9 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "offer", "subhead", "cta"],
     defaultAngle: "the offer as it stands, with a real reason it ends",
+    briefExample: "Diwali sale, FLAT 40% off, ends Sunday",
     failureMode: "Manufactured urgency. Tie the deadline to something true.",
+    look: "designed",
   },
   {
     id: "advertorial",
@@ -302,7 +339,9 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "subhead", "attribution"],
     defaultAngle: "the thing a buyer must understand before the product makes sense",
+    briefExample: "Why cold-pressed oil smokes less than refined",
     failureMode: "Editorial styling with nothing worth reading inside it.",
+    look: "designed",
   },
   {
     id: "platform-native",
@@ -322,8 +361,10 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "subhead"],
     defaultAngle: "the thing a happy customer would post unprompted",
+    briefExample: "A customer's unboxing post about the gift set",
     failureMode:
       "Crossing from native styling into impersonating a platform notice.",
+    look: "raw",
   },
   {
     id: "sticky-note",
@@ -341,7 +382,9 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "subhead"],
     defaultAngle: "the two things a friend would point out about this",
+    briefExample: "Three things people miss about the beard trimmer",
     failureMode: "A neat script font on a perfect rectangle. It must look handmade.",
+    look: "raw",
   },
   {
     id: "anti-ad",
@@ -358,8 +401,10 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "subhead"],
     defaultAngle: "the honest, slightly self-deprecating truth about this product",
+    briefExample: "Our packaging is ugly. The coffee isn't.",
     failureMode:
       "A brand with no established voice trying it. Reads as a mistake, not a joke.",
+    look: "raw",
   },
   {
     id: "benefit-timeline",
@@ -382,8 +427,10 @@ export const AD_FORMATS: AdFormat[] = [
     ],
     slots: ["headline", "subhead", "cta"],
     defaultAngle: "what changes at day one, week two and month three",
+    briefExample: "What the protein does at week one, four and twelve",
     failureMode:
       "Promising a date the product cannot hit. This one invites refunds.",
+    look: "designed",
   },
 ];
 

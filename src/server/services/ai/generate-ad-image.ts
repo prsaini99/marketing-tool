@@ -84,9 +84,11 @@ export function supportsInputFidelity(model: string): boolean {
 // anything outside this allowlist is ignored and falls back to the
 // historical "image/png" label rather than being trusted blindly.
 const KNOWN_REFERENCE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-// 1024×1024 = square; matches Meta's preferred 1:1 ratio.
-// 1024×1536 = portrait, useful for Stories/Reels — future toggle.
-const DEFAULT_SIZE = "1024x1024" as const;
+// Square, matching Meta's preferred 1:1 Feed ratio. Callers override it
+// per placement — see placements.ts, which owns which sizes each model can
+// actually render. Kept as the default so every pre-existing caller is
+// unchanged.
+const DEFAULT_SIZE = "1024x1024";
 
 // "low" / "medium" / "high" trade quality for cost — roughly ₹1.5 / ₹4 / ₹15
 // per image at 1024². Low is the right default for brainstorming variants;
@@ -194,9 +196,20 @@ PRODUCT FRAMING SAFETY (true of any ad built around a supplied product):
  * layout was still told to make a sale ad. Neutral here; PROMO_FRAME adds the
  * promotional emphasis back when it applies.
  */
-const OUTPUT_FRAME = `OUTPUT FORMAT: 1:1 square, 1024×1024. A complete, designed, ready-to-publish Meta ad creative.
+const DEFAULT_FRAME_NOTE =
+  "Square 1:1 frame. Keep every critical element well inside the edges — Meta crops the outer margin on some placements.";
+
+/**
+ * The output section, which has to state the actual frame. It used to
+ * hardcode "1:1 square, 1024×1024", so a Stories ad was told it was square
+ * while being rendered 9:16 — the model composed for the wrong shape and
+ * the text landed under Meta's own interface.
+ */
+function outputFrame(frameNote: string): string {
+  return `OUTPUT FORMAT: ${frameNote} A complete, designed, ready-to-publish Meta ad creative.
 
 The brief follows. Read it as creative direction and fill in anything the strategist did not specify with designer-grade defaults.`;
+}
 
 /**
  * The craft rules apply to every ad. The promotional layout — occasion line,
@@ -222,6 +235,7 @@ function buildPrompt(
     tweakInstruction?: string;
     withProductReference?: boolean;
     promoFrame?: boolean;
+    frameNote?: string;
   } = {},
 ): string {
   const tweak = opts.tweakInstruction?.trim()
@@ -229,7 +243,8 @@ function buildPrompt(
     : "";
   const promo = opts.promoFrame === false ? "" : `\n\n${PROMO_FRAME}`;
   const product = opts.withProductReference ? `\n\n${PRODUCT_FRAME}` : "";
-  return `${CRAFT_FRAME}${promo}${product}\n\n${OUTPUT_FRAME}\n\nBRIEF:\n${brief.trim()}${tweak}`;
+  const output = outputFrame(opts.frameNote?.trim() || DEFAULT_FRAME_NOTE);
+  return `${CRAFT_FRAME}${promo}${product}\n\n${output}\n\nBRIEF:\n${brief.trim()}${tweak}`;
 }
 
 export interface AdImageVariant {
@@ -278,6 +293,20 @@ export interface GenerateAdImageInput {
    * format preset has already supplied a LAYOUT section in the brief.
    */
   promoFrame?: boolean;
+  /**
+   * WIDTHxHEIGHT for the generated image. Defaults to square. Only
+   * gpt-image-2 accepts arbitrary resolutions; every other GPT image model
+   * takes 1024x1024, 1024x1536 or 1536x1024 only, so callers must resolve a
+   * model-appropriate size themselves — see placements.ts's resolveSize,
+   * which is the one place that mapping lives.
+   */
+  size?: string;
+  /**
+   * One line describing the frame, stated in the prompt's OUTPUT section.
+   * Must agree with `size`: telling the model "square" while rendering 9:16
+   * makes it compose for a shape it is not being given.
+   */
+  frameNote?: string;
 }
 
 /**
@@ -325,15 +354,20 @@ export async function generateAdImages(
   let prompt: string;
   let pattern: GenerationPattern;
 
+  // Resolved once so both branches render the same shape, and so the frame
+  // note the prompt states always matches the size actually requested.
+  const size = input.size?.trim() || DEFAULT_SIZE;
+  const frameNote = input.frameNote?.trim() || DEFAULT_FRAME_NOTE;
+
   if (references.length === 0) {
     // No references → text-to-image from scratch.
     pattern = "from-scratch";
-    prompt = buildPrompt(brief, { promoFrame: input.promoFrame });
+    prompt = buildPrompt(brief, { promoFrame: input.promoFrame, frameNote });
     const res = await openai.images.generate({
       model,
       prompt,
       n: count,
-      size: DEFAULT_SIZE,
+      size,
       quality,
     });
     variants = (res.data ?? [])
@@ -348,6 +382,7 @@ export async function generateAdImages(
     prompt = buildPrompt(brief, {
       withProductReference: hasProductRole,
       promoFrame: input.promoFrame,
+      frameNote,
     });
     const sourceFiles = await Promise.all(
       references.map((ref, i) => {
@@ -369,7 +404,7 @@ export async function generateAdImages(
       image: sourceFiles,
       prompt,
       n: count,
-      size: DEFAULT_SIZE,
+      size,
       quality,
       // The whole reason the product used to drift into a lookalike:
       // input_fidelity defaults to "low", which treats the upload as loose
@@ -415,6 +450,12 @@ export interface TweakAdImageInput {
    * fidelity section above exists to prevent.
    */
   model?: string;
+  /**
+   * WIDTHxHEIGHT, which must match the size the ORIGINAL was generated at.
+   * A tweak that comes back a different shape is not a tweak; without this
+   * a 9:16 Stories ad returns square the moment anyone adjusts it.
+   */
+  size?: string;
 }
 
 /**
@@ -476,7 +517,7 @@ QUALITY:
     model,
     image: sourceFile,
     prompt,
-    size: DEFAULT_SIZE,
+    size: input.size?.trim() || DEFAULT_SIZE,
     quality: input.quality ?? DEFAULT_QUALITY,
     // Preserve the source faithfully — a tweak should change only what's
     // asked, not silently regenerate the product / text into a lookalike.

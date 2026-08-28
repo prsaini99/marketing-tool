@@ -21,6 +21,15 @@ describe("AD_FORMATS", () => {
     }
   });
 
+  it("gives every format a concrete brief example", () => {
+    // The placeholder is the one place the operator is told what a good
+    // brief for this format looks like; an empty one invites an empty brief.
+    for (const f of AD_FORMATS) {
+      expect(f.briefExample.length, f.id).toBeGreaterThan(15);
+      expect(f.briefExample, f.id).not.toMatch(/optional/i);
+    }
+  });
+
   it("gives every format at least one copy slot", () => {
     for (const f of AD_FORMATS) {
       expect(f.slots.length, f.id).toBeGreaterThan(0);

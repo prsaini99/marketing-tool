@@ -6,7 +6,7 @@
  * OpenAI's images.edit endpoint. The composition / subject / framing of
  * the original are preserved — only what the instruction asks changes.
  *
- * Body: { brief?, instruction, originalB64, quality?, model? }
+ * Body: { brief?, instruction, originalB64, quality?, model?, size? }
  * Returns: { variant: { b64, mimeType }, prompt }
  */
 
@@ -26,6 +26,7 @@ export async function POST(req: Request) {
     originalB64?: unknown;
     quality?: unknown;
     model?: unknown;
+    size?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -63,6 +64,12 @@ export async function POST(req: Request) {
       originalB64: body.originalB64,
       quality: parseQuality(body.quality),
       model,
+      // Must match the size the original was generated at, or a tweak
+      // returns a differently-shaped image than the one being tweaked.
+      size:
+        typeof body.size === "string" && body.size.trim()
+          ? body.size.trim()
+          : undefined,
     });
     return NextResponse.json(result);
   } catch (err) {

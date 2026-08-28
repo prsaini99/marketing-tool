@@ -70,6 +70,12 @@ export interface StudioPromptInput {
   layout?: string;
   /** Copy written by the copy stage, rendered literally. */
   copy?: StudioCopy;
+  /**
+   * How this run should look, drawn fresh each generation. The layout fixes
+   * what sits where; without this the model falls back on its own house
+   * style, so two runs of one format came back as recognisably the same ad.
+   */
+  artDirection?: string;
 }
 
 // The OpenAI images edit endpoint accepts a bounded set of reference
@@ -118,11 +124,15 @@ const UNIVERSAL_EXCLUSIONS =
   "no watermark, no invented brand marks beyond the brand name given, no fake URLs or hashtags, no misspelled or gibberish text, no extra fingers or malformed hands";
 
 export function buildStudioPrompt(input: StudioPromptInput): string {
-  const { brief, brand, toggles, roles, layout, copy } = input;
+  const { brief, brand, toggles, roles, layout, copy, artDirection } = input;
 
   const briefBlock = text(brief) ? `BRIEF:\n${text(brief)}` : "";
 
   const layoutBlock = text(layout) ? `LAYOUT:\n${text(layout)}` : "";
+
+  // Stated after the layout and before the copy: the frame is fixed,
+  // the treatment of it is not.
+  const artBlock = text(artDirection) ? text(artDirection) : "";
 
   // Literal strings in quotes: the documented fix for garbled on-image text.
   // The model reads a quoted string as characters to reproduce rather than a
@@ -186,6 +196,7 @@ export function buildStudioPrompt(input: StudioPromptInput): string {
   return [
     briefBlock,
     layoutBlock,
+    artBlock,
     copyBlock,
     typographyBlock,
     brandBlock,

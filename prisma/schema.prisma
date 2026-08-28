@@ -106,6 +106,13 @@ model BrandKit {
   tagline    String?
   avoidNotes String?
 
+  // Context for the copy stage, never rendered onto the image. These tell
+  // the model what the business actually is, which is what turns a
+  // brief-less generation from generic into specific.
+  description  String?
+  audience     String?
+  toneOfVoice  String?
+
   assets    BrandAsset[]
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt

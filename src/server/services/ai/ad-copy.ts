@@ -17,6 +17,18 @@ import { findFabricated } from "@/server/services/ai/copy-guard";
 import type { AdFormat, CopySlot } from "@/server/services/ai/ad-formats";
 import type { StudioBrand, StudioCopy } from "@/server/services/ai/studio-prompt";
 
+/**
+ * What the business actually is. Read by the copy stage to decide an angle;
+ * deliberately NOT part of StudioBrand, because StudioBrand goes to the
+ * image model and a description handed to an image model gets drawn onto
+ * the ad as body copy.
+ */
+export interface BrandContext {
+  description?: string | null;
+  audience?: string | null;
+  toneOfVoice?: string | null;
+}
+
 export interface AdCopy extends StudioCopy {
   /** Why this ad should land. Shown to the operator, never drawn. */
   angle: string;
@@ -104,12 +116,22 @@ const SCHEMA = {
 } as const;
 
 /** Strings the copy may draw figures from. Anything else is fabrication. */
-function sourceStrings(brief: string, brand: StudioBrand | null): string[] {
+function sourceStrings(
+  brief: string,
+  brand: StudioBrand | null,
+  context: BrandContext | null,
+): string[] {
   return [
     brief,
     brand?.themeNotes ?? "",
     brand?.brandName ?? "",
     brand?.tagline ?? "",
+    // Counted as sources: a real figure stated in the description ("serving
+    // 1,200 salons") is sourced, and the guard would otherwise strip the
+    // copy that repeats it.
+    context?.description ?? "",
+    context?.audience ?? "",
+    context?.toneOfVoice ?? "",
   ].filter(Boolean);
 }
 
@@ -130,8 +152,10 @@ export async function writeAdCopy(args: {
   format: AdFormat;
   brief: string;
   brand: StudioBrand | null;
+  context?: BrandContext | null;
 }): Promise<AdCopy> {
   const { format, brief, brand } = args;
+  const context = args.context ?? null;
 
   const userParts = [
     brief.trim()
@@ -140,6 +164,9 @@ export async function writeAdCopy(args: {
     brand?.brandName ? `BRAND NAME: ${brand.brandName}` : "",
     brand?.tagline ? `TAGLINE: ${brand.tagline}` : "",
     brand?.themeNotes ? `BRAND NOTES: ${brand.themeNotes}` : "",
+    context?.description ? `WHAT THE BUSINESS DOES: ${context.description}` : "",
+    context?.audience ? `WHO IT IS FOR: ${context.audience}` : "",
+    context?.toneOfVoice ? `TONE OF VOICE: ${context.toneOfVoice}` : "",
   ].filter(Boolean);
 
   const raw = await withTimeout(
@@ -156,7 +183,7 @@ export async function writeAdCopy(args: {
   // One retry with the offending figures named, then drop the bad slots. A
   // second model call is cheaper than shipping an invented discount, and
   // dropping a slot is always safe — buildStudioPrompt omits absent slots.
-  const sources = sourceStrings(brief, brand);
+  const sources = sourceStrings(brief, brand, context);
   const drawn = format.slots
     .map((s) => (copy as unknown as Record<string, unknown>)[s])
     .filter((v): v is string => typeof v === "string");

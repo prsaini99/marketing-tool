@@ -6,6 +6,7 @@ import {
   ChevronUp,
   ImagePlus,
   Loader2,
+  Minus,
   Palette,
   Plus,
   Trash2,
@@ -49,6 +50,9 @@ export interface BrandKitView {
   brandName: string | null;
   tagline: string | null;
   avoidNotes: string | null;
+  description: string | null;
+  audience: string | null;
+  toneOfVoice: string | null;
   assets: BrandKitAssetView[];
 }
 
@@ -87,6 +91,9 @@ const MAX_ASSET_BYTES = 5 * 1024 * 1024;
 // Mirrors MAX_IDENTITY_LENGTH in the service. Enforced here as a maxLength
 // so the operator is stopped at the field rather than by a save error.
 const MAX_IDENTITY_LENGTH = 200;
+// Mirrors MAX_CONTEXT_LENGTH in the service. Context fields are prose the
+// copy stage reads, not strings drawn on the image, so they get more room.
+const MAX_CONTEXT_LENGTH = 600;
 // Mirrors the server allowlist in src/app/api/brand-kit/assets/route.ts —
 // SVG (and anything else outside this set) is rejected here too so the
 // operator sees the reason immediately, though the server check is the
@@ -123,6 +130,12 @@ export function BrandKitPanel({
   const [brandName, setBrandName] = useState(initialKit?.brandName ?? "");
   const [tagline, setTagline] = useState(initialKit?.tagline ?? "");
   const [avoidNotes, setAvoidNotes] = useState(initialKit?.avoidNotes ?? "");
+  // Context for the copy stage — what the business is, who buys, how it
+  // sounds. Never drawn onto the image; see BrandContext in ad-copy.ts.
+  const [description, setDescription] = useState(initialKit?.description ?? "");
+  const [audience, setAudience] = useState(initialKit?.audience ?? "");
+  const [toneOfVoice, setToneOfVoice] = useState(initialKit?.toneOfVoice ?? "");
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [newColor, setNewColor] = useState("#");
   const [paletteError, setPaletteError] = useState<string | null>(null);
 
@@ -135,11 +148,14 @@ export function BrandKitPanel({
     (themeNotes.trim() || null) !== (kit?.themeNotes ?? null) ||
     (brandName.trim() || null) !== (kit?.brandName ?? null) ||
     (tagline.trim() || null) !== (kit?.tagline ?? null) ||
-    (avoidNotes.trim() || null) !== (kit?.avoidNotes ?? null);
+    (avoidNotes.trim() || null) !== (kit?.avoidNotes ?? null) ||
+    (description.trim() || null) !== (kit?.description ?? null) ||
+    (audience.trim() || null) !== (kit?.audience ?? null) ||
+    (toneOfVoice.trim() || null) !== (kit?.toneOfVoice ?? null);
 
   useEffect(() => {
     setSaved(false);
-  }, [palette, themeNotes, brandName, tagline, avoidNotes]);
+  }, [palette, themeNotes, brandName, tagline, avoidNotes, description, audience, toneOfVoice]);
 
   function addColor() {
     setPaletteError(null);
@@ -178,6 +194,9 @@ export function BrandKitPanel({
           brandName: brandName.trim() || null,
           tagline: tagline.trim() || null,
           avoidNotes: avoidNotes.trim() || null,
+          description: description.trim() || null,
+          audience: audience.trim() || null,
+          toneOfVoice: toneOfVoice.trim() || null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -188,6 +207,9 @@ export function BrandKitPanel({
         brandName: data.brandName,
         tagline: data.tagline,
         avoidNotes: data.avoidNotes,
+        description: data.description,
+        audience: data.audience,
+        toneOfVoice: data.toneOfVoice,
         assets: prev?.assets ?? [],
       }));
       setSaved(true);
@@ -206,6 +228,9 @@ export function BrandKitPanel({
         brandName: brandName.trim() || null,
         tagline: tagline.trim() || null,
         avoidNotes: avoidNotes.trim() || null,
+        description: description.trim() || null,
+        audience: audience.trim() || null,
+        toneOfVoice: toneOfVoice.trim() || null,
         assets: [],
       };
       const withoutReplacedLogo =
@@ -222,6 +247,11 @@ export function BrandKitPanel({
     );
   }
 
+  const aboutFilled = [description, audience, toneOfVoice].filter((v) =>
+    v.trim(),
+  ).length;
+  const hasAbout = aboutFilled > 0;
+
   const logo = kit?.assets.find((a) => a.kind === "LOGO") ?? null;
   const references = kit?.assets.filter((a) => a.kind === "REFERENCE") ?? [];
   const isEmpty =
@@ -230,7 +260,10 @@ export function BrandKitPanel({
     !themeNotes.trim() &&
     !brandName.trim() &&
     !tagline.trim() &&
-    !avoidNotes.trim();
+    !avoidNotes.trim() &&
+    !description.trim() &&
+    !audience.trim() &&
+    !toneOfVoice.trim();
 
   const bare = chrome === "bare";
   // Bare drops the card and the collapse header; the drawer around it
@@ -369,10 +402,99 @@ export function BrandKitPanel({
                 placeholder="e.g. stock-photo people, drop shadows, competitor blue"
                 className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               />
-              <p className="text-[11px] text-subtle">
-                Skip the &quot;no&quot; — the prompt already adds it.
-              </p>
             </div>
+          </div>
+
+          {/* ── About the brand ────────────────────────────────────────── */}
+          {/* Collapsed by default so the panel does not grow taller for
+              everyone. These three are read by the copy stage to decide an
+              angle and are NEVER drawn onto the image — brand name and
+              tagline are the fields that get rendered. */}
+          <div className="border-t border-border pt-3">
+            <button
+              type="button"
+              onClick={() => setAboutOpen((v) => !v)}
+              aria-expanded={aboutOpen}
+              className="group flex w-full items-center gap-2 rounded-md py-0.5 text-left"
+            >
+              {/* A bordered +/− rather than a chevron: the chevron read as
+                  decoration, so nobody could tell the section opened. */}
+              <span
+                aria-hidden="true"
+                className="inline-flex h-4 w-4 flex-none items-center justify-center rounded border border-border-strong text-muted transition-colors group-hover:border-accent group-hover:text-accent"
+              >
+                {aboutOpen ? (
+                  <Minus className="h-2.5 w-2.5" />
+                ) : (
+                  <Plus className="h-2.5 w-2.5" />
+                )}
+              </span>
+              <span className="text-xs font-medium text-foreground group-hover:text-accent">
+                About the brand
+              </span>
+              {!aboutOpen && hasAbout && (
+                <span className="text-[11px] text-subtle">
+                  · {aboutFilled} of 3 filled
+                </span>
+              )}
+            </button>
+
+            {!aboutOpen && (
+              <p className="mt-1 pl-6 text-[11px] text-subtle">
+                What you sell, who buys it, how it should sound. Used to write
+                the ad copy — never printed on the image.
+              </p>
+            )}
+
+            {aboutOpen && (
+              <div className="mt-2 space-y-3 pl-6">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">
+                    What the business does
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    maxLength={MAX_CONTEXT_LENGTH}
+                    placeholder="e.g. We cold-press groundnut and coconut oil in small batches in Coimbatore and sell direct to home cooks. No refining, no bleaching, bottled within a day of pressing."
+                    className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                  <p className="text-[11px] text-subtle">
+                    The single most useful field here — without it the copy
+                    has your name but no idea what you sell.
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">
+                    Who it&rsquo;s for
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={audience}
+                    onChange={(e) => setAudience(e.target.value)}
+                    maxLength={MAX_CONTEXT_LENGTH}
+                    placeholder="e.g. Home cooks aged 30-55 in metros who already read labels and will pay more for something they trust."
+                    className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">
+                    Tone of voice
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={toneOfVoice}
+                    onChange={(e) => setToneOfVoice(e.target.value)}
+                    maxLength={MAX_CONTEXT_LENGTH}
+                    placeholder="e.g. Plain and unhurried. Confident without shouting. Never uses exclamation marks or the word 'revolutionary'."
+                    className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ── Save ───────────────────────────────────────────────────── */}

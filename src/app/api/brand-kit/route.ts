@@ -77,8 +77,10 @@ export async function PUT(req: Request) {
     );
   }
 
-  const { businessId, palette, themeNotes, brandName, tagline, avoidNotes } =
-    body as Record<string, unknown>;
+  const {
+    businessId, palette, themeNotes, brandName, tagline, avoidNotes,
+    description, audience, toneOfVoice,
+  } = body as Record<string, unknown>;
 
   if (
     businessId !== null &&
@@ -102,6 +104,9 @@ export async function PUT(req: Request) {
     ["brandName", brandName],
     ["tagline", tagline],
     ["avoidNotes", avoidNotes],
+    ["description", description],
+    ["audience", audience],
+    ["toneOfVoice", toneOfVoice],
   ];
   for (const [field, value] of optionalText) {
     if (value !== null && value !== undefined && typeof value !== "string") {
@@ -127,6 +132,9 @@ export async function PUT(req: Request) {
       brandName: (brandName as string | null | undefined) ?? null,
       tagline: (tagline as string | null | undefined) ?? null,
       avoidNotes: (avoidNotes as string | null | undefined) ?? null,
+      description: (description as string | null | undefined) ?? null,
+      audience: (audience as string | null | undefined) ?? null,
+      toneOfVoice: (toneOfVoice as string | null | undefined) ?? null,
     });
     return NextResponse.json(kit);
   } catch (err) {
