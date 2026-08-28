@@ -17,6 +17,11 @@ import { BrandKitPanel, type BrandKitView } from "@/components/studio/brand-kit-
 import { FormatPicker } from "@/components/studio/format-picker";
 import { FormatSchematic } from "@/components/studio/format-schematic";
 import {
+  useVideoJob,
+  VideoControls,
+  VideoResults,
+} from "@/components/studio/video-panel";
+import {
   VariantCard,
   type AdImageVariant,
   type ImageQuality,
@@ -30,6 +35,7 @@ import {
   type StudioToggles,
 } from "@/server/services/ai/studio-prompt";
 import { getFormat, type FormatNeeds } from "@/server/services/ai/ad-formats";
+import type { BrandContext } from "@/server/services/ai/ad-copy";
 import {
   PLACEMENTS,
   getPlacement,
@@ -187,6 +193,12 @@ export function StudioClient({
   // generating is constant, so the editor shouldn't pay rent on the layout.
   const [kitOpen, setKitOpen] = useState(false);
 
+  // Still generates an image via generate-ad-image.ts; Video generates a
+  // five-second clip via Higgsfield (Tasks 1–6). Switching modes never
+  // touches the still-image results already on screen — VideoPanel is
+  // simply not rendered while in Still mode, and vice versa.
+  const [mode, setMode] = useState<"still" | "video">("still");
+
   // ── Form state ──────────────────────────────────────────────────────
   const [formatId, setFormatId] = useState("");
   const format = getFormat(formatId);
@@ -212,6 +224,43 @@ export function StudioClient({
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Video state lives here rather than inside one component because its two
+  // halves sit on opposite sides of the layout: the controls in the rail, the
+  // results on the canvas. `enabled` keeps Still mode exactly as it was — no
+  // list fetch, no polling — while Video mode resumes every outstanding job
+  // for the scope on mount, not just the one this browser remembers.
+  const video = useVideoJob({
+    enabled: mode === "video",
+    businessId,
+    brief,
+    placementId,
+    brand:
+      (kit
+        ? {
+            palette: kit.palette,
+            themeNotes: kit.themeNotes,
+            brandName: kit.brandName,
+            tagline: kit.tagline,
+            avoidNotes: kit.avoidNotes,
+          }
+        : null) satisfies StudioBrand | null,
+    toggles: {
+      useColours,
+      useTheme,
+      useLogo,
+      useIdentity,
+      useAvoid,
+    } satisfies StudioToggles,
+    context:
+      (kit
+        ? {
+            description: kit.description,
+            audience: kit.audience,
+            toneOfVoice: kit.toneOfVoice,
+          }
+        : null) satisfies BrandContext | null,
+  });
+
   // Only gpt-image-2 can render a true 4:5 or 9:16; the others top out at
   // 2:3. Choosing a vertical placement therefore switches the model, and
   // says so rather than doing it silently — the operator can put the model
@@ -220,6 +269,14 @@ export function StudioClient({
   const [autoSwitched, setAutoSwitched] = useState(false);
   function choosePlacement(next: string) {
     setPlacementId(next);
+    // Placement is shared with Video mode, but the image-model auto-switch
+    // (and its banner below) is a still-image-only concern — Video never
+    // reads `model`, so nothing about it should be touched or shown while
+    // in Video mode.
+    if (mode !== "still") {
+      setAutoSwitched(false);
+      return;
+    }
     const p = getPlacement(next);
     if (p && p.id !== "feed-square" && !supportsExactRatio(model)) {
       setModel("gpt-image-2");
@@ -610,7 +667,41 @@ export function StudioClient({
           attempt. The rail stays put; only the canvas scrolls. */}
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
         <aside className="space-y-3 rounded-md border border-border bg-background p-4 lg:sticky lg:top-4">
-            <FormatPicker value={formatId} onChange={setFormatId} />
+            {/* Still/Video switch. Video hides the format picker, the
+                image-model row, the reference uploads and the exact-ratio
+                warning — none of those apply to a vendor that renders from
+                a prompt alone — while the brief, brand-kit toggles,
+                placement and the Edit button keep meaning in both modes. */}
+            <div className="flex rounded-md border border-border bg-surface p-0.5 text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => setMode("still")}
+                className={cn(
+                  "flex-1 rounded-[5px] py-1.5 transition-colors",
+                  mode === "still"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted hover:text-foreground",
+                )}
+              >
+                Still
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("video")}
+                className={cn(
+                  "flex-1 rounded-[5px] py-1.5 transition-colors",
+                  mode === "video"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted hover:text-foreground",
+                )}
+              >
+                Video
+              </button>
+            </div>
+
+            {mode === "still" && (
+              <FormatPicker value={formatId} onChange={setFormatId} />
+            )}
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">
@@ -649,7 +740,7 @@ export function StudioClient({
                     </option>
                   ))}
                 </select>
-                {autoSwitched && (
+                {mode === "still" && autoSwitched && (
                   <p className="text-[11px] text-subtle">
                     Switched to gpt-image-2 — it&rsquo;s the only model that
                     renders {placement.ratio} exactly. Change it back if
@@ -658,42 +749,46 @@ export function StudioClient({
                 )}
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Model</label>
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                >
-                  {MODEL_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Quality</label>
-                <select
-                  value={quality}
-                  onChange={(e) => setQuality(e.target.value as ImageQuality)}
-                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-              </div>
+              {mode === "still" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">Model</label>
+                  <select
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    {MODEL_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {mode === "still" && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-foreground">Quality</label>
+                  <select
+                    value={quality}
+                    onChange={(e) => setQuality(e.target.value as ImageQuality)}
+                    className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+              )}
             </div>
 
-            {ratioApprox && (
+            {mode === "still" && ratioApprox && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 {model} can&rsquo;t render {placement.ratio} — this will come
                 back 2:3 instead. Use gpt-image-2 for a true {placement.ratio}.
               </div>
             )}
 
-            {showFidelityWarning && (
+            {mode === "still" && showFidelityWarning && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 {FIDELITY_WARNING}
               </div>
@@ -703,99 +798,103 @@ export function StudioClient({
             {/* Not "references": only the style role is a reference. A logo
                 has to be reproduced, a product has to stay recognisable, and
                 a proof photo is a real person the model must not restage —
-                calling all four a reference undersold three of them. */}
-            <div className="space-y-1.5 border-t border-border pt-3">
-              <label className="text-xs font-medium text-foreground">
-                Images to use
-              </label>
-              <p className="text-[11px] text-subtle">
-                A product photo, your logo, a real person or result, or a
-                style reference. Tag each one after adding it.{" "}
-                {uploads.length >= MAX_REFERENCES ? (
-                  <span className="text-foreground">
-                    {MAX_REFERENCES} of {MAX_REFERENCES} added — remove one to
-                    swap it.
-                  </span>
-                ) : (
-                  <>Up to {MAX_REFERENCES} per generation.</>
-                )}
-              </p>
-              {/* Three across, each tile a square image with a slim role
-                  selector under it. The old tile spent more height on a
-                  bordered card and a boxed select than on the picture. */}
-              <div className="grid grid-cols-3 gap-2">
-                {uploads.map((u) => {
-                  const cut = excludedIds.has(u.id);
-                  return (
-                    <div key={u.id} className="space-y-0.5">
-                      <div
-                        className={cn(
-                          "relative aspect-square w-full overflow-hidden rounded-md border border-border bg-surface-2",
-                          cut && "opacity-40",
-                        )}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={u.dataUrl}
-                          alt={u.file.name}
-                          title={u.file.name}
-                          className="h-full w-full object-cover"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeUpload(u.id)}
-                          aria-label={`Remove ${u.file.name}`}
-                          className="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                calling all four a reference undersold three of them. Video
+                takes no reference images at all, so this whole section is
+                still-only. */}
+            {mode === "still" && (
+              <div className="space-y-1.5 border-t border-border pt-3">
+                <label className="text-xs font-medium text-foreground">
+                  Images to use
+                </label>
+                <p className="text-[11px] text-subtle">
+                  A product photo, your logo, a real person or result, or a
+                  style reference. Tag each one after adding it.{" "}
+                  {uploads.length >= MAX_REFERENCES ? (
+                    <span className="text-foreground">
+                      {MAX_REFERENCES} of {MAX_REFERENCES} added — remove one to
+                      swap it.
+                    </span>
+                  ) : (
+                    <>Up to {MAX_REFERENCES} per generation.</>
+                  )}
+                </p>
+                {/* Three across, each tile a square image with a slim role
+                    selector under it. The old tile spent more height on a
+                    bordered card and a boxed select than on the picture. */}
+                <div className="grid grid-cols-3 gap-2">
+                  {uploads.map((u) => {
+                    const cut = excludedIds.has(u.id);
+                    return (
+                      <div key={u.id} className="space-y-0.5">
+                        <div
+                          className={cn(
+                            "relative aspect-square w-full overflow-hidden rounded-md border border-border bg-surface-2",
+                            cut && "opacity-40",
+                          )}
                         >
-                          <X className="h-3 w-3" />
-                        </button>
-                        {cut && (
-                          // Said on the image rather than in a paragraph
-                          // listing filenames — you can see which one it is.
-                          <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-center text-[9px] font-medium uppercase tracking-wide text-white">
-                            Not sent
-                          </span>
-                        )}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={u.dataUrl}
+                            alt={u.file.name}
+                            title={u.file.name}
+                            className="h-full w-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeUpload(u.id)}
+                            aria-label={`Remove ${u.file.name}`}
+                            className="absolute right-1 top-1 rounded-full bg-black/60 p-0.5 text-white hover:bg-black/80"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                          {cut && (
+                            // Said on the image rather than in a paragraph
+                            // listing filenames — you can see which one it is.
+                            <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-center text-[9px] font-medium uppercase tracking-wide text-white">
+                              Not sent
+                            </span>
+                          )}
+                        </div>
+                        <select
+                          value={u.role}
+                          onChange={(e) =>
+                            setUploadRole(u.id, e.target.value as ReferenceRole)
+                          }
+                          aria-label={`Role for ${u.file.name}`}
+                          className="w-full rounded border-0 bg-transparent px-0 py-0 text-[10px] text-muted focus:text-foreground focus:outline-none"
+                        >
+                          <option value="product">Product</option>
+                          <option value="proof">Proof · real person</option>
+                          <option value="style">Style reference</option>
+                          <option value="logo">Logo</option>
+                        </select>
                       </div>
-                      <select
-                        value={u.role}
-                        onChange={(e) =>
-                          setUploadRole(u.id, e.target.value as ReferenceRole)
-                        }
-                        aria-label={`Role for ${u.file.name}`}
-                        className="w-full rounded border-0 bg-transparent px-0 py-0 text-[10px] text-muted focus:text-foreground focus:outline-none"
-                      >
-                        <option value="product">Product</option>
-                        <option value="proof">Proof · real person</option>
-                        <option value="style">Style reference</option>
-                        <option value="logo">Logo</option>
-                      </select>
-                    </div>
-                  );
-                })}
-                <input
-                  ref={uploadInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(e) => addUploadFiles(e.target.files)}
-                  className="hidden"
-                />
-                {uploads.length < MAX_REFERENCES && (
-                  <button
-                    type="button"
-                    onClick={() => uploadInputRef.current?.click()}
-                    className="flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface text-[10px] text-muted hover:bg-surface-2 hover:text-foreground"
-                  >
-                    <ImagePlus className="h-4 w-4 text-subtle" />
-                    Add image
-                  </button>
+                    );
+                  })}
+                  <input
+                    ref={uploadInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => addUploadFiles(e.target.files)}
+                    className="hidden"
+                  />
+                  {uploads.length < MAX_REFERENCES && (
+                    <button
+                      type="button"
+                      onClick={() => uploadInputRef.current?.click()}
+                      className="flex aspect-square w-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border bg-surface text-[10px] text-muted hover:bg-surface-2 hover:text-foreground"
+                    >
+                      <ImagePlus className="h-4 w-4 text-subtle" />
+                      Add image
+                    </button>
+                  )}
+                </div>
+                {uploadError && (
+                  <p className="text-[11px] text-danger">{uploadError}</p>
                 )}
               </div>
-              {uploadError && (
-                <p className="text-[11px] text-danger">{uploadError}</p>
-              )}
-            </div>
+            )}
 
             {/* ── Brand toggles ───────────────────────────────────────── */}
             {/* Only what the kit can actually act on. Five permanently
@@ -887,7 +986,7 @@ export function StudioClient({
               )}
             </div>
 
-            {excluded.length > 0 && (
+            {mode === "still" && excluded.length > 0 && (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 {MAX_REFERENCES} images go to the model per generation — more
                 than that costs more and starts blending them together. These
@@ -900,37 +999,48 @@ export function StudioClient({
               </div>
             )}
 
-            <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
-              <p className="text-[11px] text-subtle">
-                Estimated cost: ~₹{estCost.toFixed(1)} (1× {quality} quality,
-                copy included)
-              </p>
-              <button
-                type="button"
-                onClick={generate}
-                disabled={busy || (format ? !needsSatisfied : !brief.trim())}
-                className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {busy ? "Generating…" : "Generate"}
-              </button>
-            </div>
-            {format && !needsSatisfied && (
-              <p className="text-right text-[11px] text-danger">
-                {NEEDS_LABEL[format.needs]}
-              </p>
+            {mode === "still" && (
+              <>
+                <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
+                  <p className="text-[11px] text-subtle">
+                    Estimated cost: ~₹{estCost.toFixed(1)} (1× {quality} quality,
+                    copy included)
+                  </p>
+                  <button
+                    type="button"
+                    onClick={generate}
+                    disabled={busy || (format ? !needsSatisfied : !brief.trim())}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    {busy ? "Generating…" : "Generate"}
+                  </button>
+                </div>
+                {format && !needsSatisfied && (
+                  <p className="text-right text-[11px] text-danger">
+                    {NEEDS_LABEL[format.needs]}
+                  </p>
+                )}
+
+                {error && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-danger">
+                    {error}
+                  </div>
+                )}
+              </>
             )}
 
-            {error && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-danger">
-                {error}
-              </div>
-            )}
+            {mode === "video" && <VideoControls video={video} />}
         </aside>
 
         {/* ── Results canvas ───────────────────────────────────────────── */}
         <section className="min-w-0">
-          {variants.length === 0 && format ? (
+          {mode === "video" ? (
+            // A 9:16 clip does not belong in a 380px rail. Video gets the
+            // canvas on the same terms Still does: the live job, the finished
+            // player, the failure state and the history strip.
+            <VideoResults video={video} />
+          ) : variants.length === 0 && format ? (
             <div className="flex min-h-[420px] flex-col items-center justify-center rounded-md border border-dashed border-border bg-surface px-6 py-8 text-center">
               <h2 className="mb-4 text-sm font-medium text-foreground">
                 What this format looks like
