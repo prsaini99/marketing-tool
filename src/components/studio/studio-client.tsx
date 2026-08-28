@@ -7,10 +7,12 @@ import {
   ChevronUp,
   ImagePlus,
   Loader2,
+  Palette,
   Sparkles,
   X,
 } from "lucide-react";
 import { ConfirmModal } from "@/components/ui/confirm-modal";
+import { SlideOver } from "@/components/ui/slide-over";
 import { BrandKitPanel, type BrandKitView } from "@/components/studio/brand-kit-panel";
 import {
   VariantCard,
@@ -26,6 +28,7 @@ import {
   type StudioToggles,
 } from "@/server/services/ai/studio-prompt";
 import { setUnsavedGuard } from "@/lib/unsaved-guard";
+import { cn } from "@/lib/utils";
 
 /**
  * StudioClient — the interactive half of /dashboard/studio. Owns the
@@ -77,6 +80,15 @@ const COST_BY_QUALITY: Record<ImageQuality, number> = {
   high: 15,
 };
 
+// Column counts keyed by how many variants came back, so one image renders
+// large instead of marooned in a quarter-width cell.
+const RESULT_GRID: Record<number, string> = {
+  1: "grid-cols-1 max-w-xl",
+  2: "grid-cols-1 sm:grid-cols-2",
+  3: "grid-cols-1 sm:grid-cols-2 xl:grid-cols-3",
+  4: "grid-cols-2 xl:grid-cols-4",
+};
+
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 // These bytes end up as an OpenAI images.edit() reference (see
@@ -115,6 +127,9 @@ export function StudioClient({
   // generate route. Without lifting this, editing the kit in-panel
   // wouldn't affect a generation until the page reloaded.
   const [kit, setKit] = useState<BrandKitView | null>(initialKit);
+  // The kit editor lives in a drawer: editing a brand is occasional,
+  // generating is constant, so the editor shouldn't pay rent on the layout.
+  const [kitOpen, setKitOpen] = useState(false);
 
   // ── Form state ──────────────────────────────────────────────────────
   const [brief, setBrief] = useState("");
@@ -436,25 +451,13 @@ export function StudioClient({
         </p>
       </div>
 
-      {/* Single full-width column, not a sidebar grid. The kit is one
-          collapsible band: as a 360px left column it left ~600px of dead
-          gutter beside the form whenever it was collapsed, which is its
-          normal state once the kit is filled in. Full width also gives
-          the results grid the room it actually wants — these are images
-          being judged, not a list being scanned. */}
-      <div className="space-y-4">
-        {/* Mounted in both scopes. A null businessId is not "no kit
-            available" — it is the workspace's own kit, the operator's
-            brand, which is the one most generations actually use while
-            there is only a placeholder client in the account. */}
-        <BrandKitPanel
-          businessId={businessId}
-          initialKit={initialKit}
-          onKitChange={setKit}
-        />
-
-        <div className="space-y-4">
-          <div className="space-y-4 rounded-md border border-border bg-background p-4">
+      {/* Controls in a sticky rail, output on a canvas beside it. Stacked
+          top-to-bottom, the form was a tall block you scrolled past to
+          reach your own images — wrong priority for a tool whose point is
+          looking at output — and it put Generate out of reach for the next
+          attempt. The rail stays put; only the canvas scrolls. */}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+        <aside className="space-y-3 rounded-md border border-border bg-background p-4 lg:sticky lg:top-4">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">Brief</label>
               <textarea
@@ -466,7 +469,10 @@ export function StudioClient({
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {/* Model gets its own row — its option labels are sentences,
+                not words, and a third of a 380px rail truncates them to
+                "gpt-image-1.5 — keeps an uploaded pr…". */}
+            <div className="space-y-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-foreground">Model</label>
                 <select
@@ -481,6 +487,7 @@ export function StudioClient({
                   ))}
                 </select>
               </div>
+              <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-foreground">Quality</label>
                 <select
@@ -506,6 +513,7 @@ export function StudioClient({
                     </option>
                   ))}
                 </select>
+              </div>
               </div>
             </div>
 
@@ -584,9 +592,19 @@ export function StudioClient({
                 the row onto two lines; an empty kit now says so in one
                 line instead. */}
             <div className="space-y-1.5 border-t border-border pt-3">
-              <label className="text-xs font-medium text-foreground">
-                Brand kit
-              </label>
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs font-medium text-foreground">
+                  {businessId ? "Client brand kit" : "Your brand kit"}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setKitOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium text-muted hover:bg-surface-2 hover:text-foreground"
+                >
+                  <Palette className="h-3 w-3" />
+                  Edit
+                </button>
+              </div>
               {hasAnyBrandInput ? (
                 <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
                   {hasPalette && (
@@ -652,9 +670,7 @@ export function StudioClient({
                 </div>
               ) : (
                 <p className="text-[11px] text-subtle">
-                  {businessId
-                    ? "This client's brand kit is empty — open it above to add colours, a name or a logo."
-                    : "Your brand kit is empty — open it above to add colours, a name or a logo."}
+                  Empty — add colours, a name or a logo to draw on them here.
                 </p>
               )}
             </div>
@@ -688,10 +704,22 @@ export function StudioClient({
                 {error}
               </div>
             )}
-          </div>
+        </aside>
 
-          {/* ── Results ───────────────────────────────────────────────── */}
-          {variants.length > 0 && (
+        {/* ── Results canvas ───────────────────────────────────────────── */}
+        <section className="min-w-0">
+          {variants.length === 0 ? (
+            <div className="flex min-h-[420px] flex-col items-center justify-center rounded-md border border-dashed border-border bg-surface px-6 text-center">
+              <Sparkles className="h-6 w-6 text-subtle" />
+              <p className="mt-2 text-sm font-medium text-foreground">
+                Nothing generated yet
+              </p>
+              <p className="mt-1 max-w-xs text-xs text-muted">
+                Describe the ad you want on the left and hit Generate. Variants
+                appear here, and stay until you leave the page.
+              </p>
+            </div>
+          ) : (
             <div className="space-y-2 rounded-md border border-border bg-background p-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-foreground">
@@ -717,7 +745,10 @@ export function StudioClient({
                   {prompt}
                 </pre>
               )}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {/* Sized to what was actually generated. A fixed four-column
+                  grid left a single variant sitting in a quarter of the row
+                  with three empty cells beside it. */}
+              <div className={cn("grid gap-3", RESULT_GRID[variants.length] ?? RESULT_GRID[4])}>
                 {variants.map((v, i) => (
                   <VariantCard
                     key={i}
@@ -734,8 +765,31 @@ export function StudioClient({
               </div>
             </div>
           )}
-        </div>
+        </section>
       </div>
+
+      <SlideOver
+        open={kitOpen}
+        onClose={() => setKitOpen(false)}
+        title={businessId ? "Client brand kit" : "Your brand kit"}
+        subtitle={
+          businessId
+            ? "Feeds every image you generate for this client."
+            : "Feeds every image you generate with no client selected."
+        }
+      >
+        {/* Mounted in both scopes, and mounted even while the drawer is
+            shut — SlideOver translates rather than unmounting, so a
+            half-typed palette survives an accidental Escape. A null
+            businessId is not "no kit available": it is the workspace's own
+            kit, which is what most generations here actually use. */}
+        <BrandKitPanel
+          businessId={businessId}
+          initialKit={initialKit}
+          onKitChange={setKit}
+          chrome="bare"
+        />
+      </SlideOver>
 
       <ConfirmModal
         open={pendingHref !== null}

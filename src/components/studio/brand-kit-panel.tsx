@@ -69,6 +69,16 @@ interface BrandKitPanelProps {
    * task, but the panel predates it) keeps working with it omitted.
    */
   onKitChange?: (kit: BrandKitView) => void;
+  /**
+   * "collapsible" renders the panel as a bordered, collapsible card with
+   * its own header — the original inline placement. "bare" drops the card
+   * and the collapse header entirely and always renders the body, for when
+   * the panel sits inside something that already provides that chrome (the
+   * studio's brand-kit drawer). Kept as a prop rather than two components
+   * because the form, its state and every save path are identical; only
+   * the wrapper differs.
+   */
+  chrome?: "collapsible" | "bare";
 }
 
 const MAX_PALETTE_ENTRIES = 6;
@@ -87,6 +97,7 @@ export function BrandKitPanel({
   businessId,
   initialKit,
   onKitChange,
+  chrome = "collapsible",
 }: BrandKitPanelProps) {
   // Which brand this panel is editing. The distinction is stated in the
   // UI rather than inferred, because the two look identical otherwise and
@@ -221,34 +232,12 @@ export function BrandKitPanel({
     !tagline.trim() &&
     !avoidNotes.trim();
 
-  return (
-    <div className="rounded-md border border-border bg-background">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left"
-      >
-        <div className="flex items-center gap-2">
-          <Palette className="h-4 w-4 text-accent" />
-          <span className="text-sm font-semibold text-foreground">
-            {scopeNoun === "workspace" ? "Your brand kit" : "Client brand kit"}
-          </span>
-          {!isEmpty && (
-            <span className="text-[11px] text-subtle">
-              {palette.length} colour{palette.length === 1 ? "" : "s"} ·{" "}
-              {(kit?.assets.length ?? 0)} asset{(kit?.assets.length ?? 0) === 1 ? "" : "s"}
-            </span>
-          )}
-        </div>
-        {expanded ? (
-          <ChevronUp className="h-4 w-4 text-muted" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-muted" />
-        )}
-      </button>
-
-      {expanded && (
-        <div className="space-y-3 border-t border-border px-4 py-4">
+  const bare = chrome === "bare";
+  // Bare drops the card and the collapse header; the drawer around it
+  // already supplies both, and nesting a second bordered, collapsible box
+  // inside a panel reads as a mistake.
+  const body = (
+    <div className={bare ? "space-y-3" : "space-y-3 border-t border-border px-4 py-4"}>
           {isEmpty && (
             <div className="rounded-md border border-dashed border-border bg-surface px-4 py-5 text-center text-xs text-muted">
               {scopeNoun === "workspace"
@@ -439,8 +428,38 @@ export function BrandKitPanel({
               />
             </div>
           </div>
+    </div>
+  );
+
+  if (bare) return body;
+
+  return (
+    <div className="rounded-md border border-border bg-background">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <Palette className="h-4 w-4 text-accent" />
+          <span className="text-sm font-semibold text-foreground">
+            {scopeNoun === "workspace" ? "Your brand kit" : "Client brand kit"}
+          </span>
+          {!isEmpty && (
+            <span className="text-[11px] text-subtle">
+              {palette.length} colour{palette.length === 1 ? "" : "s"} ·{" "}
+              {(kit?.assets.length ?? 0)} asset{(kit?.assets.length ?? 0) === 1 ? "" : "s"}
+            </span>
+          )}
         </div>
-      )}
+        {expanded ? (
+          <ChevronUp className="h-4 w-4 text-muted" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-muted" />
+        )}
+      </button>
+
+      {expanded && body}
     </div>
   );
 }

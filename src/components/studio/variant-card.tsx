@@ -198,7 +198,13 @@ export function VariantCard({
       <div className="flex items-center gap-1">
         <button
           type="button"
-          onClick={() => setTweakOpen((v) => !v)}
+          onClick={() => {
+            // Mutually exclusive with Save: both panels open at once
+            // stacked two forms under one thumbnail and made the card
+            // read as clutter.
+            setTweakOpen((v) => !v);
+            setSaveOpen(false);
+          }}
           disabled={tweaking}
           className="inline-flex flex-1 items-center justify-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-[11px] font-medium hover:bg-surface-2 disabled:opacity-50"
         >
@@ -211,6 +217,7 @@ export function VariantCard({
             onClick={() => {
               setSaveOpen((v) => !v);
               setSaveError(null);
+              setTweakOpen(false);
             }}
             disabled={saving}
             title="Save this variant to the account's Creative library"
