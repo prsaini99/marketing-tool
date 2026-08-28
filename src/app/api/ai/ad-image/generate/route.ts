@@ -5,12 +5,20 @@
  * base64-encoded PNGs so the client can render immediately; if the user picks
  * one, the bytes get POSTed to /api/images to land in Meta's library.
  *
- * Body: { brief, count?, quality?, model?, references?, brand?, toggles? }
- * Returns: { variants: [{ b64, mimeType }], prompt }
+ * Body: { brief, formatId?, count?, quality?, model?, references?, brand?, toggles? }
+ * Returns: { variants: [{ b64, mimeType }], prompt, angle, copy, copyError,
+ *            droppedSlots }
+ *
+ * When formatId is given, an empty brief is allowed (the one-click path):
+ * the copy stage (ad-copy.ts) writes the on-image strings from the format's
+ * default angle, the brand kit and the brief if any, count is forced to 1,
+ * and the format's own layout replaces the built-in promotional frame.
  */
 
 import { NextResponse } from "next/server";
 import { generateAdImages } from "@/server/services/ai/generate-ad-image";
+import { getFormat } from "@/server/services/ai/ad-formats";
+import { writeAdCopy, type AdCopy } from "@/server/services/ai/ad-copy";
 import {
   buildStudioPrompt,
   MAX_REFERENCES,
@@ -23,7 +31,23 @@ import {
 // Bump the default 10s ceiling so they don't get cut short.
 export const maxDuration = 120;
 
-const REFERENCE_ROLES: ReferenceRole[] = ["product", "style", "logo"];
+const REFERENCE_ROLES: ReferenceRole[] = ["product", "proof", "style", "logo"];
+
+/**
+ * Which reference role actually satisfies a format's `needs`. The server is
+ * the enforcement boundary: it previously accepted ANY role for any `needs`,
+ * so a logo-only upload cleared a format that requires a real before/after.
+ * "proof" formats are the ones the design says must never be synthesised.
+ */
+const NEEDS_ROLE: Record<"product" | "proof", ReferenceRole> = {
+  product: "product",
+  proof: "proof",
+};
+
+const NEEDS_REASON: Record<"product" | "proof", string> = {
+  product: "a product photo, tagged Product",
+  proof: "a real photo of the result, the customer or the founder, tagged Proof",
+};
 // Same allowlist enforced when the byte source is first accepted (brand-kit
 // upload route, generate-ad-image.ts's toFile labelling) — an unrecognised
 // mimeType here is dropped rather than trusted, not rejected outright,
@@ -118,6 +142,7 @@ function parseToggles(v: unknown): StudioToggles | "invalid" {
 export async function POST(req: Request) {
   let body: {
     brief?: unknown;
+    formatId?: unknown;
     count?: unknown;
     quality?: unknown;
     model?: unknown;
@@ -131,12 +156,34 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (typeof body.brief !== "string" || !body.brief.trim()) {
+  const formatId =
+    typeof body.formatId === "string" && body.formatId.trim()
+      ? body.formatId.trim()
+      : undefined;
+  const format = formatId ? getFormat(formatId) : null;
+  if (formatId && !format) {
+    return NextResponse.json(
+      { error: `Unknown format "${formatId}"` },
+      { status: 400 },
+    );
+  }
+
+  // A format supplies its own default angle, so an empty brief is the
+  // one-click path. Without a format, the brief is the only input — keep
+  // the original whitespace-only rejection exactly as it was.
+  if (typeof body.brief !== "string") {
     return NextResponse.json(
       { error: "brief is required" },
       { status: 400 },
     );
   }
+  if (!format && !body.brief.trim()) {
+    return NextResponse.json(
+      { error: "brief is required" },
+      { status: 400 },
+    );
+  }
+
   const count =
     typeof body.count === "number" && Number.isFinite(body.count)
       ? body.count
@@ -148,7 +195,7 @@ export async function POST(req: Request) {
   const references = parseReferences(body.references);
   if (references === "invalid") {
     return NextResponse.json(
-      { error: "references must be an array of { b64: string, role: 'product' | 'style' | 'logo' }" },
+      { error: "references must be an array of { b64: string, role: 'product' | 'proof' | 'style' | 'logo' }" },
       { status: 400 },
     );
   }
@@ -157,6 +204,22 @@ export async function POST(req: Request) {
       { error: `references cannot exceed ${MAX_REFERENCES} images` },
       { status: 400 },
     );
+  }
+
+  // Role-aware, not merely "some reference was attached". A format that needs
+  // real proof must have a reference the operator tagged Proof; a logo or a
+  // style board does not stand in for a real before/after, and accepting one
+  // is exactly the synthesised testimonial the design forbids.
+  if (format && format.needs !== "none") {
+    const required = NEEDS_ROLE[format.needs];
+    if (!references?.some((r) => r.role === required)) {
+      return NextResponse.json(
+        {
+          error: `The ${format.name} format needs a reference image — ${NEEDS_REASON[format.needs]}.`,
+        },
+        { status: 400 },
+      );
+    }
   }
 
   const brand = parseBrand(body.brand);
@@ -184,17 +247,51 @@ export async function POST(req: Request) {
     ? [...new Set(references.map((r) => r.role))]
     : [];
 
-  const brief = buildStudioPrompt(body.brief.trim(), brand, toggles, roles);
+  let copy: AdCopy | null = null;
+  let copyError: string | null = null;
+  if (format) {
+    try {
+      copy = await writeAdCopy({ format, brief: body.brief, brand });
+    } catch (err) {
+      // A text-call hiccup must not cost the operator their click. Fall back
+      // to the brief as written and say so; the image still gets made.
+      console.error("ad-copy stage failed:", err);
+      // Accurate on both paths: on the one-click path there is no brief to
+      // fall back to, so saying "from your brief alone" was simply wrong.
+      copyError = body.brief.trim()
+        ? "Couldn't write the copy — generated from your brief alone, with no written headline."
+        : "Couldn't write the copy — generated from the format and brand kit alone, with no written headline.";
+    }
+  }
+
+  const brief = buildStudioPrompt({
+    brief: body.brief.trim(),
+    brand,
+    toggles,
+    roles,
+    layout: format?.layout,
+    copy: copy ?? undefined,
+  });
 
   try {
     const result = await generateAdImages({
       brief,
-      count,
+      count: formatId ? 1 : count,
       quality: parseQuality(body.quality),
       model,
       references,
+      promoFrame: !format,
     });
-    return NextResponse.json(result);
+    return NextResponse.json({
+      ...result,
+      angle: copy?.angle ?? null,
+      copy,
+      copyError,
+      // Slots the guard stripped because their figure was not in the inputs.
+      // Surfaced so a figure-defined format (stat drop, offer stack) does not
+      // come back silently missing its figure.
+      droppedSlots: copy?.droppedSlots ?? [],
+    });
   } catch (err) {
     console.error("ad-image generate error:", err);
     return NextResponse.json(

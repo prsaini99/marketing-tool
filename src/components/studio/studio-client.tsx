@@ -14,6 +14,8 @@ import {
 import { ConfirmModal } from "@/components/ui/confirm-modal";
 import { SlideOver } from "@/components/ui/slide-over";
 import { BrandKitPanel, type BrandKitView } from "@/components/studio/brand-kit-panel";
+import { FormatPicker } from "@/components/studio/format-picker";
+import { FormatSchematic } from "@/components/studio/format-schematic";
 import {
   VariantCard,
   type AdImageVariant,
@@ -27,6 +29,7 @@ import {
   type StudioBrand,
   type StudioToggles,
 } from "@/server/services/ai/studio-prompt";
+import { getFormat, type FormatNeeds } from "@/server/services/ai/ad-formats";
 import { setUnsavedGuard } from "@/lib/unsaved-guard";
 import { cn } from "@/lib/utils";
 
@@ -99,8 +102,47 @@ const ALLOWED_UPLOAD_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 const ROLE_LABEL: Record<ReferenceRole, string> = {
   product: "Product",
+  proof: "Proof",
   style: "Style",
   logo: "Logo",
+};
+
+// Which reference role satisfies a format's `needs`. Kept in step with
+// NEEDS_ROLE in the generate route, which enforces the same rule server-side
+// — a proof format must not be cleared by a product photo, because the whole
+// point of before/after, quote card, review stack and founder quote is that
+// the evidence is real rather than synthesised.
+const NEEDS_ROLE: Record<"product" | "proof", ReferenceRole> = {
+  product: "product",
+  proof: "proof",
+};
+
+// Shown beside a disabled Generate button so an unmet format requirement
+// reads as a reason, not a dead control. A longer form of format-picker.tsx's
+// own NEEDS_LABEL: this one has to name the role to tag the upload with,
+// since the role — not merely the presence of an image — is what satisfies
+// the requirement on both the client and the server.
+const NEEDS_LABEL: Record<FormatNeeds, string> = {
+  none: "",
+  product: "Needs a product photo — upload one and tag it Product.",
+  proof:
+    "Needs a real photo — the result, the customer, or the founder — uploaded and tagged Proof.",
+};
+
+// Formats whose hero slot IS a figure. Nothing in the pipeline may invent
+// one, so on an empty brief with a figure-less brand kit the copy guard
+// strips that slot and the ad comes back without its number. The placeholder
+// says so before the operator spends the click.
+const FIGURE_LED_FORMATS = new Set(["stat-drop", "offer-stack"]);
+
+const DROPPED_SLOT_LABEL: Record<string, string> = {
+  headline: "the headline",
+  subhead: "the supporting line",
+  offer: "the offer figure",
+  cta: "the call to action",
+  proof: "the proof line",
+  attribution: "the attribution",
+  source: "the source line",
 };
 
 interface StudioClientProps {
@@ -132,10 +174,11 @@ export function StudioClient({
   const [kitOpen, setKitOpen] = useState(false);
 
   // ── Form state ──────────────────────────────────────────────────────
+  const [formatId, setFormatId] = useState("");
+  const format = getFormat(formatId);
   const [brief, setBrief] = useState("");
   const [model, setModel] = useState("gpt-image-1.5");
   const [quality, setQuality] = useState<ImageQuality>("medium");
-  const [count, setCount] = useState(1);
   const [useColours, setUseColours] = useState(true);
   const [useTheme, setUseTheme] = useState(true);
   const [useLogo, setUseLogo] = useState(true);
@@ -227,12 +270,27 @@ export function StudioClient({
   const hasProductReference = sending.some((c) => c.role === "product");
   const showFidelityWarning = hasProductReference && !FIDELITY_MODELS.has(model);
 
+  // Role-aware per format, matching the server's own check: a `needs:
+  // "product"` format wants a product-tagged reference and a `needs:
+  // "proof"` format wants a proof-tagged one. A product photo does not
+  // satisfy a format built on real evidence, and vice versa.
+  const requiredRole =
+    format && format.needs !== "none" ? NEEDS_ROLE[format.needs] : null;
+  const needsSatisfied =
+    requiredRole === null || sending.some((c) => c.role === requiredRole);
+
   // ── Results ─────────────────────────────────────────────────────────
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [variants, setVariants] = useState<AdImageVariant[]>([]);
   const [prompt, setPrompt] = useState<string | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [angle, setAngle] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  // Slots the fabrication guard stripped. Rendered so a figure-led format
+  // that came back without its figure explains itself instead of looking
+  // like the model simply forgot.
+  const [droppedSlots, setDroppedSlots] = useState<string[]>([]);
 
   // A variant counts as "unsaved" until it carries a `saved` ref (set by
   // markSaved once POST /api/images returns a hash) — see variant-card.tsx.
@@ -240,7 +298,7 @@ export function StudioClient({
   // index, which is correct: the bytes on screen changed, so the prior
   // save no longer describes what's there.
   const hasUnsaved = variants.some((v) => !v.saved);
-  const estCost = COST_BY_QUALITY[quality] * count;
+  const estCost = COST_BY_QUALITY[quality];
 
   // ── Unsaved-variants guard ──────────────────────────────────────────
   // Variants are base64 in memory only until Saved, and the user may have
@@ -367,9 +425,16 @@ export function StudioClient({
 
   // ── Generate ────────────────────────────────────────────────────────
   async function generate() {
-    if (!brief.trim() || busy) return;
+    if (busy) return;
+    if (format ? !needsSatisfied : !brief.trim()) return;
     setBusy(true);
     setError(null);
+    // Copy-stage output belongs to the run that produced it. Without this a
+    // failed run leaves the previous run's angle and warnings sitting above
+    // the preserved variants, reading as though they describe them.
+    setAngle(null);
+    setCopyError(null);
+    setDroppedSlots([]);
     try {
       const resolvedReferences = await Promise.all(
         sending.map(async (c) => {
@@ -382,7 +447,8 @@ export function StudioClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           brief: brief.trim(),
-          count,
+          formatId: formatId || undefined,
+          count: 1,
           quality,
           model,
           references: resolvedReferences,
@@ -411,6 +477,15 @@ export function StudioClient({
       // leaves prior variants in place.
       setVariants((data.variants as AdImageVariant[]) ?? []);
       setPrompt(typeof data.prompt === "string" ? data.prompt : null);
+      setAngle(typeof data.angle === "string" ? data.angle : null);
+      setCopyError(typeof data.copyError === "string" ? data.copyError : null);
+      setDroppedSlots(
+        Array.isArray(data.droppedSlots)
+          ? (data.droppedSlots as unknown[]).filter(
+              (s): s is string => typeof s === "string",
+            )
+          : [],
+      );
     } catch (err) {
       // Inline only — brief, toggles, uploads and any previously
       // generated variants stay exactly as they were so a transient
@@ -458,13 +533,23 @@ export function StudioClient({
           attempt. The rail stays put; only the canvas scrolls. */}
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
         <aside className="space-y-3 rounded-md border border-border bg-background p-4 lg:sticky lg:top-4">
+            <FormatPicker value={formatId} onChange={setFormatId} />
+
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">Brief</label>
+              <label className="text-xs font-medium text-foreground">
+                {format ? "Brief (optional)" : "Brief"}
+              </label>
               <textarea
                 rows={3}
                 value={brief}
                 onChange={(e) => setBrief(e.target.value)}
-                placeholder="e.g. Diwali offer, FLAT 50% OFF, SHOP NOW. Festive scene, warm golden-hour light, diyas & marigolds."
+                placeholder={
+                  format && FIGURE_LED_FORMATS.has(format.id)
+                    ? `This format is built around a figure, and nothing here will invent one — put the number in your brief (e.g. "92% of buyers reorder", "FLAT 40% OFF until Sunday") or it gets left out.`
+                    : format
+                      ? `Optional — leave blank and we'll write it from ${format.name.toLowerCase()} and your brand kit.`
+                      : "e.g. Diwali offer, FLAT 50% OFF, SHOP NOW. Festive scene, warm golden-hour light, diyas & marigolds."
+                }
                 className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
@@ -487,7 +572,6 @@ export function StudioClient({
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-foreground">Quality</label>
                 <select
@@ -499,21 +583,6 @@ export function StudioClient({
                   <option value="medium">Medium</option>
                   <option value="high">High</option>
                 </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Count</label>
-                <select
-                  value={count}
-                  onChange={(e) => setCount(Number(e.target.value))}
-                  className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-                >
-                  {[1, 2, 3, 4].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </div>
               </div>
             </div>
 
@@ -558,6 +627,7 @@ export function StudioClient({
                       className="w-full rounded border border-border bg-background px-1 py-0.5 text-[10px]"
                     >
                       <option value="product">Product</option>
+                      <option value="proof">Proof (real person / result)</option>
                       <option value="style">Style</option>
                       <option value="logo">Logo</option>
                     </select>
@@ -685,19 +755,24 @@ export function StudioClient({
 
             <div className="flex items-center justify-between gap-2 border-t border-border pt-3">
               <p className="text-[11px] text-subtle">
-                Estimated cost: ~₹{estCost.toFixed(1)} ({count}×{" "}
-                {quality} quality)
+                Estimated cost: ~₹{estCost.toFixed(1)} (1× {quality} quality,
+                copy included)
               </p>
               <button
                 type="button"
                 onClick={generate}
-                disabled={busy || !brief.trim()}
+                disabled={busy || (format ? !needsSatisfied : !brief.trim())}
                 className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {busy ? "Generating…" : "Generate"}
               </button>
             </div>
+            {format && !needsSatisfied && (
+              <p className="text-right text-[11px] text-danger">
+                {NEEDS_LABEL[format.needs]}
+              </p>
+            )}
 
             {error && (
               <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-danger">
@@ -708,7 +783,14 @@ export function StudioClient({
 
         {/* ── Results canvas ───────────────────────────────────────────── */}
         <section className="min-w-0">
-          {variants.length === 0 ? (
+          {variants.length === 0 && format ? (
+            <div className="flex min-h-[420px] flex-col items-center justify-center rounded-md border border-dashed border-border bg-surface px-6 py-8 text-center">
+              <h2 className="mb-4 text-sm font-medium text-foreground">
+                What this format looks like
+              </h2>
+              <FormatSchematic format={format} />
+            </div>
+          ) : variants.length === 0 ? (
             <div className="flex min-h-[420px] flex-col items-center justify-center rounded-md border border-dashed border-border bg-surface px-6 text-center">
               <Sparkles className="h-6 w-6 text-subtle" />
               <p className="mt-2 text-sm font-medium text-foreground">
@@ -744,6 +826,27 @@ export function StudioClient({
                 <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-surface p-2 text-[11px] text-muted">
                   {prompt}
                 </pre>
+              )}
+              {angle && (
+                <p className="text-xs text-muted">
+                  <span className="font-medium text-foreground">Angle:</span>{" "}
+                  {angle}
+                </p>
+              )}
+              {copyError && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  {copyError}
+                </div>
+              )}
+              {droppedSlots.length > 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  No sourced figure available, so{" "}
+                  {droppedSlots
+                    .map((s) => DROPPED_SLOT_LABEL[s] ?? s)
+                    .join(", ")}{" "}
+                  {droppedSlots.length === 1 ? "was" : "were"} left out — put the
+                  number in your brief and generate again.
+                </div>
               )}
               {/* Sized to what was actually generated. A fixed four-column
                   grid left a single variant sitting in a quarter of the row

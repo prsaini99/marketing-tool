@@ -97,35 +97,20 @@ export type ImageQuality = "low" | "medium" | "high";
 // which defeats the whole point of a ready-to-ship promo creative.
 const DEFAULT_QUALITY: ImageQuality = "medium";
 
-// System frame for from-scratch (no product reference). The model has
-// to invent everything from a brief, so we keep the photography /
-// anti-AI-trope rules verbose. Like the product-reference path, this now
-// delivers a FINISHED PROMOTIONAL CREATIVE with the offer + CTA designed
-// into the image — not a bare photograph.
-const SYSTEM_FRAME = `You are a senior creative director at a top ad agency designing a FINISHED, READY-TO-SHIP Meta Ads PROMOTIONAL CREATIVE for a client campaign. The output must look like a polished sale/festive ad a senior designer would approve and publish as-is. NOT a generic AI image and NOT a bare photograph. Treat the brief as a creative brief, not a literal prompt.
-
-THIS IS A FULLY DESIGNED PROMOTIONAL CREATIVE, like a finished festive-sale ad you'd see in your Instagram feed: a striking subject/scene PLUS integrated headline, offer figure, tagline and a call-to-action button, all composed together as one publishable ad.
-
-INTEGRATED PROMOTIONAL TYPOGRAPHY (bake it in, this is the point):
-- Read the brief for the offer, occasion, discount/percentage, brand name, and any tagline, and render them AS DESIGNED TEXT in the creative.
-- A clear headline / occasion line (e.g. "DIWALI OFFER", "FESTIVE SALE", "NEW ARRIVALS").
-- A bold focal offer figure when the brief gives one (e.g. "FLAT 50% OFF", "UP TO 40% OFF"). Make it large, the second thing the eye lands on after the hero subject.
-- A short supporting tagline when it fits ("Celebrate in style", "Timeless elegance").
-- A call-to-action styled as a real clickable button/pill: "SHOP NOW" / "ORDER TODAY" / "GRAB THE DEAL".
-- Spelling MUST be correct and match the brief exactly. Letters crisp, evenly kerned, professionally typeset, never warped, doubled, or gibberish. If unsure of a word, choose a simpler correct one.
-- Use real type hierarchy (display headline → big offer → small tagline → button) and a palette that harmonises with the scene. Lay the text into negative space so it never covers a face or the hero.
+// Craft frame — applies to EVERY ad regardless of format. Framing rules,
+// photography direction and anti-AI-trope rules. Does NOT contain any
+// promotional-layout instruction (occasion headline, offer figure, tagline,
+// CTA button) — that's PROMO_FRAME below, added only when the caller wants
+// the classic sale-ad layout — and does NOT contain the output-format /
+// "brief follows" transition, which is stated once at the very end by
+// OUTPUT_FRAME regardless of what else is in the prompt.
+const CRAFT_FRAME = `You are a senior creative director at a top ad agency designing a FINISHED, READY-TO-SHIP Meta Ads creative for a client campaign. The output must look like work a senior designer would approve and publish as-is. NOT a generic AI image and NOT a bare photograph. Treat the brief as a creative brief, not a literal prompt.
 
 FRAMING (non-negotiable, since failures here make the image unusable):
 - The subject must be FULLY within the frame. No part of the body (head, face, hair, limbs, hands, fingers, feet) may be cut by the frame edges. Leave clean breathing room on all four sides.
-- Keep all critical elements (subject, offer figure, CTA) within the centre 85% of the frame. Meta crops the edges for some placements (Stories, Reels, side bars); text clipped at an edge ruins the ad.
+- Keep all critical elements (the subject and every piece of text) within the centre 85% of the frame. Meta crops the edges for some placements (Stories, Reels, side bars); text clipped at an edge ruins the ad.
 - Pick ONE intentional framing and execute it cleanly: head-and-shoulders, half-body, three-quarter, full body, or product close-up, with the typography balanced in the remaining space.
 - Eye level should be deliberate (eye-level for connection, slight high-angle for product, slight low for aspirational). Never an awkward in-between.
-
-COMPOSITION:
-- Classic sale-ad layout: hero subject on one side, typography block balanced on the other, unless the brief calls for something else.
-- Clear focal hierarchy: hero subject first, offer figure second, supporting elements subordinate.
-- Background must be intentional and brand-appropriate, with designed decorative framing where the occasion calls for it (festive borders, filigree, diyas, bokeh). NOT a generic blurred bokeh wall.
-- Confident use of negative space, because that's where the text lives. Don't fill every pixel.
 
 PHOTOGRAPHY DIRECTION (this is what separates designer-grade from AI-grade):
 - Treat the scene as a real photoshoot. Imagine a specific lens (85mm prime for portraits, 35mm for lifestyle, 50mm for product) and shallow but realistic depth of field, not the cartoonish fake-blur AI loves to default to.
@@ -140,26 +125,57 @@ ANTI-AI-TROPE RULES (if you do any of these, the image is unusable):
 - No extra fingers, fused hands, floating limbs, melting jewellery.
 - No misspelled, warped, doubled, or gibberish text: every character legible and correctly spelled.
 - No fake brand marks other than a brand name the brief provides; no fake URLs, fake hashtags, or watermarks.
-- No generic stock-photo poses. No "lady-presenting-her-laptop", no "diverse-team-laughing-at-nothing".
+- No generic stock-photo poses. No "lady-presenting-her-laptop", no "diverse-team-laughing-at-nothing".`;
 
-OUTPUT FORMAT:
-- 1:1 square, 1024×1024.
-- A complete, designed, ready-to-publish promotional ad creative. If you wouldn't put this on a brand's Instagram grid as a finished sale ad, regenerate mentally before committing.
+// Promotional-layout frame — the classic sale-ad composition: occasion
+// headline, focal offer figure, tagline, CTA button. Correct for an Offer
+// Stack format, wrong for a Founder Quote, Stat Drop, Advertorial or
+// Anti-Ad. Added only when the caller wants it (see buildPrompt).
+const PROMO_FRAME = `THIS IS A FULLY DESIGNED PROMOTIONAL CREATIVE, like a finished festive-sale ad you'd see in your Instagram feed: a striking subject/scene PLUS integrated headline, offer figure, tagline and a call-to-action button, all composed together as one publishable ad.
 
-The brief follows. Read it as creative direction for the FULL designed promo ad: extract the offer, occasion and CTA from it, and fill in everything else with designer-grade defaults.`;
+INTEGRATED PROMOTIONAL TYPOGRAPHY (bake it in, this is the point):
+- Read the brief for the offer, occasion, discount/percentage, brand name, and any tagline, and render them AS DESIGNED TEXT in the creative.
+- A clear headline / occasion line (e.g. "DIWALI OFFER", "FESTIVE SALE", "NEW ARRIVALS").
+- A bold focal offer figure when the brief gives one (e.g. "FLAT 50% OFF", "UP TO 40% OFF"). Make it large, the second thing the eye lands on after the hero subject.
+- A short supporting tagline when it fits ("Celebrate in style", "Timeless elegance").
+- A call-to-action styled as a real clickable button/pill: "SHOP NOW" / "ORDER TODAY" / "GRAB THE DEAL".
+- Spelling MUST be correct and match the brief exactly. Letters crisp, evenly kerned, professionally typeset, never warped, doubled, or gibberish. If unsure of a word, choose a simpler correct one.
+- Use real type hierarchy (display headline → big offer → small tagline → button) and a palette that harmonises with the scene. Lay the text into negative space so it never covers a face or the hero.
 
-// Product-reference frame — used when the strategist uploaded a product
-// photo. This is the prompt that does the heaviest lifting: the model
-// sees the reference image AND this prompt, and has to deliver a
-// finished, ready-to-ship promotional creative — product + scene +
-// baked-in offer typography + CTA — not a sterile photograph of just
-// the product. The ChatGPT-style "complete designed promo creative"
-// language is what gets us out of "props on white" territory and into
-// finished-sale-ad land.
-const PRODUCT_REFERENCE_FRAME = `You are a senior creative director at a top ad agency designing a FINISHED, READY-TO-SHIP Meta Ads PROMOTIONAL CREATIVE for a client campaign. The strategist has uploaded a product photo as creative REFERENCE. Your job is to deliver a complete, publishable promotional ad built around that product, WITH the offer typography and call-to-action designed directly into the image.
+COMPOSITION:
+- Classic sale-ad layout: hero subject or product as the focal hero on one side, the typography block balanced on the other, unless the brief calls for something else.
+- Clear focal hierarchy: hero subject first, offer figure second, supporting elements subordinate.
+- Keep the offer figure and the call-to-action button inside the centre 85% along with everything else; a clipped offer or CTA kills the ad.
+- Background must be intentional and brand-appropriate, with designed decorative framing where the occasion calls for it (festive borders, filigree, diyas, bokeh). NOT a generic blurred bokeh wall.
+- Ornate decorative framing when the brief implies festive / luxury / cultural context: festive borders, art-deco corners, vintage filigree, ornamental motifs, themed visual frames.
+- Layered backgrounds: foreground props → midground subject → richly designed background with bokeh / architecture / atmospheric depth. Every zone of the frame intentional.
+- Lighting as a design tool: cinematic, directional key light, believable ambient warmth, atmospheric haze where the brief calls for it. NEVER flat frontal lighting.
+- Props that contextualise the campaign (diyas, marigolds, brass lamps for festive; greenery and warm interior for lifestyle; gym equipment and morning light for fitness; etc.), clustered to frame the hero.
+- Confident use of negative space, because that's where the text lives. Don't fill every pixel.
 
-THIS IS A FULLY DESIGNED PROMOTIONAL CREATIVE, NOT A RAW PHOTOGRAPH.
-The output should read like a finished festive-sale ad you'd scroll past on Instagram: model + product as the hero, decorative framing, AND integrated headline, offer figure, tagline and a "SHOP NOW" button, with every element composed together as ONE publishable ad. Think premium-brand sale creative, not a documentary photo or sparse studio shot.
+PRODUCTION QUALITY (the bar for a sale ad):
+- Vogue India / Harper's Bazaar India / luxury festive-campaign level finish.
+- NO sparse "props on white" look. NO white voids. NO blank studio backdrops unless the brief explicitly asks for one.
+- NO clip-art, flat vector illustration, 2D-collage feel. This is a photographic creative with designed typography on top.
+- NO sterile e-commerce "product on plain backdrop" feel. This is a campaign creative, not a catalogue listing.
+
+A complete, designed, ready-to-publish promotional ad creative. If it wouldn't pass as a real published sale ad — if you wouldn't put this on a brand's Instagram grid — regenerate mentally before committing.`;
+
+// Product-reference frame — used ONLY when a reference carrying the
+// `product` role was supplied. Appended so the model preserves the exact
+// product while it freestyles the scene around it.
+//
+// Everything here must be true of ANY ad built around a supplied product,
+// because eleven of the seventeen studio formats require a reference and so
+// reach this block. It therefore holds nothing about design language,
+// production quality or sale-ad layout — that material moved to PROMO_FRAME,
+// which `promoFrame: false` suppresses. It previously demanded a
+// "Vogue India ... luxury festive-campaign finish" and a "classic sale-ad
+// layout" on top of formats like sticky-note, whose own layout asks for a
+// plain, unstyled phone photograph with no designed type. Framing and
+// anti-AI-trope rules are stated once, in CRAFT_FRAME; only the
+// product-specific safety bullets live here.
+const PRODUCT_FRAME = `The strategist has uploaded a product photo as creative REFERENCE. Your job is to deliver a complete, publishable ad built around that product.
 
 PRESERVE THE PRODUCT EXACTLY (use the reference image):
 - The hero is the EXACT product shown in the reference photo (saree, garment, accessory, item being sold). Reproduce it FAITHFULLY: same colour, same fabric, same print/pattern, same border, same pallu, same embroidery / embellishment, same blouse. It must read as the SAME physical item a customer would actually receive, not a similar-looking one.
@@ -167,60 +183,53 @@ PRESERVE THE PRODUCT EXACTLY (use the reference image):
 - If the reference shows a person wearing/holding the product, you may restage the model and pose, but the garment itself must stay exactly as shown in the reference.
 - The product is the visual HERO. The typography supports it, never covers or buries it.
 
-INTEGRATED PROMOTIONAL TYPOGRAPHY (bake it in, this is the point):
-- Read the brief for the offer, occasion, discount/percentage, brand name, and any tagline, and render them AS DESIGNED TEXT in the creative.
-- A clear headline / occasion line (e.g. "DIWALI OFFER", "FESTIVE SALE", "NEW ARRIVALS").
-- A bold focal offer figure when the brief gives one (e.g. "FLAT 50% OFF", "UP TO 40% OFF"). Make it large, the second thing the eye lands on after the product.
-- A short supporting tagline when it fits ("Celebrate in style", "Timeless elegance").
-- A call-to-action styled as a real clickable button/pill: "SHOP NOW" / "ORDER TODAY" / "GRAB THE DEAL".
-- Spelling MUST be correct and match the brief exactly. Letters crisp, evenly kerned, professionally typeset, never warped, doubled, or gibberish. If unsure of a word, choose a simpler correct one.
-- Typography palette must harmonise with the scene (e.g. gold/cream on deep festive tones). Use real type hierarchy: display headline → big offer → small tagline → button.
-- Lay the text into the negative space (one side / top / bottom) so it never covers the product or the model's face.
+PRODUCT FRAMING SAFETY (true of any ad built around a supplied product):
+- The whole product must sit inside the frame with comfortable breathing room — never cropped by an edge, never bled off the side.
+- NO text covering the product or the model's face.`;
 
-DESIGN LANGUAGE (this is what separates an ad creative from a photo):
-- Ornate decorative framing when the brief implies festive / luxury / cultural context: festive borders, art-deco corners, vintage filigree, ornamental motifs, themed visual frames.
-- Editorial composition: classic sale-ad layout, model + product as the focal hero on one side, the typography block balanced on the other, intentional negative space.
-- Layered backgrounds: foreground props → midground subject → richly designed background with bokeh / architecture / atmospheric depth. Every zone of the frame intentional.
-- Lighting as a design tool: cinematic, directional key light, believable ambient warmth, atmospheric haze where the brief calls for it. NEVER flat frontal lighting.
-- Props that contextualise the campaign (diyas, marigolds, brass lamps for festive; greenery and warm interior for lifestyle; gym equipment and morning light for fitness; etc.), clustered to frame the hero.
+/**
+ * Stated once, at the end, whatever else is in the prompt. It used to live
+ * inside CRAFT_FRAME in promotional wording ("finished sale ad", "extract the
+ * offer, occasion and CTA"), which meant a format opting out of the promo
+ * layout was still told to make a sale ad. Neutral here; PROMO_FRAME adds the
+ * promotional emphasis back when it applies.
+ */
+const OUTPUT_FRAME = `OUTPUT FORMAT: 1:1 square, 1024×1024. A complete, designed, ready-to-publish Meta ad creative.
 
-PRODUCTION QUALITY (the bar):
-- Vogue India / Harper's Bazaar India / luxury festive-campaign level finish.
-- Real lens look (85mm portrait, 50mm lifestyle) with shallow realistic depth of field.
-- Realistic skin, hair, fabric texture. No plastic AI-default skin.
-- Subtle film grain. Coherent editorial colour grade.
-- Finished-ad quality. If it wouldn't pass as a real published sale ad, regenerate mentally.
+The brief follows. Read it as creative direction and fill in anything the strategist did not specify with designer-grade defaults.`;
 
-FRAMING:
-- Subject + product + all text fully within the frame, comfortable breathing room on all sides.
-- Keep every critical element (product, face, offer figure, CTA) within the centre 85%. Meta crops the edges on some placements; text clipped at an edge ruins the ad.
-- Pick one intentional framing (head-and-shoulders, half-body, three-quarter, full body) and execute cleanly, with the typography balanced in the remaining space.
-
-ABSOLUTELY FORBIDDEN / INSTANT FAIL:
-- NO misspelled, warped, doubled, or gibberish text. Every character legible and correctly spelled.
-- NO text covering the product or the model's face.
-- NO sparse "props on white" look. NO white voids. NO blank studio backdrops unless the brief explicitly asks for one.
-- NO clip-art, flat vector illustration, 2D-collage feel. This is a photographic creative with designed typography on top.
-- NO extra fingers, fused hands, melting jewellery, asymmetric perfect-AI faces.
-- NO fake brand marks other than a brand name the brief provides; no fake URLs, fake hashtags, or watermarks.
-- NO sterile e-commerce "product on plain backdrop" feel. This is a campaign creative, not a catalogue listing.
-
-OUTPUT FORMAT: 1:1 square, 1024×1024. A complete, designed, ready-to-publish Meta promotional ad creative with the offer and CTA baked in.
-
-The brief follows. Read it as creative direction for the FULL designed promo ad: extract the offer, occasion and CTA from it, and fill in everything the strategist didn't specify with designer-grade defaults.`;
-
+/**
+ * The craft rules apply to every ad. The promotional layout — occasion line,
+ * focal offer figure, CTA pill, festive decoration — is added only when the
+ * caller wants it, because it is a correct Offer Stack and a wrong Founder
+ * Quote, Stat Drop or Advertorial.
+ *
+ * Callers that pass promoFrame: false are supplying their own LAYOUT section
+ * inside the brief (the studio's format presets do exactly that), so adding
+ * this block would state the frame twice. Callers that pass nothing keep the
+ * promotional default, which is what /api/ai/ad-generate and AiStudioPanel
+ * have always produced.
+ *
+ * Composition order is CRAFT_FRAME, then PROMO_FRAME when enabled, then
+ * PRODUCT_FRAME when a product reference is present, then OUTPUT_FRAME, then
+ * the brief — so the "brief follows" transition genuinely precedes the
+ * brief in every flag combination, and there is exactly one OUTPUT FORMAT
+ * block no matter how many of the optional frames are included.
+ */
 function buildPrompt(
   brief: string,
-  opts: { tweakInstruction?: string; withProductReference?: boolean } = {},
+  opts: {
+    tweakInstruction?: string;
+    withProductReference?: boolean;
+    promoFrame?: boolean;
+  } = {},
 ): string {
   const tweak = opts.tweakInstruction?.trim()
     ? `\n\nIMPORTANT MODIFICATION FROM THE STRATEGIST: ${opts.tweakInstruction.trim()}`
     : "";
-  const frame = opts.withProductReference ? PRODUCT_REFERENCE_FRAME : SYSTEM_FRAME;
-  const briefLabel = opts.withProductReference
-    ? "BRIEF (creative direction for the designed ad)"
-    : "CREATIVE BRIEF";
-  return `${frame}\n\n${briefLabel}:\n${brief.trim()}${tweak}`;
+  const promo = opts.promoFrame === false ? "" : `\n\n${PROMO_FRAME}`;
+  const product = opts.withProductReference ? `\n\n${PRODUCT_FRAME}` : "";
+  return `${CRAFT_FRAME}${promo}${product}\n\n${OUTPUT_FRAME}\n\nBRIEF:\n${brief.trim()}${tweak}`;
 }
 
 export interface AdImageVariant {
@@ -262,6 +271,13 @@ export interface GenerateAdImageInput {
    * (env OPENAI_IMAGE_MODEL or "gpt-image-1.5") when omitted.
    */
   model?: string;
+  /**
+   * Whether to add the built-in promotional layout block (occasion headline,
+   * focal offer figure, CTA pill, festive decoration). Defaults to true, so
+   * every pre-existing caller is unchanged. The studio passes false when a
+   * format preset has already supplied a LAYOUT section in the brief.
+   */
+  promoFrame?: boolean;
 }
 
 /**
@@ -312,7 +328,7 @@ export async function generateAdImages(
   if (references.length === 0) {
     // No references → text-to-image from scratch.
     pattern = "from-scratch";
-    prompt = buildPrompt(brief);
+    prompt = buildPrompt(brief, { promoFrame: input.promoFrame });
     const res = await openai.images.generate({
       model,
       prompt,
@@ -329,7 +345,10 @@ export async function generateAdImages(
     // creative around them. No mask, no compositing — the model owns
     // the design end-to-end.
     pattern = hasProductRole ? "product-reference" : "from-scratch";
-    prompt = buildPrompt(brief, { withProductReference: hasProductRole });
+    prompt = buildPrompt(brief, {
+      withProductReference: hasProductRole,
+      promoFrame: input.promoFrame,
+    });
     const sourceFiles = await Promise.all(
       references.map((ref, i) => {
         const mimeType =
@@ -433,15 +452,16 @@ export async function tweakAdImage(
   // subject — a common failure mode for image-to-image edits.
   const prompt = `You are a senior retoucher editing a Meta ad creative. Apply this change precisely and ONLY this change: ${instruction}.
 
-Preserve EVERYTHING ELSE from the original: same subject identity, same face, same composition and pose framing, same clothing, same lighting style, same background, same color palette, and the SAME designed promotional text (headline, offer figure, tagline, CTA button). Do not invent new elements. Do not re-pose the subject. Do not re-frame the shot.
+Preserve EVERYTHING ELSE from the original: same subject identity, same face, same composition and pose framing, same clothing, same lighting style, same background, same color palette, and every existing text element exactly as it appears. Do not invent new elements. Do not add any text that is not already in the image. Do not re-pose the subject. Do not re-frame the shot.
 
 FRAMING (must hold after the edit):
 - The subject must still be fully within the frame. Do not crop the head, hands, or feet at the edges.
-- Keep critical elements (subject, offer figure, CTA) within the centre 85% of the frame.
+- Keep the subject and every piece of text within the centre 85% of the frame.
 - Maintain the original aspect ratio and zoom level.
 
-TEXT (the creative carries designed promotional typography, so handle it carefully):
-- Unless the instruction explicitly asks you to change the wording, keep every existing text element identical and correctly spelled: headline, offer figure (e.g. "FLAT 50% OFF"), tagline, and CTA button.
+TEXT (handle whatever typography the creative already carries, and add none):
+- Unless the instruction explicitly asks you to change the wording, preserve every existing text element exactly as it appears — same words, same spelling, same placement, same type style.
+- Do NOT add any text the image does not already contain. In particular do not add a headline, an offer or discount figure, a tagline, a price, a badge or a call-to-action button that is not already there. Many of these creatives deliberately carry no offer and no CTA.
 - If the instruction does change the text, render the new wording crisp, correctly spelled, evenly kerned, and in the same type style/hierarchy as the original.
 - Never warp, double, or garble existing letters while applying an unrelated edit.
 
