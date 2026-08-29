@@ -71,13 +71,118 @@ model MetaBusiness {
   connection      Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
   selectedForSync Boolean    @default(false)
 
-  adAccounts MetaAdAccount[]
-  embeddings Embedding[]
+  adAccounts       MetaAdAccount[]
+  embeddings       Embedding[]
+  brandKit         BrandKit?
+  videoGenerations VideoGeneration[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([connectionId, metaBusinessId])
+}
+
+// Per-client brand inputs for the Ad studio. Scoped to MetaBusiness because
+// an agency needs a different kit per client, and that is how every other
+// scoping in this app already works.
+model BrandKit {
+  id String @id @default(cuid())
+
+  // NULL means the workspace's own kit — the one edited with "All clients"
+  // selected, belonging to the operator rather than to any client. A
+  // partial unique index (see the brand_kit_workspace migration) keeps
+  // there being exactly one of those, since Postgres lets NULLs repeat
+  // under a plain unique constraint. Nothing inherits: a client with no
+  // kit gets an empty one, not the workspace's.
+  businessId String?       @unique
+  business   MetaBusiness? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  palette    String[] @default([])
+  themeNotes String?
+
+  // Identity copy. brandName and tagline are rendered as literal on-image
+  // text so the model stops inventing a name; avoidNotes goes in as a
+  // negative instruction.
+  brandName  String?
+  tagline    String?
+  avoidNotes String?
+
+  // Context for the copy stage, never rendered onto the image. These tell
+  // the model what the business actually is, which is what turns a
+  // brief-less generation from generic into specific.
+  description  String?
+  audience     String?
+  toneOfVoice  String?
+
+  assets    BrandAsset[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+}
+
+// One table for logo and style references, separated by `kind`. The logo is a
+// singleton by convention — replacing swaps it — while references are many.
+model BrandAsset {
+  id          String   @id @default(cuid())
+  brandKitId  String
+  brandKit    BrandKit @relation(fields: [brandKitId], references: [id], onDelete: Cascade)
+  kind        String   // "LOGO" | "REFERENCE"
+  storagePath String
+  contentType String
+  label       String?
+  createdAt   DateTime @default(now())
+
+  @@index([brandKitId, kind])
+}
+
+// One row per video generation. A row rather than component state because
+// video takes long enough that holding it in memory means paying for work
+// the operator loses by navigating away — and because this is also the
+// history of what was generated and what it cost.
+model VideoGeneration {
+  id String @id @default(cuid())
+
+  // Same scoping as BrandKit: NULL is the workspace's own, a string is a
+  // client's.
+  businessId String?
+  business   MetaBusiness? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  formatId String
+  brief    String
+
+  // Exactly what was sent, so a result can be explained months later.
+  prompt          String
+  negativePrompt  String?
+  aspectRatio     String
+  durationSeconds Int
+
+  requestId String?
+  // OUR vocabulary, not the vendor's — mapped in src/lib/higgsfield/client.ts
+  // so a rename there never reaches the database.
+  status    String  @default("QUEUED")
+  error     String?
+
+  // The vendor's own download link, kept from the moment the job completes.
+  // It dies in about seven days, but while it lives it is the only way back
+  // to a paid clip whose bytes we failed to copy — and it is what lets a
+  // later poll retry the copy instead of asking the operator to pay again.
+  vendorUrl String?
+
+  // Populated once the file is copied out of Higgsfield, who delete results
+  // after about seven days.
+  //
+  // storedAt and storeAttemptedAt are a pair, for the same reason the Meta
+  // asset tables carry both: the attempt stamp is what lets a later poll
+  // retry only the copies that failed, instead of re-downloading a clip
+  // from the vendor on every single advance.
+  storagePath      String?
+  storedAt         DateTime?
+  storeAttemptedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessId, createdAt])
+  @@index([status])
 }
 
 // Ad accounts under a MetaBusiness. selectedForSync gates whether Phase 1

@@ -60,7 +60,7 @@ export function storageConfigured(): boolean {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
-export type AssetKind = "images" | "videos" | "creatives";
+export type AssetKind = "images" | "videos" | "creatives" | "brand";
 
 /**
  * Path for an asset. Deterministic, so the same asset always lands in the
@@ -86,6 +86,27 @@ export interface StoreResult {
   contentType?: string;
   /** Populated when ok is false. Short enough to log, never a whole page. */
   error?: string;
+}
+
+/**
+ * Put bytes in the bucket at `path`. Split out of storeFromUrl because brand
+ * assets are uploaded by the operator rather than fetched from Meta — there
+ * is no URL to download. storeFromUrl now downloads and delegates here, so
+ * upload options (contentType, upsert) live in exactly one place.
+ */
+export async function storeBytes(
+  path: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<StoreResult> {
+  const sb = storageClient();
+  if (!sb) return { ok: false, error: "Storage not configured" };
+  const up = await sb.storage.from(ASSET_BUCKET).upload(path, bytes, {
+    contentType,
+    upsert: true,
+  });
+  if (up.error) return { ok: false, error: up.error.message };
+  return { ok: true, path, contentType, bytes: bytes.byteLength };
 }
 
 /**
@@ -129,13 +150,7 @@ export async function storeFromUrl(
     }
 
     const contentType = res.headers.get("content-type") ?? "application/octet-stream";
-    const up = await sb.storage.from(ASSET_BUCKET).upload(path, buf, {
-      contentType,
-      upsert: true,
-    });
-    if (up.error) return { ok: false, error: up.error.message };
-
-    return { ok: true, path, bytes: buf.length, contentType };
+    return await storeBytes(path, buf, contentType);
   } catch (e) {
     // Includes the DNS failures this module exists for: a retired edge
     // appliance surfaces here as a fetch TypeError, not an HTTP status.

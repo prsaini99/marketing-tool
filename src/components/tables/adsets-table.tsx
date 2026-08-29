@@ -78,7 +78,15 @@ export function AdSetsTable({
   const router = useRouter();
   const searchParams = useSearchParams();
   const range = searchParams.get("range");
-  const querySuffix = range ? `?range=${range}` : "";
+  // `image` is the Ad Studio "Use in a new ad" shortcut (?image=<hash>) —
+  // carried forward from campaigns-table.tsx so it's still on the URL once
+  // the operator reaches the ads page and CreateAdModal reads it to
+  // pre-select the saved variant.
+  const image = searchParams.get("image");
+  const params = new URLSearchParams();
+  if (range) params.set("range", range);
+  if (image) params.set("image", image);
+  const querySuffix = params.size > 0 ? `?${params.toString()}` : "";
 
   const [editing, setEditing] = useState<EditableAdSet | null>(null);
 
